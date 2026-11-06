@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -6,6 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <meta name="theme-color" content="#10182a">
 <title>NEON RUSH 3D Racing</title>
+
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
 
@@ -17,6 +17,7 @@ canvas{display:block}
 .stat{background:#101b31dd;border:1px solid #25d9ff66;border-radius:9px;padding:8px;font-size:12px}
 #leaderboardToggle{pointer-events:auto;background:#182b49;color:white;border:1px solid #25d9ff;border-radius:9px;padding:8px;font-weight:bold;font-size:11px}
 #status{position:fixed;top:60px;left:10px;right:10px;text-align:center;font-size:12px;color:#8deaff;z-index:3;pointer-events:none}
+#graphicsError{display:none;position:fixed;left:10px;right:10px;top:88px;z-index:10;background:#5b1420;border:1px solid #ff6677;border-radius:10px;padding:12px;color:white;font-size:12px;line-height:1.45;white-space:pre-wrap}
 #controls{position:fixed;bottom:20px;left:0;right:0;display:flex;justify-content:space-between;padding:0 22px;z-index:3;pointer-events:none}
 .control{width:76px;height:66px;border-radius:16px;border:1px solid #2ce5ff;background:#102642cc;color:white;font-size:28px;pointer-events:auto;touch-action:none}
 #overlay{position:fixed;inset:0;background:#07101de8;display:flex;align-items:center;justify-content:center;z-index:5;padding:20px}
@@ -45,6 +46,7 @@ canvas{display:block}
 </div>
 
 <div id="status">Connecting...</div>
+<div id="graphicsError"></div>
 <div id="hint">Use ◀ ▶ or swipe to steer</div>
 
 <div id="leaderboardPanel">
@@ -94,6 +96,14 @@ let coins = 0;
 let lives = 3;
 let raceStartedAt = 0;
 
+/* GAME LOOP CONTROL */
+
+let animationFrameId = 0;
+let animationRunning = false;
+let graphicsLost = false;
+let lastFrame = 0;
+let lastRender = 0;
+
 function setStatus(message) {
  $("status").textContent = message;
 }
@@ -102,8 +112,21 @@ function setAuthMessage(message) {
  $("authStatus").textContent = message;
 }
 
+function showGraphicsError(message) {
+ const panel = $("graphicsError");
+ panel.textContent = message;
+ panel.style.display = "block";
+}
+
+function hideGraphicsError() {
+ $("graphicsError").style.display = "none";
+}
+
 function playerName() {
- return verifiedPlayer?.display_name || verifiedPlayer?.username || verifiedPlayer?.first_name || "Racer";
+ return verifiedPlayer?.display_name ||
+        verifiedPlayer?.username ||
+        verifiedPlayer?.first_name ||
+        "Racer";
 }
 
 function updateHUD() {
@@ -342,6 +365,7 @@ $("retrySave").addEventListener("click",submitScore);
 if (!window.THREE) {
  setAuthMessage("3D engine failed to load. Check your internet connection.");
  startBtn.disabled = true;
+ showGraphicsError("The 3D game engine did not load. Check your internet connection and reload.");
  return;
 }
 
@@ -356,56 +380,37 @@ let targetX = 0;
 let worldSpeed = 0.55;
 let spawnTimer = 0;
 let coinTimer = 0;
-let lastFrame = 0;
-let lastRender = 0;
 let swipeStartX = null;
 
 const laneWidth = 3;
-const MAX_TRAFFIC = 5;
-const MAX_COINS = 4;
+const MAX_TRAFFIC = 3;
+const MAX_COINS = 2;
 
-/* REUSABLE GRAPHICS */
+/* LOW-POWER GRAPHICS */
 
 const carBodyGeometry = new THREE.BoxGeometry(1.65,0.65,3);
 const carCabinGeometry = new THREE.BoxGeometry(1.15,0.65,1.4);
-const wheelGeometry = new THREE.CylinderGeometry(0.35,0.35,0.22,10);
-const wheelMaterial = new THREE.MeshStandardMaterial({color:0x080b12});
+const wheelGeometry = new THREE.CylinderGeometry(0.35,0.35,0.22,8);
+const wheelMaterial = new THREE.MeshBasicMaterial({color:0x080b12});
 
-const cabinMaterial = new THREE.MeshStandardMaterial({
- color:0x142b44,
- metalness:0.5,
- roughness:0.35
-});
+const cabinMaterial = new THREE.MeshBasicMaterial({color:0x142b44});
 
 const carMaterials = {};
 
 [0x00cfff,0xff3355,0xffb52e,0x9b59ff,0x36e27b].forEach(color => {
- carMaterials[color] = new THREE.MeshStandardMaterial({
-  color:color,
-  metalness:0.35,
-  roughness:0.45,
-  emissive:color,
-  emissiveIntensity:0.08
- });
+ carMaterials[color] = new THREE.MeshBasicMaterial({color:color});
 });
 
-const coinGeometry = new THREE.TorusGeometry(0.48,0.13,6,12);
+const coinGeometry = new THREE.TorusGeometry(0.48,0.13,5,10);
+const coinMaterial = new THREE.MeshBasicMaterial({color:0xffd52a});
 
-const coinMaterial = new THREE.MeshStandardMaterial({
- color:0xffd52a,
- emissive:0xff9d00,
- emissiveIntensity:1,
- metalness:0.5
-});
-
-/* INITIALIZE 3D WORLD */
+/* INITIALIZE WORLD */
 
 try {
  scene = new THREE.Scene();
  scene.background = new THREE.Color(0x071326);
- scene.fog = new THREE.Fog(0x071326,25,110);
 
- camera = new THREE.PerspectiveCamera(65,innerWidth/innerHeight,0.1,180);
+ camera = new THREE.PerspectiveCamera(65,innerWidth/innerHeight,0.1,160);
  camera.position.set(0,7,12);
  camera.lookAt(0,0,-8);
 
@@ -417,17 +422,11 @@ try {
   alpha:false
  });
 
- renderer.setPixelRatio(1);
+ renderer.setPixelRatio(0.7);
  renderer.setSize(innerWidth,innerHeight);
  renderer.shadowMap.enabled = false;
 
  document.body.appendChild(renderer.domElement);
-
- scene.add(new THREE.HemisphereLight(0x9bcaff,0x182033,1.6));
-
- const light = new THREE.DirectionalLight(0xffffff,1.2);
- light.position.set(5,12,8);
- scene.add(light);
 
  const road = new THREE.Mesh(
   new THREE.PlaneGeometry(12,220),
@@ -462,22 +461,20 @@ try {
 
  const lineMaterial = new THREE.MeshBasicMaterial({color:0x087eaa});
 
- for (let lane=-1;lane<=1;lane++) {
-  if (lane===0) continue;
-
-  for (let i=0;i<18;i++) {
+ for (let lane of [-1,1]) {
+  for (let i=0;i<10;i++) {
    const line = new THREE.Mesh(
     new THREE.BoxGeometry(0.07,0.04,3),
     lineMaterial
    );
 
-   line.position.set(lane*laneWidth/2,0.04,-i*10);
+   line.position.set(lane*laneWidth/2,0.04,-i*18);
    scene.add(line);
    roadLines.push(line);
   }
  }
 
- /* CITY BUILDINGS */
+ /* FEWER BUILDINGS */
 
  const buildingMaterials = [
   new THREE.MeshBasicMaterial({color:0x142b50}),
@@ -486,9 +483,9 @@ try {
 
  const buildingGeometry = new THREE.BoxGeometry(3,1,5);
 
- for (let i=0;i<24;i++) {
-  [-1,1].forEach(side => {
-   const height = 4+Math.random()*12;
+ for (let i=0;i<10;i++) {
+  for (const side of [-1,1]) {
+   const height = 4+Math.random()*9;
 
    const building = new THREE.Mesh(
     buildingGeometry,
@@ -497,19 +494,19 @@ try {
 
    building.scale.y = height;
    building.position.set(
-    side*(10+Math.random()*7),
+    side*(10+Math.random()*5),
     height/2,
-    -i*11-5
+    -i*25-5
    );
 
    scene.add(building);
    scenery.push(building);
-  });
+  }
  }
 
  /* CAR CREATION */
 
- function makeCar(color,isPlayer=false) {
+ function makeCar(color) {
   const group = new THREE.Group();
 
   const body = new THREE.Mesh(
@@ -520,9 +517,7 @@ try {
   body.position.y=0.65;
   group.add(body);
 
-  // FIXED: Correct geometry variable name.
   const cabin = new THREE.Mesh(carCabinGeometry,cabinMaterial);
-
   cabin.position.set(0,1.2,-0.15);
   group.add(cabin);
 
@@ -535,25 +530,22 @@ try {
    }
   }
 
-  if (isPlayer) {
-   const glow = new THREE.PointLight(0x00dfff,1.2,5);
-   glow.position.set(0,1.1,1.8);
-   group.add(glow);
-  }
-
   return group;
  }
 
- player = makeCar(0x00cfff,true);
+ player = makeCar(0x00cfff);
  player.position.set(0,0,5);
  scene.add(player);
 
+ /* SHOW A SINGLE STILL FRAME BEFORE START */
+
+ renderer.render(scene,camera);
+
 } catch(error) {
  console.error("3D setup error:",error);
-
- setAuthMessage("3D setup failed: " + (error.message || "Graphics error"));
+ setAuthMessage("3D setup failed. Reload the game.");
  startBtn.disabled = true;
-
+ showGraphicsError("Graphics setup failed: " + (error.message || "Unknown error"));
  return;
 }
 
@@ -586,14 +578,12 @@ function spawnCoin() {
 }
 
 function removeTraffic(index) {
- const car = traffic[index];
- scene.remove(car);
+ scene.remove(traffic[index]);
  traffic.splice(index,1);
 }
 
 function removeCoin(index) {
- const coin = pickups[index];
- scene.remove(coin);
+ scene.remove(pickups[index]);
  pickups.splice(index,1);
 }
 
@@ -604,41 +594,197 @@ function moveLane(direction) {
  targetX = playerLane*laneWidth;
 }
 
+/* ANIMATION LOOP: RUN ONLY DURING A RACE */
+
+function stopAnimationLoop() {
+ animationRunning = false;
+
+ if (animationFrameId) {
+  cancelAnimationFrame(animationFrameId);
+  animationFrameId = 0;
+ }
+}
+
+function startAnimationLoop() {
+ if (animationRunning || graphicsLost || document.hidden || !active) return;
+
+ animationRunning = true;
+ lastFrame = 0;
+ lastRender = 0;
+
+ animationFrameId = requestAnimationFrame(animate);
+}
+
+function animate(time) {
+ if (!animationRunning || !active || document.hidden || graphicsLost) {
+  stopAnimationLoop();
+  return;
+ }
+
+ if (time-lastRender < 50) {
+  animationFrameId = requestAnimationFrame(animate);
+  return;
+ }
+
+ const delta = Math.min((time-(lastFrame || time))/16.67,2);
+
+ lastFrame = time;
+ lastRender = time;
+
+ try {
+  worldSpeed = Math.min(0.9,worldSpeed+0.00012*delta);
+
+  player.position.x += (targetX-player.position.x)*0.16*delta;
+  player.rotation.z = (targetX-player.position.x)*-0.03;
+
+  /* ROAD MARKINGS */
+
+  for (const line of roadLines) {
+   line.position.z += worldSpeed*2.5*delta;
+
+   if (line.position.z>12) line.position.z -= 180;
+  }
+
+  /* BUILDINGS */
+
+  for (const building of scenery) {
+   building.position.z += worldSpeed*0.8*delta;
+
+   if (building.position.z>15) building.position.z -= 250;
+  }
+
+  /* SPAWN OBJECTS */
+
+  spawnTimer += delta;
+  coinTimer += delta;
+
+  if (spawnTimer > Math.max(45,85-worldSpeed*25)) {
+   spawnTraffic();
+   spawnTimer = 0;
+  }
+
+  if (coinTimer > 55) {
+   spawnCoin();
+   coinTimer = 0;
+  }
+
+  /* TRAFFIC */
+
+  for (let i=traffic.length-1;i>=0;i--) {
+   const car = traffic[i];
+
+   car.position.z += worldSpeed*1.7*delta;
+
+   if (car.position.z>12) {
+    removeTraffic(i);
+    continue;
+   }
+
+   const hitX = Math.abs(car.position.x-player.position.x)<1.45;
+   const hitZ = Math.abs(car.position.z-player.position.z)<2.1;
+
+   if (hitX && hitZ) {
+    removeTraffic(i);
+    lives--;
+    updateHUD();
+
+    setStatus("Collision! Watch out for traffic!");
+
+    if (lives<=0) {
+     finishRace();
+     break;
+    }
+   }
+  }
+
+  /* COINS */
+
+  if (active) {
+   for (let i=pickups.length-1;i>=0;i--) {
+    const coin = pickups[i];
+
+    coin.position.z += worldSpeed*1.7*delta;
+    coin.rotation.y += 0.06*delta;
+
+    if (coin.position.z>12) {
+     removeCoin(i);
+     continue;
+    }
+
+    const hitX = Math.abs(coin.position.x-player.position.x)<1.2;
+    const hitZ = Math.abs(coin.position.z-player.position.z)<1.8;
+
+    if (hitX && hitZ) {
+     removeCoin(i);
+     coins++;
+     score += 10;
+     updateHUD();
+    }
+   }
+  }
+
+  renderer.render(scene,camera);
+
+ } catch(error) {
+  console.error("Game loop error:",error);
+  active = false;
+  stopAnimationLoop();
+  showGraphicsError("The game encountered a graphics error. Please reload the game.");
+  setStatus("Game paused because of a graphics error.");
+  return;
+ }
+
+ if (active && animationRunning && !document.hidden) {
+  animationFrameId = requestAnimationFrame(animate);
+ } else {
+  stopAnimationLoop();
+ }
+}
+
 /* RESET AND END */
 
 function resetGame() {
- score=0;
- coins=0;
- lives=3;
- playerLane=0;
- targetX=0;
- worldSpeed=0.55;
- spawnTimer=0;
- coinTimer=0;
- scoreSubmitted=false;
- gameOver=false;
- active=false;
+ stopAnimationLoop();
+
+ score = 0;
+ coins = 0;
+ lives = 3;
+ playerLane = 0;
+ targetX = 0;
+ worldSpeed = 0.55;
+ spawnTimer = 0;
+ coinTimer = 0;
+ scoreSubmitted = false;
+ gameOver = false;
+ active = false;
 
  while (traffic.length) removeTraffic(traffic.length-1);
  while (pickups.length) removeCoin(pickups.length-1);
 
  player.position.set(0,0,5);
+ player.rotation.set(0,0,0);
+
  updateHUD();
+ hideGraphicsError();
+
+ renderer.render(scene,camera);
 }
 
 function finishRace() {
  if (gameOver) return;
 
- active=false;
- gameOver=true;
- overlay.style.display="flex";
+ active = false;
+ gameOver = true;
+ stopAnimationLoop();
+
+ overlay.style.display = "flex";
 
  $("introText").textContent =
   "Race completed! You scored "+score+" points and collected "+coins+" coins.";
 
- startBtn.textContent="RACE AGAIN";
- startBtn.disabled=false;
- $("retrySave").style.display="none";
+ startBtn.textContent = "RACE AGAIN";
+ startBtn.disabled = false;
+ $("retrySave").style.display = "none";
 
  setAuthMessage(gameMode==="tournament" ?
   "Submitting your tournament score..." :
@@ -648,13 +794,18 @@ function finishRace() {
  submitScore();
 }
 
-/* START AND CONTROLS */
+/* START BUTTON */
 
 startBtn.addEventListener("click",event => {
  event.preventDefault();
 
  if (!authReady) {
   setAuthMessage("Please wait while the game connects.");
+  return;
+ }
+
+ if (graphicsLost) {
+  setAuthMessage("Graphics are unavailable. Reload the game.");
   return;
  }
 
@@ -666,19 +817,23 @@ startBtn.addEventListener("click",event => {
  if (gameOver) resetGame();
  if (active) return;
 
- active=true;
- gameOver=false;
- scoreSubmitted=false;
- raceStartedAt=Date.now();
+ active = true;
+ gameOver = false;
+ scoreSubmitted = false;
+ raceStartedAt = Date.now();
 
- overlay.style.display="none";
- $("retrySave").style.display="none";
+ overlay.style.display = "none";
+ $("retrySave").style.display = "none";
 
  setStatus(gameMode==="tournament" ?
   "Tournament race in progress!" :
   "Free race in progress!"
  );
+
+ startAnimationLoop();
 });
+
+/* CONTROLS */
 
 $("left").addEventListener("pointerdown",e=>{
  e.preventDefault();
@@ -695,153 +850,88 @@ window.addEventListener("keydown",e=>{
  if (e.key==="ArrowRight" || e.key.toLowerCase()==="d") moveLane(1);
 });
 
-/* TOUCH STEERING */
+/* SWIPE STEERING */
 
 function handleTouchStart(e) {
- if (e.touches.length) swipeStartX=e.touches[0].clientX;
+ if (e.touches.length) swipeStartX = e.touches[0].clientX;
 }
 
 function handleTouchEnd(e) {
  if (swipeStartX===null || !e.changedTouches.length) return;
 
- const difference=e.changedTouches[0].clientX-swipeStartX;
+ const difference = e.changedTouches[0].clientX-swipeStartX;
 
  if (Math.abs(difference)>25) {
   moveLane(difference>0?1:-1);
  }
 
- swipeStartX=null;
+ swipeStartX = null;
 }
 
 window.addEventListener("touchstart",handleTouchStart,{passive:true});
 window.addEventListener("touchend",handleTouchEnd,{passive:true});
 
-/* OPTIMIZED GAME LOOP */
-
-function animate(time) {
- requestAnimationFrame(animate);
-
- if (document.hidden) return;
-
- if (time-lastRender<33) return;
-
- const delta=Math.min((time-(lastFrame||time))/16.67,2);
-
- lastFrame=time;
- lastRender=time;
-
- if (active) {
-  worldSpeed=Math.min(1.0,worldSpeed+0.00012*delta);
-
-  player.position.x+=(targetX-player.position.x)*0.16*delta;
-  player.rotation.z=(targetX-player.position.x)*-0.03;
-
-  for (let i=0;i<roadLines.length;i++) {
-   const line=roadLines[i];
-
-   line.position.z+=worldSpeed*2.5*delta;
-
-   if (line.position.z>12) line.position.z-=180;
-  }
-
-  for (let i=0;i<scenery.length;i++) {
-   const building=scenery[i];
-
-   building.position.z+=worldSpeed*0.8*delta;
-
-   if (building.position.z>15) building.position.z-=264;
-  }
-
-  spawnTimer+=delta;
-  coinTimer+=delta;
-
-  if (spawnTimer>Math.max(42,85-worldSpeed*25)) {
-   spawnTraffic();
-   spawnTimer=0;
-  }
-
-  if (coinTimer>45) {
-   spawnCoin();
-   coinTimer=0;
-  }
-
-  for (let i=traffic.length-1;i>=0;i--) {
-   const car=traffic[i];
-
-   car.position.z+=worldSpeed*1.7*delta;
-
-   if (car.position.z>12) {
-    removeTraffic(i);
-    continue;
-   }
-
-   const hitX=Math.abs(car.position.x-player.position.x)<1.45;
-   const hitZ=Math.abs(car.position.z-player.position.z)<2.1;
-
-   if (hitX && hitZ) {
-    removeTraffic(i);
-    lives--;
-    updateHUD();
-
-    setStatus("Collision! Watch out for traffic!");
-
-    if (lives<=0) {
-     finishRace();
-     break;
-    }
-   }
-  }
-
-  if (active) {
-   for (let i=pickups.length-1;i>=0;i--) {
-    const coin=pickups[i];
-
-    coin.position.z+=worldSpeed*1.7*delta;
-    coin.rotation.y+=0.06*delta;
-
-    if (coin.position.z>12) {
-     removeCoin(i);
-     continue;
-    }
-
-    const hitX=Math.abs(coin.position.x-player.position.x)<1.2;
-    const hitZ=Math.abs(coin.position.z-player.position.z)<1.8;
-
-    if (hitX && hitZ) {
-     removeCoin(i);
-     coins++;
-     score+=10;
-     updateHUD();
-    }
-   }
-  }
- }
-
- renderer.render(scene,camera);
-}
-
-requestAnimationFrame(animate);
-
 /* RESIZE */
 
 window.addEventListener("resize",()=>{
- camera.aspect=innerWidth/innerHeight;
+ if (!camera || !renderer) return;
+
+ camera.aspect = innerWidth/innerHeight;
  camera.updateProjectionMatrix();
  renderer.setSize(innerWidth,innerHeight);
+
+ if (!active && !graphicsLost) {
+  try {
+   renderer.render(scene,camera);
+  } catch(e) {}
+ }
 });
 
-/* WEBGL RECOVERY */
+/* WEBGL ERROR AND RECOVERY */
 
 renderer.domElement.addEventListener("webglcontextlost",event=>{
  event.preventDefault();
- active=false;
- setStatus("Graphics paused. Please reload the game.");
+
+ graphicsLost = true;
+ active = false;
+ stopAnimationLoop();
+
+ setStatus("Graphics paused.");
+ showGraphicsError("Your phone's graphics system stopped responding. Reload the game to try again.");
 });
 
+renderer.domElement.addEventListener("webglcontextrestored",()=>{
+ graphicsLost = false;
+ hideGraphicsError();
+
+ setStatus("Graphics restored. Press Start to play.");
+});
+
+/* PAUSE WHEN APP OR TAB IS HIDDEN */
+
 document.addEventListener("visibilitychange",()=>{
- if (!document.hidden) {
-  lastFrame=0;
-  lastRender=0;
+ if (document.hidden) {
+  stopAnimationLoop();
+ } else {
+  lastFrame = 0;
+  lastRender = 0;
+
+  if (active && !graphicsLost) {
+   startAnimationLoop();
+  }
+ }
+});
+
+/* CATCH UNEXPECTED JAVASCRIPT ERRORS */
+
+window.addEventListener("error",event=>{
+ console.error("Game error:",event.error || event.message);
+
+ if (active) {
+  active = false;
+  stopAnimationLoop();
+  setStatus("Game stopped because of an error.");
+  showGraphicsError("A game error occurred. Please reload the game.");
  }
 });
 
