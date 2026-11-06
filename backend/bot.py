@@ -223,7 +223,7 @@ def main_text():
         "Play anytime without paying. Choose your difficulty level inside the game.\n\n"
 
         "🏆 WEEKLY TOURNAMENT\n"
-        "Free entry. Players are admitted manually by the administrator.\n"
+        "PAY KES 25 to enter. Players are admitted manually by the administrator.\n"
         "Runs Sunday 6:00 PM to the following Sunday 6:00 PM, Kenya time.\n"
         "Top 5 players receive rewards.\n\n"
 
@@ -323,7 +323,7 @@ async def weekly_information(
             chat_id=chat_id,
             text=(
                 "🏆 NEON RUSH WEEKLY TOURNAMENT\n\n"
-                "Entry is FREE.\n\n"
+                "Entry is KES 25.\n\n"
                 "Players must be admitted manually by the administrator.\n\n"
                 + status
                 + "\n\n"
