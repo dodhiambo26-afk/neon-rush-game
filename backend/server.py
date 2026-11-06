@@ -5,33 +5,48 @@ import hashlib
 import hmac
 import json
 import time
+
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from urllib.parse import parse_qsl
 
 from fastapi import FastAPI, HTTPException, Header
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 import database as db
 from bot import run_bot
 
+
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 MAX_AUTH_AGE = 86400
 
 
+# =====================================
+# TELEGRAM AUTHENTICATION
+# =====================================
+
 def verify_telegram_data(init_data: str):
+
     if not BOT_TOKEN or not init_data:
         return None
 
     try:
+
         pairs = dict(parse_qsl(init_data, keep_blank_values=True))
+
         received_hash = pairs.pop("hash", None)
         auth_date = int(pairs.get("auth_date", "0"))
 
         if not received_hash or time.time() - auth_date > MAX_AUTH_AGE:
             return None
 
+        if auth_date > time.time() + 60:
+            return None
+
         data_check = "\n".join(
-            f"{key}={value}" for key, value in sorted(pairs.items())
+            f"{key}={value}"
+            for key, value in sorted(pairs.items())
         )
 
         secret = hmac.new(
@@ -50,42 +65,110 @@ def verify_telegram_data(init_data: str):
             return None
 
         user = json.loads(pairs["user"])
+
         return user if isinstance(user, dict) and user.get("id") else None
 
-    except (ValueError, KeyError, TypeError, json.JSONDecodeError):
+    except (
+        ValueError,
+        KeyError,
+        TypeError,
+        json.JSONDecodeError
+    ):
         return None
 
 
+# =====================================
+# DATABASE AND BOT STARTUP
+# =====================================
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+
     db.init_db()
+
     task = asyncio.create_task(run_bot())
     app.state.bot_task = task
+
     try:
         yield
+
     finally:
+
         task.cancel()
+
         try:
             await task
         except asyncio.CancelledError:
             pass
 
 
-app = FastAPI(title="NEON RUSH API", lifespan=lifespan)
+# =====================================
+# FASTAPI APPLICATION
+# =====================================
 
+app = FastAPI(
+    title="NEON RUSH API",
+    lifespan=lifespan
+)
+
+
+# =====================================
+# CORS - ALLOW GITHUB PAGES GAME
+# =====================================
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "https://dodhiambo26-afk.github.io"
+    ],
+    allow_credentials=False,
+    allow_methods=[
+        "GET",
+        "POST",
+        "OPTIONS"
+    ],
+    allow_headers=[
+        "Content-Type",
+        "X-Telegram-Init-Data"
+    ],
+)
+
+
+# =====================================
+# SCORE DATA MODEL
+# =====================================
 
 class ScoreSubmission(BaseModel):
-    score: int = Field(ge=0, le=100000)
-    mode: str
-    duration: int = Field(ge=1, le=3600)
 
+    score: int = Field(
+        ge=0,
+        le=100000
+    )
+
+    mode: str
+
+    duration: int = Field(
+        ge=1,
+        le=3600
+    )
+
+
+# =====================================
+# VERIFY TELEGRAM PLAYER
+# =====================================
 
 def authenticate(init_data):
+
     user = verify_telegram_data(init_data or "")
+
     if not user:
-        raise HTTPException(401, "Invalid Telegram authentication")
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid Telegram authentication"
+        )
 
     uid = int(user["id"])
+
     db.upsert_user(
         uid,
         user.get("username"),
@@ -94,61 +177,120 @@ def authenticate(init_data):
     )
 
     if db.is_banned(uid):
-        raise HTTPException(403, "Account restricted")
+        raise HTTPException(
+            status_code=403,
+            detail="Account restricted"
+        )
 
     return user
 
 
+# =====================================
+# HOME / HEALTH CHECK
+# =====================================
+
 @app.get("/")
 def home():
-    return {"status": "online", "game": "NEON RUSH"}
 
+    return {
+        "status": "online",
+        "game": "NEON RUSH",
+        "version": "2.0"
+    }
+
+
+# =====================================
+# TELEGRAM LOGIN
+# =====================================
 
 @app.post("/api/auth/telegram")
-def telegram_auth(x_telegram_init_data: str = Header(default="")):
+def telegram_auth(
+    x_telegram_init_data: str = Header(default="")
+):
+
     user = authenticate(x_telegram_init_data)
+
     uid = int(user["id"])
+
     record = db.get_user(uid)
+
+    premium = False
+
+    if record and record["premium_until"]:
+
+        expiry = datetime.fromisoformat(
+            record["premium_until"]
+        )
+
+        if expiry.tzinfo is None:
+            expiry = expiry.replace(tzinfo=timezone.utc)
+
+        premium = expiry > datetime.now(timezone.utc)
 
     return {
         "authenticated": True,
+
         "user": {
             "id": uid,
-            "name": user.get("first_name", "Player"),
+            "name": user.get("first_name") or "Player",
             "username": user.get("username")
         },
-        "premium": bool(
-            record and record["premium_until"]
-            and record["premium_until"] >
-            __import__("datetime").datetime.now(
-                __import__("datetime").timezone.utc
-            ).isoformat()
-        )
+
+        "premium": premium
     }
 
+
+# =====================================
+# SAVE PLAYER SCORE
+# =====================================
 
 @app.post("/api/scores")
 def submit_score(
     submission: ScoreSubmission,
     x_telegram_init_data: str = Header(default="")
 ):
+
     user = authenticate(x_telegram_init_data)
 
     if submission.mode not in ("free", "tournament"):
-        raise HTTPException(400, "Invalid game mode")
+
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid game mode"
+        )
+
+    # Premium verification for tournaments
 
     if submission.mode == "tournament":
+
         record = db.get_user(int(user["id"]))
-        from datetime import datetime, timezone
 
         if not record or not record["premium_until"]:
-            raise HTTPException(403, "Premium required")
 
-        expiry = datetime.fromisoformat(record["premium_until"])
+            raise HTTPException(
+                status_code=403,
+                detail="Premium required"
+            )
+
+        expiry = datetime.fromisoformat(
+            record["premium_until"]
+        )
+
+        if expiry.tzinfo is None:
+            expiry = expiry.replace(tzinfo=timezone.utc)
+
         if expiry <= datetime.now(timezone.utc):
-            raise HTTPException(403, "Premium membership expired")
 
-    name = user.get("first_name") or user.get("username") or "Player"
+            raise HTTPException(
+                status_code=403,
+                detail="Premium membership expired"
+            )
+
+    name = (
+        user.get("first_name")
+        or user.get("username")
+        or "Player"
+    )
 
     db.save_score(
         int(user["id"]),
@@ -158,12 +300,22 @@ def submit_score(
         submission.duration
     )
 
-    return {"saved": True}
+    return {
+        "saved": True,
+        "score": submission.score,
+        "mode": submission.mode
+    }
 
+
+# =====================================
+# GLOBAL LEADERBOARD
+# =====================================
 
 @app.get("/api/leaderboard")
 def leaderboard():
+
     rows = db.list_top_scores(10)
+
     return {
         "leaderboard": [
             {
@@ -171,6 +323,7 @@ def leaderboard():
                 "name": row["display_name"],
                 "score": row["score"]
             }
+
             for i, row in enumerate(rows, 1)
         ]
     }
