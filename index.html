@@ -55,7 +55,7 @@ align-items:center;justify-content:center;
 background:#071020b8;z-index:5;padding:18px
 }
 .panel{
-max-width:430px;text-align:center;
+max-width:430px;width:100%;text-align:center;
 background:linear-gradient(145deg,#203a68,#101b35);
 border:1px solid #ffffff45;border-radius:24px;
 padding:24px;box-shadow:0 20px 60px #0008
@@ -70,6 +70,12 @@ font-size:17px;color:#241600
 #authStatus{
 font-size:12px;color:#8deaff;
 overflow-wrap:anywhere
+}
+#retrySave{
+margin-top:12px;padding:12px 18px;
+border:1px solid #8deaff;border-radius:12px;
+background:#142b4b;color:white;font-weight:800;
+display:none
 }
 #bar{
 position:fixed;bottom:112px;left:50%;
@@ -105,10 +111,15 @@ overflow:hidden;z-index:2
 <div id="overlay">
   <div class="panel">
     <h1>🏎️ NEON RUSH 3D</h1>
-    <p>Race through the neon highway! Dodge traffic, collect golden coins and use nitro to speed up.</p>
+    <p id="introText">
+      Race through the neon highway! Dodge traffic,
+      collect golden coins and use nitro to speed up.
+    </p>
     <p><b>Controls:</b> Left/right arrows to steer. Hold NITRO for a burst of speed.</p>
     <p id="authStatus">Connecting to Telegram...</p>
-    <button id="start">START RACE</button>
+    <button id="start" disabled>CONNECTING...</button>
+    <br>
+    <button id="retrySave">SAVE SCORE AGAIN</button>
   </div>
 </div>
 
@@ -117,29 +128,56 @@ overflow:hidden;z-index:2
 <script>
 (() => {
 
+"use strict";
+
 // =====================================
 // BACKEND AND TELEGRAM AUTHENTICATION
 // =====================================
 
 const BACKEND_URL =
-"https://neon-rush-backend-u1te.onrender.com";
+"https://neon-rush-game-backend.onrender.com";
 
 const telegramApp =
 window.Telegram && window.Telegram.WebApp;
 
 const authStatus = document.getElementById("authStatus");
 const playerName = document.getElementById("playerName");
+const startBtn = document.getElementById("start");
+const overlay = document.getElementById("overlay");
+const retrySaveBtn = document.getElementById("retrySave");
+
+const urlParams = new URLSearchParams(window.location.search);
+
+const gameMode =
+urlParams.get("mode") === "tournament"
+? "tournament"
+: "free";
 
 let verifiedPlayer = null;
+let premiumPlayer = false;
+let authReady = false;
+
 let raceStartedAt = 0;
 let scoreSubmitted = false;
 let submissionInProgress = false;
 
+function setStatus(message) {
+  authStatus.textContent = message;
+}
+
 async function authenticateTelegram() {
 
   if (!telegramApp || !telegramApp.initData) {
-    authStatus.textContent =
-      "Open NEON RUSH through @NeonRushGamingBot to verify your account.";
+
+    authReady = true;
+
+    setStatus(
+      "Open NEON RUSH through @NeonRushGamingBot to verify your account."
+    );
+
+    startBtn.disabled = false;
+    startBtn.textContent = "PLAY AS GUEST";
+
     return;
   }
 
@@ -147,53 +185,94 @@ async function authenticateTelegram() {
   telegramApp.expand();
 
   try {
+
+    setStatus("Verifying your Telegram account...");
+
     const response = await fetch(
       BACKEND_URL + "/api/auth/telegram",
       {
         method: "POST",
         headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          initData: telegramApp.initData
-        })
+          "X-Telegram-Init-Data": telegramApp.initData
+        }
       }
     );
 
     const result = await response.json();
 
-    if (!response.ok || !result.success) {
-      throw new Error(result.error || "Verification failed");
+    if (!response.ok || !result.authenticated) {
+      throw new Error(
+        result.detail || "Telegram verification failed"
+      );
     }
 
-    verifiedPlayer = result.player;
+    verifiedPlayer = result.user;
+    premiumPlayer = result.premium === true;
 
     const name =
-      verifiedPlayer.firstName ||
+      verifiedPlayer.name ||
       verifiedPlayer.username ||
       "Racer";
 
     playerName.textContent = name;
 
-    authStatus.textContent =
-      "✓ Telegram player verified: " + name;
+    authReady = true;
+
+    setStatus("✓ Telegram player verified: " + name);
 
     document.getElementById("hint").textContent =
       "Welcome " + name + "! Enjoy NEON RUSH.";
 
-  } catch (error) {
-    verifiedPlayer = null;
+    if (gameMode === "tournament") {
 
-    authStatus.textContent =
-      "Telegram verification failed. Reopen the game from Telegram.";
+      if (premiumPlayer) {
+
+        document.getElementById("introText").textContent =
+          "Premium Tournament mode. Race for the highest score!";
+
+        startBtn.textContent = "START TOURNAMENT";
+
+      } else {
+
+        document.getElementById("introText").textContent =
+          "Tournament access requires an active Premium membership.";
+
+        startBtn.textContent = "PREMIUM REQUIRED";
+        startBtn.disabled = true;
+
+        setStatus(
+          "Your account is verified, but Premium Tournament access is not active."
+        );
+
+      }
+
+    } else {
+
+      startBtn.textContent = "START RACE";
+
+    }
+
+  } catch (error) {
 
     console.error("Authentication error:", error);
+
+    verifiedPlayer = null;
+    premiumPlayer = false;
+    authReady = true;
+
+    setStatus(
+      "Verification failed. Reopen the game through Telegram and try again."
+    );
+
+    startBtn.textContent = "PLAY AS GUEST";
+
   }
+
 }
 
 
 // =====================================
-// SAVE SCORE TO POSTGRESQL
+// SAVE SCORE TO BACKEND
 // =====================================
 
 async function submitScore() {
@@ -201,8 +280,18 @@ async function submitScore() {
   if (scoreSubmitted || submissionInProgress) return;
 
   if (!verifiedPlayer || !telegramApp || !telegramApp.initData) {
-    authStatus.textContent =
-      "Score not saved: Telegram verification required.";
+
+    setStatus(
+      "Score not saved. Telegram verification is required."
+    );
+
+    retrySaveBtn.style.display = "none";
+    return;
+  }
+
+  if (gameMode === "tournament" && !premiumPlayer) {
+
+    setStatus("Premium membership is required for tournament scores.");
     return;
   }
 
@@ -211,56 +300,70 @@ async function submitScore() {
   );
 
   if (durationSeconds < 5) {
-    authStatus.textContent =
-      "Race too short to submit a score.";
+
+    setStatus("Race too short to submit a score.");
     scoreSubmitted = true;
     return;
   }
 
   submissionInProgress = true;
-  authStatus.textContent = "Saving your score...";
+  retrySaveBtn.style.display = "none";
+
+  setStatus("Saving your score...");
 
   try {
+
     const response = await fetch(
       BACKEND_URL + "/api/scores",
       {
         method: "POST",
         headers: {
-          "Content-Type": "application/json"
+          "Content-Type": "application/json",
+          "X-Telegram-Init-Data": telegramApp.initData
         },
         body: JSON.stringify({
-          initData: telegramApp.initData,
           score: score,
-          durationSeconds: durationSeconds
+          mode: gameMode,
+          duration: durationSeconds
         })
       }
     );
 
     const result = await response.json();
 
-    if (!response.ok || !result.success) {
+    if (!response.ok || !result.saved) {
+
       throw new Error(
-        result.error || "Score submission failed"
+        result.detail || "Score submission failed"
       );
+
     }
 
     scoreSubmitted = true;
 
-    authStatus.textContent =
-      "✓ Score saved! Your score: " + score;
+    setStatus("✓ Score saved successfully! Your score: " + score);
 
     document.getElementById("hint").textContent =
       "Your race score has been saved!";
 
+    retrySaveBtn.style.display = "none";
+
   } catch (error) {
-    authStatus.textContent =
-      "Score saving failed. Tap SAVE SCORE to retry.";
 
     console.error("Score submission error:", error);
 
+    setStatus(
+      "Score saving failed. Check your connection and try again."
+    );
+
+    retrySaveBtn.style.display = "inline-block";
+
   } finally {
+
     submissionInProgress = false;
+
   }
+
 }
 
 authenticateTelegram();
@@ -393,6 +496,7 @@ for(let x of [-7,7]) {
   box(.5,.5,150,mat(0x1b4b43),x,-.05,-35);
 }
 
+
 // City skyline
 
 for(let i=0;i<48;i++) {
@@ -413,6 +517,7 @@ for(let i=0;i<48;i++) {
     h/2-.15,
     z
   );
+
 }
 
 
@@ -451,6 +556,7 @@ function makeCar(color) {
   g.add(bumper);
 
   for(let sx of [-.73,.73]) {
+
     for(let sz of [-.78,.78]) {
 
       const w = new THREE.Mesh(
@@ -462,7 +568,9 @@ function makeCar(color) {
       w.position.set(sx,.42,sz);
 
       g.add(w);
+
     }
+
   }
 
   for(let sx of [-.43,.43]) {
@@ -474,6 +582,7 @@ function makeCar(color) {
 
     light.position.set(sx,.68,-1.25);
     g.add(light);
+
   }
 
   scene.add(g);
@@ -565,9 +674,6 @@ const held = {
   nitro:false
 };
 
-const startBtn = document.getElementById("start");
-const overlay = document.getElementById("overlay");
-
 
 // =====================================
 // RESET GAME
@@ -581,16 +687,20 @@ function reset() {
   nitro = 100;
 
   player.position.x = 0;
+  player.rotation.z = 0;
 
   traffic.forEach((c,i) => {
+
     c.position.set(
       [-3.1,0,3.1][Math.floor(Math.random()*3)],
       0,
       -22-i*19
     );
+
   });
 
   coins.forEach((c,i) => {
+
     c.visible = true;
 
     c.position.set(
@@ -598,11 +708,18 @@ function reset() {
       1.15,
       -14-i*8
     );
+
   });
 
   document.getElementById("score").textContent = 0;
   document.getElementById("lives").textContent = 3;
   document.getElementById("fill").style.width = "100%";
+
+  document.getElementById("retrySave").style.display = "none";
+
+  document.getElementById("hint").textContent =
+    "Dodge traffic • Collect coins • Reach the finish!";
+
 }
 
 
@@ -612,22 +729,48 @@ function reset() {
 
 startBtn.onclick = () => {
 
+  if (!authReady) return;
+
+  if (gameMode === "tournament" &&
+      (!verifiedPlayer || !premiumPlayer)) {
+
+    setStatus("Premium membership is required.");
+    return;
+
+  }
+
   if (over) reset();
 
   over = false;
   active = true;
 
   raceStartedAt = Date.now();
+
   scoreSubmitted = false;
   submissionInProgress = false;
 
   overlay.style.display = "none";
 
-  startBtn.textContent = "RACE AGAIN";
+  startBtn.textContent =
+    gameMode === "tournament"
+    ? "RACE AGAIN"
+    : "RACE AGAIN";
 
-  authStatus.textContent = verifiedPlayer
+  setStatus(
+    verifiedPlayer
     ? "Race in progress..."
-    : "Playing as guest. Scores require Telegram verification.";
+    : "Playing as guest. Scores require Telegram verification."
+  );
+
+};
+
+
+// =====================================
+// RETRY SCORE SAVE
+// =====================================
+
+retrySaveBtn.onclick = () => {
+  submitScore();
 };
 
 
@@ -645,10 +788,13 @@ function bind(id,key) {
   });
 
   ["pointerup","pointercancel","pointerleave"].forEach(ev => {
+
     el.addEventListener(ev,() => {
       held[key] = false;
     });
+
   });
+
 }
 
 bind("left","left");
@@ -668,6 +814,7 @@ addEventListener("keydown",e => {
 
   if(e.code==="Space" || e.code==="ShiftLeft")
     held.nitro = true;
+
 });
 
 addEventListener("keyup",e => {
@@ -680,6 +827,7 @@ addEventListener("keyup",e => {
 
   if(e.code==="Space" || e.code==="ShiftLeft")
     held.nitro = false;
+
 });
 
 
@@ -697,29 +845,12 @@ function endRace(title,msg) {
   overlay.style.display = "flex";
 
   overlay.querySelector("h1").textContent = title;
-  overlay.querySelector("p").textContent = msg;
+  document.getElementById("introText").textContent = msg;
 
   startBtn.textContent = "RACE AGAIN";
 
   submitScore();
 
-  // Add a manual retry button for failed submissions
-  if (!document.getElementById("retrySave")) {
-    const retry = document.createElement("button");
-
-    retry.id = "retrySave";
-    retry.textContent = "SAVE SCORE";
-    retry.style.cssText =
-      "margin-top:12px;padding:12px 18px;border:1px solid #8deaff;border-radius:12px;background:#142b4b;color:white;font-weight:800;display:none";
-
-    retry.onclick = () => {
-      submitScore();
-    };
-
-    overlay.querySelector(".panel").appendChild(retry);
-  }
-
-  document.getElementById("retrySave").style.display = "block";
 }
 
 
@@ -790,6 +921,7 @@ function frame(now) {
 
         o.position.x =
           [-3.1,0,3.1][Math.floor(Math.random()*3)];
+
       }
 
       // Collision detection
@@ -815,8 +947,11 @@ function frame(now) {
           );
 
           break;
+
         }
+
       }
+
     }
 
 
@@ -837,6 +972,7 @@ function frame(now) {
           [-3.1,0,3.1][Math.floor(Math.random()*3)];
 
         c.visible = true;
+
       }
 
       if(
@@ -851,10 +987,13 @@ function frame(now) {
 
         document.getElementById("score").textContent =
           score;
+
       }
+
     }
 
     speed = Math.min(34,speed+dt*.08);
+
   }
 
 
@@ -876,6 +1015,7 @@ function frame(now) {
   );
 
   renderer.render(scene,camera);
+
 }
 
 requestAnimationFrame(frame);
@@ -896,6 +1036,7 @@ addEventListener("resize",() => {
     innerWidth,
     innerHeight
   );
+
 });
 
 })();
