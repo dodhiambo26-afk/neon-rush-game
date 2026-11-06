@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<meta name="theme-color" content="#080f20">
+<title>NEON RUSH Admin</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#080f20;color:#eef5ff;font-family:Arial,sans-serif}
+header{padding:18px;background:#101c35;border-bottom:1px solid #203858;position:sticky;top:0;z-index:5}
+h1{margin:0;color:#37eaff;font-size:23px;letter-spacing:2px}
+header p{margin:5px 0 0;color:#91a9c9;font-size:12px}
+main{padding:14px;max-width:850px;margin:auto}
+.notice{padding:13px;background:#142641;border:1px solid #29496c;border-radius:10px;margin-bottom:14px;font-size:13px;color:#c7d8ee}
+.status{color:#ffd166;margin-top:8px;font-size:13px}
+nav{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:16px}
+nav button,.action{background:#142641;color:#d9edff;border:1px solid #29496c;border-radius:9px;padding:12px;font-weight:bold}
+nav button.active{background:#063b50;border-color:#37eaff;color:#37eaff}
+section{display:none}
+section.active{display:block}
+h2{font-size:19px;color:#37eaff;margin:12px 0}
+h3{font-size:15px;color:#dcecff}
+.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+.stat,.panel{background:#101c35;border:1px solid #203858;border-radius:12px;padding:14px;margin-bottom:10px;min-width:0}
+.stat small{color:#91a9c9;font-size:12px}
+.stat strong{display:block;font-size:25px;margin-top:8px;color:#fff;overflow-wrap:anywhere}
+input,select{width:100%;padding:12px;background:#09152a;color:white;border:1px solid #34506e;border-radius:8px;margin:6px 0 12px;font-size:14px}
+.action{background:#063b50;border-color:#37eaff;color:#37eaff;width:100%;margin:5px 0;cursor:pointer}
+.danger{background:#451e2b;border-color:#ff617c;color:#ff9aaa}
+.item{padding:11px 0;border-bottom:1px solid #263b58;font-size:13px;overflow-wrap:anywhere}
+.item:last-child{border:0}
+.muted{color:#91a9c9}
+pre{white-space:pre-wrap;overflow-wrap:anywhere;color:#bfeaff;font-size:12px}
+#message{padding:12px;border-radius:8px;background:#142641;margin:10px 0;display:none;font-size:13px}
+footer{text-align:center;color:#6f88a8;font-size:11px;padding:25px}
+</style>
+</head>
+<body>
+<header>
+<h1>NEON RUSH</h1>
+<p>ADMINISTRATION CONTROL PANEL</p>
+<div class="status" id="status">Connecting to secure admin service...</div>
+</header>
+
+<main>
+<div class="notice">
+<strong>Administrator access</strong>
+<p>Private management panel. Only authorized Telegram administrators can access the information and controls.</p>
+</div>
+
+<div id="message"></div>
+
+<nav id="navigation">
+<button class="active" data-page="overview">Overview</button>
+<button data-page="players">Players</button>
+<button data-page="entries">Tournament entries</button>
+<button data-page="grant">Add player</button>
+<button data-page="payments">Stars payments</button>
+<button data-page="performance">Performance</button>
+<button data-page="banned">Moderation</button>
+<button data-page="tournament">Tournament</button>
+<button data-page="history">Game history</button>
+<button data-page="activity">Admin activity</button>
+<button data-page="settings">Settings</button>
+<button data-page="support">Support</button>
+</nav>
+
+<section id="overview" class="active">
+<h2>Dashboard overview</h2>
+<div class="grid">
+<div class="stat"><small>Registered players</small><strong id="playersCount">—</strong></div>
+<div class="stat"><small>Tournament entries</small><strong id="entriesCount">—</strong></div>
+<div class="stat"><small>Stars collected</small><strong id="starsCount">—</strong></div>
+<div class="stat"><small>Payments</small><strong id="paymentsCount">—</strong></div>
+</div>
+<button class="action" onclick="loadOverview()">Refresh statistics</button>
+<div class="panel">
+<h3>System status</h3>
+<div id="systemInfo" class="muted">Loading...</div>
+</div>
+</section>
+
+<section id="players">
+<h2>Player management</h2>
+<input id="playerSearch" placeholder="Search by Telegram ID or username">
+<button class="action" onclick="loadPlayers()">Search players</button>
+<div id="playersList" class="panel">Search for players.</div>
+</section>
+
+<section id="entries">
+<h2>Tournament entries</h2>
+<button class="action" onclick="loadEntries()">Refresh entries</button>
+<div id="entriesList" class="panel">Loading entries...</div>
+</section>
+
+<section id="grant">
+<h2>Grant complimentary access</h2>
+<div class="notice">Grant a registered player access to the current 6 AM–6 AM tournament session without charging Stars.</div>
+<label>Player Telegram ID</label>
+<input id="grantId" type="number" placeholder="Enter Telegram user ID">
+<button class="action" onclick="grantPlayer()">Grant tournament access</button>
+<h3>Revoke tournament access</h3>
+<input id="revokeId" type="number" placeholder="Player Telegram ID">
+<button class="action danger" onclick="revokePlayer()">Revoke access</button>
+</section>
+
+<section id="payments">
+<h2>Telegram Stars payments</h2>
+<button class="action" onclick="loadPayments()">Refresh payment records</button>
+<div id="paymentsList" class="panel">Loading payments...</div>
+</section>
+
+<section id="performance">
+<h2>Top scores and performance</h2>
+<button class="action" onclick="loadPerformance()">Refresh performance</button>
+<div id="performanceList" class="panel">Loading scores...</div>
+</section>
+
+<section id="banned">
+<h2>Account moderation</h2>
+<button class="action" onclick="loadBanned()">View banned players</button>
+<div id="bannedList" class="panel">Loading...</div>
+<h3>Ban a player</h3>
+<input id="banId" type="number" placeholder="Telegram user ID">
+<button class="action danger" onclick="banPlayer()">Ban player</button>
+<h3>Unban a player</h3>
+<input id="unbanId" type="number" placeholder="Telegram user ID">
+<button class="action" onclick="unbanPlayer()">Unban player</button>
+</section>
+
+<section id="tournament">
+<h2>Tournament management</h2>
+<button class="action" onclick="loadTournament()">Refresh tournament information</button>
+<div id="tournamentInfo" class="panel">Loading...</div>
+</section>
+
+<section id="history">
+<h2>Game history</h2>
+<button class="action" onclick="loadHistory()">Refresh game history</button>
+<div id="historyList" class="panel">Loading...</div>
+</section>
+
+<section id="activity">
+<h2>Administrator activity log</h2>
+<button class="action" onclick="loadActivity()">Refresh activity</button>
+<div id="activityList" class="panel">Loading...</div>
+</section>
+
+<section id="settings">
+<h2>System settings</h2>
+<button class="action" onclick="loadSettings()">Load settings</button>
+<div id="settingsList" class="panel">Loading...</div>
+<div class="notice">Settings are currently read-only. This dashboard does not change prices or tournament rules.</div>
+</section>
+
+<section id="support">
+<h2>Administrator support</h2>
+<div class="panel">
+<h3>NEON RUSH administration guide</h3>
+<p>• Tournament access lasts for the current daily session.</p>
+<p>• Standard paid access costs 8 Telegram Stars.</p>
+<p>• Complimentary access can be granted to registered players.</p>
+<p>• Check payment records before handling payment disputes.</p>
+<p>• Use moderation carefully.</p>
+<p>• Keep your Telegram bot token and Render secrets private.</p>
+</div>
+</section>
+
+<footer>NEON RUSH ADMIN • SECURE MANAGEMENT</footer>
+</main>
+
+<script>
+const API="https://neon-rush-game-backend.onrender.com";
+const tg=window.Telegram?.WebApp;
+if(tg){tg.ready();tg.expand();}
+
+let initData=tg?.initData||"";
+let authorized=false;
+
+function showMessage(text){
+ const el=document.getElementById("message");
+ el.style.display="block";
+ el.textContent=text;
+}
+function escapeHTML(value){
+ return String(value??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+async function api(path,method="GET",body=null){
+ if(!authorized && path!=="/api/admin/check") throw new Error("Admin access not verified.");
+ const options={method,headers:{"X-Telegram-Init-Data":initData}};
+ if(body!==null){options.headers["Content-Type"]="application/json";options.body=JSON.stringify(body);}
+ const response=await fetch(API+path,options);
+ const data=await response.json().catch(()=>({}));
+ if(!response.ok)throw new Error(data.detail||data.message||"Request failed ("+response.status+")");
+ return data;
+}
+async function checkAdmin(){
+ const status=document.getElementById("status");
+ if(!initData){
+  status.textContent="Open this page inside the NEON RUSH Telegram bot.";
+  showMessage("Telegram authentication data is missing. Open the admin page from Telegram, not directly in Chrome.");
+  return;
+ }
+ try{
+  const response=await fetch(API+"/api/admin/check",{headers:{"X-Telegram-Init-Data":initData}});
+  const data=await response.json();
+  if(!response.ok)throw new Error(data.detail||"Administrator access denied.");
+  authorized=true;
+  status.textContent="SECURE ADMIN ACCESS VERIFIED";
+  status.style.color="#51f5a7";
+  showMessage("Welcome, administrator. Your access has been verified.");
+  loadOverview();
+ }catch(e){
+  status.textContent="ACCESS DENIED";
+  showMessage(e.message);
+ }
+}
+document.querySelectorAll("nav button").forEach(button=>{
+ button.addEventListener("click",()=>{
+  document.querySelectorAll("nav button").forEach(b=>b.classList.remove("active"));
+  document.querySelectorAll("section").forEach(s=>s.classList.remove("active"));
+  button.classList.add("active");
+  document.getElementById(button.dataset.page).classList.add("active");
+  const loaders={
+   overview:loadOverview,players:loadPlayers,entries:loadEntries,
+   payments:loadPayments,performance:loadPerformance,banned:loadBanned,
+   tournament:loadTournament,history:loadHistory,activity:loadActivity,
+   settings:loadSettings
+  };
+  if(authorized&&loaders[button.dataset.page])loaders[button.dataset.page]();
+ });
+});
+function renderList(id,items,fields){
+ const el=document.getElementById(id);
+ if(!Array.isArray(items)||!items.length){el.textContent="No records found.";return;}
+ el.innerHTML=items.map(item=>'<div class="item">'+fields.map(f=>'<div><span class="muted">'+escapeHTML(f[1])+': </span>'+escapeHTML(item[f[0]])+'</div>').join("")+'</div>').join("");
+}
+async function loadOverview(){
+ try{
+  const d=await api("/api/admin/overview");
+  const s=d.stats||d;
+  document.getElementById("playersCount").textContent=s.players??"—";
+  document.getElementById("entriesCount").textContent=s.tournament_entries??"—";
+  document.getElementById("starsCount").textContent=s.stars??"—";
+  document.getElementById("paymentsCount").textContent=s.payments??"—";
+  document.getElementById("systemInfo").textContent="Backend connected • Admin authentication active";
+ }catch(e){showMessage(e.message);}
+}
+async function loadPlayers(){
+ try{
+  const q=document.getElementById("playerSearch").value;
+  const d=await api("/api/admin/players?q="+encodeURIComponent(q));
+  renderList("playersList",d.players||d.results,[["telegram_id","Telegram ID"],["username","Username"],["first_name","First name"],["banned","Banned"],["created_at","Registered"]]);
+ }catch(e){showMessage(e.message);}
+}
+async function loadEntries(){
+ try{const d=await api("/api/admin/entries");renderList("entriesList",d.entries,[["telegram_id","Telegram ID"],["username","Username"],["session_key","Session"],["payment_id","Payment ID"],["created_at","Created"]]);}
+ catch(e){showMessage(e.message);}
+}
+async function loadPayments(){
+ try{const d=await api("/api/admin/payments");renderList("paymentsList",d.payments,[["id","Payment ID"],["telegram_id","Telegram ID"],["amount","Stars"],["currency","Currency"],["created_at","Date"]]);}
+ catch(e){showMessage(e.message);}
+}
+async function loadPerformance(){
+ try{const d=await api("/api/admin/performance");renderList("performanceList",d.players||d.scores,[["rank","Rank"],["telegram_id","Telegram ID"],["display_name","Player"],["best_score","Best score"]]);}
+ catch(e){showMessage(e.message);}
+}
+async function loadBanned(){
+ try{const d=await api("/api/admin/banned");renderList("bannedList",d.players,[["telegram_id","Telegram ID"],["username","Username"],["first_name","Name"],["banned","Banned"]]);}
+ catch(e){showMessage(e.message);}
+}
+async function loadTournament(){
+ try{const d=await api("/api/admin/tournament");document.getElementById("tournamentInfo").innerHTML="<pre>"+escapeHTML(JSON.stringify(d,null,2))+"</pre>";}
+ catch(e){showMessage(e.message);}
+}
+async function loadHistory(){
+ try{const d=await api("/api/admin/history");renderList("historyList",d.games||d.history,[["telegram_id","Telegram ID"],["display_name","Player"],["score","Score"],["mode","Mode"],["created_at","Date"]]);}
+ catch(e){showMessage(e.message);}
+}
+async function loadActivity(){
+ try{const d=await api("/api/admin/activity");renderList("activityList",d.activity,[["admin_id","Admin"],["action","Action"],["target_id","Target"],["created_at","Date"]]);}
+ catch(e){showMessage(e.message);}
+}
+async function loadSettings(){
+ try{const d=await api("/api/admin/settings");document.getElementById("settingsList").innerHTML="<pre>"+escapeHTML(JSON.stringify(d,null,2))+"</pre>";}
+ catch(e){showMessage(e.message);}
+}
+async function grantPlayer(){
+ const id=Number(document.getElementById("grantId").value);
+ if(!id)return showMessage("Enter a valid Telegram ID.");
+ if(!confirm("Grant complimentary tournament access to player "+id+" for this session?"))return;
+ try{const d=await api("/api/admin/grant","POST",{telegram_id:id});showMessage(d.message||"Access granted.");}
+ catch(e){showMessage(e.message);}
+}
+async function revokePlayer(){
+ const id=Number(document.getElementById("revokeId").value);
+ if(!id)return showMessage("Enter a valid Telegram ID.");
+ if(!confirm("Revoke this player's current tournament entry? Check payment status first."))return;
+ try{const d=await api("/api/admin/revoke","POST",{telegram_id:id});showMessage(d.message||"Entry revoked.");}
+ catch(e){showMessage(e.message);}
+}
+async function banPlayer(){
+ const id=Number(document.getElementById("banId").value);
+ if(!id)return showMessage("Enter a valid Telegram ID.");
+ if(!confirm("Ban player "+id+"?"))return;
+ try{const d=await api("/api/admin/ban","POST",{telegram_id:id});showMessage(d.message||"Player banned.");loadBanned();}
+ catch(e){showMessage(e.message);}
+}
+async function unbanPlayer(){
+ const id=Number(document.getElementById("unbanId").value);
+ if(!id)return showMessage("Enter a valid Telegram ID.");
+ if(!confirm("Unban player "+id+"?"))return;
+ try{const d=await api("/api/admin/unban","POST",{telegram_id:id});showMessage(d.message||"Player unbanned.");loadBanned();}
+ catch(e){showMessage(e.message);}
+}
+checkAdmin();
+</script>
+</body>
+</html>
