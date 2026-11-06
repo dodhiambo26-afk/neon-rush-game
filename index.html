@@ -7,15 +7,15 @@
 <meta name="theme-color" content="#10182a">
 <title>NEON RUSH Racing</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
-
 <style>
 *{box-sizing:border-box}
 body{margin:0;overflow:hidden;background:#071326;color:white;font-family:Arial,sans-serif;touch-action:none}
 canvas{display:block;width:100vw;height:100vh}
-#hud{position:fixed;top:12px;left:10px;right:10px;z-index:3;display:flex;justify-content:space-between;gap:5px;pointer-events:none}
-.stat{background:#101b31e8;border:1px solid #25d9ff66;border-radius:9px;padding:8px;font-size:12px}
-#leaderboardToggle{pointer-events:auto;background:#182b49;color:white;border:1px solid #25d9ff;border-radius:9px;padding:8px;font-weight:bold;font-size:11px}
-#status{position:fixed;top:60px;left:10px;right:10px;text-align:center;font-size:12px;color:#8deaff;z-index:3;pointer-events:none}
+#hud{position:fixed;top:12px;left:8px;right:8px;z-index:3;display:flex;justify-content:center;align-items:center;flex-wrap:wrap;gap:5px;pointer-events:none}
+.stat{background:#101b31e8;border:1px solid #25d9ff66;border-radius:9px;padding:8px;font-size:11px}
+#leaderboardToggle,#soundToggle{pointer-events:auto;background:#182b49;color:white;border:1px solid #25d9ff;border-radius:9px;padding:8px;font-weight:bold;font-size:10px}
+#soundToggle{border-color:#ffd52a}
+#status{position:fixed;top:62px;left:10px;right:10px;text-align:center;font-size:12px;color:#8deaff;z-index:3;pointer-events:none}
 #controls{position:fixed;bottom:20px;left:0;right:0;display:flex;justify-content:space-between;padding:0 22px;z-index:3;pointer-events:none}
 .control{width:76px;height:66px;border-radius:16px;border:1px solid #2ce5ff;background:#102642dd;color:white;font-size:28px;pointer-events:auto;touch-action:none}
 #overlay{position:fixed;inset:0;background:#07101de8;display:flex;align-items:center;justify-content:center;z-index:5;padding:20px}
@@ -25,7 +25,7 @@ canvas{display:block;width:100vw;height:100vh}
 .action{width:100%;padding:15px;margin-top:12px;border:0;border-radius:12px;background:linear-gradient(90deg,#00bde8,#6b4cff);color:white;font-weight:bold;font-size:16px}
 .action:disabled{opacity:.45}
 #retrySave{display:none;background:#253b5d}
-#leaderboardPanel{display:none;position:fixed;top:100px;right:10px;width:min(320px,calc(100vw - 20px));max-height:60vh;overflow:auto;z-index:4;background:#101b31f5;border:1px solid #28dfff;border-radius:14px;padding:14px}
+#leaderboardPanel{display:none;position:fixed;top:105px;right:10px;width:min(320px,calc(100vw - 20px));max-height:60vh;overflow:auto;z-index:4;background:#101b31f5;border:1px solid #28dfff;border-radius:14px;padding:14px}
 #leaderboardPanel h3{margin:0 0 10px;color:#39e5ff}
 .lbrow{display:flex;justify-content:space-between;padding:8px 5px;border-bottom:1px solid #ffffff18;font-size:13px;gap:10px}
 #myRank{margin-top:12px;padding:10px;background:#173c50;border-radius:9px;font-size:13px}
@@ -33,7 +33,6 @@ canvas{display:block;width:100vw;height:100vh}
 #hint{position:fixed;bottom:100px;left:0;right:0;text-align:center;color:#b8d9ef;font-size:12px;pointer-events:none}
 </style>
 </head>
-
 <body>
 
 <canvas id="game"></canvas>
@@ -42,6 +41,7 @@ canvas{display:block;width:100vw;height:100vh}
  <div class="stat">🏁 Points: <b id="score">0</b></div>
  <div class="stat">❤️ Lives: <b id="lives">3</b></div>
  <div class="stat">🪙 Coins: <b id="coins">0</b></div>
+ <button id="soundToggle">🔊 SOUND ON</button>
  <button id="leaderboardToggle">🏆 TOP 10</button>
 </div>
 
@@ -63,7 +63,7 @@ canvas{display:block;width:100vw;height:100vh}
 <div id="overlay">
  <div id="menu">
   <h1>🏎️ NEON RUSH</h1>
-  <p id="introText">Race through the neon highway. Avoid traffic and collect coins!</p>
+  <p id="introText">Race endlessly through the neon highway. Avoid traffic, collect coins and beat your high score!</p>
   <p id="authStatus">Connecting to Telegram...</p>
   <button class="action" id="start" disabled>CONNECTING...</button>
   <button class="action" id="retrySave">SAVE SCORE AGAIN</button>
@@ -76,7 +76,6 @@ canvas{display:block;width:100vw;height:100vh}
 "use strict";
 
 /* SETTINGS */
-
 const BACKEND_URL = "https://neon-rush-game-backend.onrender.com";
 const tg = window.Telegram?.WebApp;
 const initData = tg?.initData || "";
@@ -85,9 +84,9 @@ const $ = id => document.getElementById(id);
 
 const canvas = $("game");
 const ctx = canvas.getContext("2d",{alpha:false});
-
 const startBtn = $("start");
 const overlay = $("overlay");
+const soundBtn = $("soundToggle");
 
 let verifiedPlayer = null;
 let tournamentAccess = false;
@@ -102,8 +101,92 @@ let coins = 0;
 let lives = 3;
 let raceStartedAt = 0;
 
-/* CANVAS SIZE */
+/* SOUND SYSTEM */
+let soundEnabled = true;
+let audioContext = null;
+let engineOscillator = null;
+let engineGain = null;
 
+function getAudio() {
+ if(!soundEnabled) return null;
+ try {
+  const AudioClass = window.AudioContext || window.webkitAudioContext;
+  if(!AudioClass) return null;
+  if(!audioContext) audioContext = new AudioClass();
+  if(audioContext.state === "suspended") audioContext.resume();
+  return audioContext;
+ } catch(e) {
+  return null;
+ }
+}
+
+function playSound(frequency,duration,type="sine",volume=0.07) {
+ const audio = getAudio();
+ if(!audio) return;
+
+ try {
+  const oscillator = audio.createOscillator();
+  const gain = audio.createGain();
+
+  oscillator.type = type;
+  oscillator.frequency.setValueAtTime(frequency,audio.currentTime);
+
+  gain.gain.setValueAtTime(volume,audio.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.001,audio.currentTime+duration);
+
+  oscillator.connect(gain);
+  gain.connect(audio.destination);
+
+  oscillator.start();
+  oscillator.stop(audio.currentTime+duration);
+ } catch(e) {}
+}
+
+function startEngineSound() {
+ const audio = getAudio();
+ if(!audio || engineOscillator) return;
+
+ try {
+  engineOscillator = audio.createOscillator();
+  engineGain = audio.createGain();
+
+  engineOscillator.type = "sawtooth";
+  engineOscillator.frequency.value = 65;
+  engineGain.gain.value = 0.018;
+
+  engineOscillator.connect(engineGain);
+  engineGain.connect(audio.destination);
+  engineOscillator.start();
+ } catch(e) {
+  engineOscillator = null;
+  engineGain = null;
+ }
+}
+
+function stopEngineSound() {
+ try {
+  if(engineOscillator) engineOscillator.stop();
+ } catch(e) {}
+
+ engineOscillator = null;
+ engineGain = null;
+}
+
+soundBtn.addEventListener("click",()=>{
+ soundEnabled = !soundEnabled;
+ soundBtn.textContent = soundEnabled ? "🔊 SOUND ON" : "🔇 SOUND OFF";
+
+ if(!soundEnabled) {
+  stopEngineSound();
+ } else if(active) {
+  startEngineSound();
+  playSound(660,0.1);
+ } else {
+  playSound(660,0.1);
+ }
+});
+
+/* CANVAS SIZE */
 let W = 0;
 let H = 0;
 let dpr = 1;
@@ -117,14 +200,12 @@ function resizeCanvas() {
  canvas.height = Math.round(H*dpr);
 
  ctx.setTransform(dpr,0,0,dpr,0,0);
-
  drawGame();
 }
 
 window.addEventListener("resize",resizeCanvas);
 
 /* GAME STATE */
-
 let lane = 1;
 let traffic = [];
 let pickups = [];
@@ -132,14 +213,15 @@ let pickups = [];
 let roadOffset = 0;
 let trafficTimer = 0;
 let coinTimer = 0;
+let distanceTimer = 0;
 
 let animationId = 0;
 let animationRunning = false;
 let lastTime = 0;
 let swipeStartX = null;
 
-const MAX_TRAFFIC = 3;
-const MAX_COINS = 2;
+const MAX_TRAFFIC = 4;
+const MAX_COINS = 4;
 
 function setStatus(message) {
  $("status").textContent = message;
@@ -177,7 +259,6 @@ function roadDimensions() {
 }
 
 /* DRAWING */
-
 function drawCar(x,y,color,playerCar=false) {
  const width = playerCar ? 42 : 39;
  const height = playerCar ? 66 : 62;
@@ -212,10 +293,12 @@ function drawCar(x,y,color,playerCar=false) {
 
 function drawCoin(x,y) {
  ctx.save();
+
  ctx.beginPath();
  ctx.arc(x,y,12,0,Math.PI*2);
  ctx.fillStyle = "#ffd52a";
  ctx.fill();
+
  ctx.strokeStyle = "#fff3a0";
  ctx.lineWidth = 3;
  ctx.stroke();
@@ -225,31 +308,27 @@ function drawCoin(x,y) {
  ctx.textAlign = "center";
  ctx.textBaseline = "middle";
  ctx.fillText("$",x,y+1);
+
  ctx.restore();
 }
 
 function drawGame() {
  if(!ctx || !W || !H) return;
 
- /* BACKGROUND */
-
  ctx.fillStyle = "#071326";
  ctx.fillRect(0,0,W,H);
 
- /* DISTANT CITY */
-
+ /* CITY */
  ctx.fillStyle = "#101e36";
 
  for(let i=0;i<12;i++) {
   const bw = 25+(i%4)*9;
   const bh = 50+(i%5)*17;
   const x = i*(W/11)-10;
-
   ctx.fillRect(x,H*0.25-bh,bw,bh);
  }
 
  /* ROAD */
-
  const road = roadDimensions();
 
  ctx.fillStyle = "#171e2d";
@@ -260,7 +339,6 @@ function drawGame() {
  ctx.fillRect(road.left+road.width-3,0,3,H);
 
  /* ROAD MARKINGS */
-
  ctx.fillStyle = "#9bb4c7";
 
  for(let divider=1;divider<=2;divider++) {
@@ -272,25 +350,21 @@ function drawGame() {
  }
 
  /* PLAYER */
-
  const playerY = H*0.78;
  drawCar(laneX(lane),playerY,"#00cfff",true);
 
  /* TRAFFIC */
-
  for(const car of traffic) {
   drawCar(laneX(car.lane),car.y,car.color,false);
  }
 
  /* COINS */
-
  for(const coin of pickups) {
   drawCoin(laneX(coin.lane),coin.y);
  }
 }
 
 /* TELEGRAM AUTHENTICATION */
-
 async function authenticateTelegram() {
  if(tg) {
   try {
@@ -385,7 +459,6 @@ async function authenticateTelegram() {
 }
 
 /* LEADERBOARD */
-
 function renderLeaderboard(data) {
  if(!data) return;
 
@@ -458,7 +531,6 @@ $("closeLeaderboard").addEventListener("click",()=>{
 });
 
 /* SAVE SCORE */
-
 async function submitScore() {
  if(scoreSubmitted) return;
 
@@ -522,14 +594,15 @@ async function submitScore() {
 $("retrySave").addEventListener("click",submitScore);
 
 /* GAME OBJECTS */
-
 function spawnTraffic() {
  if(traffic.length>=MAX_TRAFFIC) return;
 
  const colors = ["#ff3355","#ffb52e","#9b59ff","#36e27b"];
 
+ const chosenLane = Math.floor(Math.random()*3);
+
  traffic.push({
-  lane:Math.floor(Math.random()*3),
+  lane:chosenLane,
   y:-80,
   color:colors[Math.floor(Math.random()*colors.length)]
  });
@@ -545,9 +618,9 @@ function spawnCoin() {
 }
 
 /* RESET */
-
 function resetGame() {
  stopGameLoop();
+ stopEngineSound();
 
  score = 0;
  coins = 0;
@@ -560,6 +633,7 @@ function resetGame() {
  roadOffset = 0;
  trafficTimer = 0;
  coinTimer = 0;
+ distanceTimer = 0;
 
  scoreSubmitted = false;
  gameOver = false;
@@ -570,7 +644,6 @@ function resetGame() {
 }
 
 /* GAME LOOP */
-
 function stopGameLoop() {
  animationRunning = false;
 
@@ -605,6 +678,7 @@ function gameLoop(time) {
   console.error("Game loop error:",error);
   active = false;
   stopGameLoop();
+  stopEngineSound();
   setStatus("Game stopped because of an error. Please reload.");
   return;
  }
@@ -616,20 +690,36 @@ function gameLoop(time) {
  }
 }
 
+/* ENDLESS RACING */
 function updateGame(delta) {
- const speed = Math.min(7.5,4.5+score/100);
+ /* Speed gradually increases as the player scores more points. */
+ const speed = Math.min(10,4.2+score/180);
 
  roadOffset += speed*delta;
 
  trafficTimer += delta;
  coinTimer += delta;
+ distanceTimer += delta;
 
- if(trafficTimer>65 && traffic.length<MAX_TRAFFIC) {
+ /* Distance points: one point every 30 game frames. */
+ if(distanceTimer>=30) {
+  score += 1;
+  distanceTimer = 0;
+  updateHUD();
+ }
+
+ /* Traffic appears more frequently as the score rises. */
+ const trafficInterval = Math.max(38,68-score/35);
+
+ if(trafficTimer>trafficInterval && traffic.length<MAX_TRAFFIC) {
   spawnTraffic();
   trafficTimer = 0;
  }
 
- if(coinTimer>75 && pickups.length<MAX_COINS) {
+ /* More frequent coin appearances. */
+ const coinInterval = Math.max(24,42-score/80);
+
+ if(coinTimer>coinInterval && pickups.length<MAX_COINS) {
   spawnCoin();
   coinTimer = 0;
  }
@@ -637,6 +727,7 @@ function updateGame(delta) {
  const playerY = H*0.78;
  const carHeight = 62;
 
+ /* TRAFFIC MOVEMENT AND COLLISIONS */
  for(let i=traffic.length-1;i>=0;i--) {
   const car = traffic[i];
   car.y += speed*delta;
@@ -647,6 +738,8 @@ function updateGame(delta) {
   if(sameLane && closeY) {
    traffic.splice(i,1);
    lives--;
+
+   playSound(115,0.25,"sawtooth",0.10);
    updateHUD();
    setStatus("Collision! Watch out for traffic!");
 
@@ -663,6 +756,7 @@ function updateGame(delta) {
   }
  }
 
+ /* COIN MOVEMENT AND COLLECTION */
  for(let i=pickups.length-1;i>=0;i--) {
   const coin = pickups[i];
   coin.y += speed*delta;
@@ -674,7 +768,10 @@ function updateGame(delta) {
    pickups.splice(i,1);
    coins++;
    score += 10;
+
+   playSound(880,0.10,"sine",0.08);
    updateHUD();
+   setStatus("🪙 Coin collected! +10 points");
    continue;
   }
 
@@ -685,13 +782,14 @@ function updateGame(delta) {
 }
 
 /* END RACE */
-
 function finishRace() {
  if(gameOver) return;
 
  active = false;
  gameOver = true;
+
  stopGameLoop();
+ stopEngineSound();
 
  overlay.style.display = "flex";
 
@@ -711,7 +809,6 @@ function finishRace() {
 }
 
 /* START BUTTON */
-
 startBtn.addEventListener("click",event=>{
  event.preventDefault();
 
@@ -733,19 +830,22 @@ startBtn.addEventListener("click",event=>{
  scoreSubmitted = false;
  raceStartedAt = Date.now();
 
+ /* Audio starts after the player's button press. */
+ startEngineSound();
+ playSound(520,0.12,"square",0.045);
+
  overlay.style.display = "none";
  $("retrySave").style.display = "none";
 
  setStatus(gameMode==="tournament" ?
   "Tournament race in progress!" :
-  "Free race in progress!"
+  "Endless free race in progress!"
  );
 
  startGameLoop();
 });
 
 /* STEERING */
-
 function moveLane(direction) {
  if(!active) return;
 
@@ -768,7 +868,6 @@ window.addEventListener("keydown",e=>{
 });
 
 /* SWIPE ON GAME AREA */
-
 canvas.addEventListener("touchstart",e=>{
  if(e.touches.length) swipeStartX = e.touches[0].clientX;
 },{passive:true});
@@ -786,17 +885,17 @@ canvas.addEventListener("touchend",e=>{
 },{passive:true});
 
 /* PAUSE WHEN HIDDEN */
-
 document.addEventListener("visibilitychange",()=>{
  if(document.hidden) {
   stopGameLoop();
+  stopEngineSound();
  } else if(active) {
+  startEngineSound();
   startGameLoop();
  }
 });
 
 /* INITIALIZE */
-
 resizeCanvas();
 drawGame();
 authenticateTelegram();
