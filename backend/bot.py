@@ -1,445 +1,610 @@
+
 import os
-import asyncio
-from functools import wraps
-from datetime import datetime, timezone
+import logging
 
 from telegram import (
-    Update, InlineKeyboardButton, InlineKeyboardMarkup,
-    WebAppInfo, LabeledPrice
+    Update,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    WebAppInfo,
+    LabeledPrice
 )
+
 from telegram.ext import (
-    Application, CommandHandler, CallbackQueryHandler,
-    PreCheckoutQueryHandler, MessageHandler, filters,
+    Application,
+    CommandHandler,
+    CallbackQueryHandler,
+    PreCheckoutQueryHandler,
+    MessageHandler,
+    ContextTypes,
+    filters
 )
 
 import database as db
 
-BOT_TOKEN = os.getenv("BOT_TOKEN", "")
-WEBAPP_URL = os.getenv("WEBAPP_URL", "").rstrip("/")
-ADMIN_IDS = {
-    int(x.strip()) for x in os.getenv("ADMIN_IDS", "").split(",")
-    if x.strip().isdigit()
-}
-PREMIUM_PRICE = int(os.getenv("PREMIUM_PRICE", "100"))
-PREMIUM_DAYS = int(os.getenv("PREMIUM_DAYS", "30"))
 
-application = None
+BOT_TOKEN = os.getenv("BOT_TOKEN", "")
+WEBAPP_URL = os.getenv(
+    "WEBAPP_URL",
+    "https://dodhiambo26-afk.github.io/neon-rush-game/"
+)
+
+TOURNAMENT_PRICE = 8
+
+ADMIN_IDS = {
+    int(value.strip())
+    for value in os.getenv("ADMIN_IDS", "").split(",")
+    if value.strip().isdigit()
+}
+
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO
+)
+
+logger = logging.getLogger(__name__)
 
 
 def tournament_url():
     separator = "&" if "?" in WEBAPP_URL else "?"
-    return f"{WEBAPP_URL}{separator}mode=tournament"
+    return WEBAPP_URL + separator + "mode=tournament"
 
 
-def premium_active(uid):
-    user = db.get_user(uid)
-    if not user or not user["premium_until"]:
-        return False
-
-    try:
-        expiry = datetime.fromisoformat(user["premium_until"])
-
-        if expiry.tzinfo is None:
-            expiry = expiry.replace(tzinfo=timezone.utc)
-
-        return expiry > datetime.now(timezone.utc)
-    except (ValueError, TypeError):
-        return False
-
-
-def admin_only(func):
-    @wraps(func)
-    async def wrapper(update, context):
-        if update.effective_user.id not in ADMIN_IDS:
-            await update.effective_message.reply_text("Access denied.")
-            return
-        return await func(update, context)
-    return wrapper
-
-
-def main_keyboard():
+def free_keyboard():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton(
-            "🏎️ Play Free Game",
-            web_app=WebAppInfo(url=WEBAPP_URL)
-        )],
-        [InlineKeyboardButton(
-            "🏆 Premium Tournament",
-            callback_data="tournament"
-        )],
-        [InlineKeyboardButton(
-            "⭐ Get Premium",
-            callback_data="premium"
-        )],
-        [InlineKeyboardButton(
-            "👤 My Profile",
-            callback_data="profile"
-        )],
-        [InlineKeyboardButton(
-            "🥇 Leaderboard",
-            callback_data="leaderboard"
-        )],
+        [
+            InlineKeyboardButton(
+                "🏎 PLAY FREE GAME",
+                web_app=WebAppInfo(url=WEBAPP_URL)
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "🏆 DAILY TOURNAMENT — 8 ⭐",
+                callback_data="tournament"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "📊 LEADERBOARD",
+                callback_data="leaderboard"
+            ),
+            InlineKeyboardButton(
+                "👤 PROFILE",
+                callback_data="profile"
+            )
+        ]
     ])
 
 
-async def start(update: Update, context):
+def tournament_keyboard():
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton(
+                "🏁 ENTER TOURNAMENT",
+                web_app=WebAppInfo(url=tournament_url())
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "📊 LEADERBOARD",
+                callback_data="leaderboard"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "⬅️ MAIN MENU",
+                callback_data="menu"
+            )
+        ]
+    ])
+
+
+def main_text():
+    return (
+        "⚡ NEON RUSH ⚡\n\n"
+        "Welcome to the racing arena!\n\n"
+        "🏎 Free Game: Play anytime without paying.\n\n"
+        "🏆 Daily Tournament: Pay 8 Telegram Stars "
+        "to enter the entire tournament day.\n\n"
+        "⏰ Tournament hours: 6:00 AM to 6:00 AM "
+        "the following day (Kenya time).\n\n"
+        "🥇 Your best single-game score determines "
+        "your tournament position.\n\n"
+        "Good luck, racer!"
+    )
+
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
 
     db.upsert_user(
-        user.id, user.username, user.first_name, user.last_name
+        user.id,
+        user.username,
+        user.first_name,
+        user.last_name
     )
+
+    if db.is_banned(user.id):
+        await update.message.reply_text(
+            "Your account has been blocked."
+        )
+        return
 
     await update.message.reply_text(
-        f"Welcome to NEON RUSH, {user.first_name}!\n\n"
-        "Race, compete and climb the leaderboard.",
-        reply_markup=main_keyboard()
+        main_text(),
+        reply_markup=free_keyboard()
     )
 
 
-async def menu(update: Update, context):
-    await update.message.reply_text(
-        "NEON RUSH Menu",
-        reply_markup=main_keyboard()
+async def send_tournament_invoice(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+    query = update.callback_query
+    user = query.from_user
+
+    session = db.tournament_session()
+
+    if db.has_tournament_entry(user.id, session["key"]):
+        await query.message.reply_text(
+            "✅ You have already entered today's tournament!\n\n"
+            "Your 8-Star entry is valid until 6:00 AM Kenya time.",
+            reply_markup=tournament_keyboard()
+        )
+        return
+
+    payload = "tournament:" + session["key"]
+
+    await context.bot.send_invoice(
+        chat_id=query.message.chat_id,
+        title="NEON RUSH Daily Tournament",
+        description=(
+            "One entry for the complete daily tournament. "
+            "Valid until 6:00 AM Kenya time."
+        ),
+        payload=payload,
+        provider_token="",
+        currency="XTR",
+        prices=[
+            LabeledPrice(
+                label="Daily Tournament Entry",
+                amount=TOURNAMENT_PRICE
+            )
+        ]
     )
 
 
-async def buttons(update: Update, context):
+async def leaderboard_message(
+    chat_id,
+    context,
+    uid=None
+):
+    session = db.tournament_session()
+    rows = db.list_top_scores(
+        limit=10,
+        session_key=session["key"]
+    )
+
+    message = (
+        "🏆 NEON RUSH DAILY LEADERBOARD\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+        "Tournament runs 6 AM – 6 AM Kenya time.\n\n"
+    )
+
+    if not rows:
+        message += "No tournament scores yet. Be the first racer!\n"
+    else:
+        medals = ["🥇", "🥈", "🥉"]
+
+        for index, row in enumerate(rows):
+            medal = (
+                medals[index]
+                if index < 3
+                else f"{index + 1}."
+            )
+
+            message += (
+                f"{medal} {row['display_name']} — "
+                f"{row['score']} points\n"
+            )
+
+    if uid is not None:
+        player = db.get_player_ranking(uid, session["key"])
+
+        message += "\n━━━━━━━━━━━━━━━━━━\n"
+        message += "👤 YOUR POSITION\n"
+
+        if player["position"] is None:
+            message += "You have not posted a tournament score yet.\n"
+        else:
+            message += (
+                f"Rank: #{player['position']}\n"
+                f"Points: {player['score']}\n"
+            )
+
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text=message
+    )
+
+
+async def buttons(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
     query = update.callback_query
     await query.answer()
 
     user = query.from_user
-    uid = user.id
 
     db.upsert_user(
-        uid, user.username, user.first_name, user.last_name
+        user.id,
+        user.username,
+        user.first_name,
+        user.last_name
     )
 
-    if db.is_banned(uid):
+    if db.is_banned(user.id):
         await query.message.reply_text(
-            "Your account is restricted."
+            "Your account has been blocked."
         )
         return
 
-    if query.data == "premium":
-        price = db.get_premium_price(PREMIUM_PRICE)
+    action = query.data
 
+    if action == "menu":
         await query.message.reply_text(
-            f"Premium membership costs {price} Telegram Stars "
-            f"for {PREMIUM_DAYS} days."
+            main_text(),
+            reply_markup=free_keyboard()
         )
 
-        await context.bot.send_invoice(
-            chat_id=uid,
-            title="NEON RUSH Premium",
-            description=(
-                f"{PREMIUM_DAYS} days of premium tournament access."
-            ),
-            payload=f"premium:{uid}:{PREMIUM_DAYS}",
-            provider_token="",
-            currency="XTR",
-            prices=[
-                LabeledPrice("Premium membership", price)
-            ],
-        )
+    elif action == "tournament":
+        session = db.tournament_session()
 
-    elif query.data == "tournament":
-        if not premium_active(uid):
+        if db.has_tournament_entry(user.id, session["key"]):
             await query.message.reply_text(
-                "🏆 Premium membership is required for the tournament.\n"
-                "Tap ⭐ Get Premium to subscribe.",
-                reply_markup=main_keyboard()
+                "✅ Your tournament entry is active!",
+                reply_markup=tournament_keyboard()
             )
         else:
-            if not WEBAPP_URL:
-                await query.message.reply_text(
-                    "Game is temporarily unavailable."
-                )
-                return
+            await send_tournament_invoice(update, context)
 
-            await query.message.reply_text(
-                "Welcome to the premium tournament!",
-                reply_markup=InlineKeyboardMarkup([[
-                    InlineKeyboardButton(
-                        "🏁 Enter Tournament",
-                        web_app=WebAppInfo(url=tournament_url())
-                    )
-                ]])
-            )
-
-    elif query.data == "profile":
-        status = (
-            "Active ⭐" if premium_active(uid)
-            else "Free player"
+    elif action == "leaderboard":
+        await leaderboard_message(
+            query.message.chat_id,
+            context,
+            user.id
         )
+
+    elif action == "profile":
+        session = db.tournament_session()
+        entry = db.has_tournament_entry(
+            user.id,
+            session["key"]
+        )
+
+        player = db.get_player_ranking(
+            user.id,
+            session["key"]
+        )
+
+        name = user.full_name
+
+        text = (
+            "👤 YOUR NEON RUSH PROFILE\n"
+            "━━━━━━━━━━━━━━━━━━\n"
+            f"Name: {name}\n"
+            f"Telegram ID: {user.id}\n\n"
+            f"Tournament entry: {'ACTIVE' if entry else 'NOT ENTERED'}\n"
+            f"Best tournament score: {player['score']}\n"
+        )
+
+        if player["position"]:
+            text += f"Your position: #{player['position']}\n"
 
         await query.message.reply_text(
-            f"👤 Profile\nID: {uid}\nMembership: {status}"
+            text,
+            reply_markup=free_keyboard()
         )
 
-    elif query.data == "leaderboard":
-        rows = db.list_top_scores(10)
 
-        if not rows:
-            await query.message.reply_text(
-                "No tournament scores yet."
-            )
-            return
-
-        leaderboard_text = "🏆 DAILY LEADERBOARD\n\n"
-
-        for i, row in enumerate(rows, 1):
-            leaderboard_text += (
-                f"{i}. {row['display_name']} — {row['score']}\n"
-            )
-
-        await query.message.reply_text(leaderboard_text)
-
-
-async def precheckout(update: Update, context):
+async def precheckout(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
     query = update.pre_checkout_query
-    parts = query.invoice_payload.split(":")
 
-    valid = (
-        len(parts) == 3
-        and parts[0] == "premium"
-        and parts[1].isdigit()
-        and parts[2].isdigit()
-        and int(parts[1]) == query.from_user.id
-        and 1 <= int(parts[2]) <= 3650
-        and query.currency == "XTR"
-        and query.total_amount == db.get_premium_price(PREMIUM_PRICE)
-        and not db.is_banned(query.from_user.id)
-    )
+    session = db.tournament_session()
+    expected_payload = "tournament:" + session["key"]
 
-    await query.answer(
-        ok=valid,
-        error_message=(
-            None if valid
-            else "Payment could not be verified."
-        )
-    )
-
-
-async def successful_payment(update: Update, context):
-    user = update.effective_user
-    payment = update.message.successful_payment
-    parts = payment.invoice_payload.split(":")
-
-    if (
-        len(parts) != 3
-        or parts[0] != "premium"
-        or not parts[1].isdigit()
-        or not parts[2].isdigit()
-        or int(parts[1]) != user.id
-        or not 1 <= int(parts[2]) <= 3650
-        or payment.currency != "XTR"
-        or payment.total_amount != db.get_premium_price(PREMIUM_PRICE)
-        or db.is_banned(user.id)
-    ):
-        await update.message.reply_text(
-            "Payment details could not be verified. Contact support."
+    if query.invoice_payload != expected_payload:
+        await query.answer(
+            ok=False,
+            error_message=(
+                "This tournament invoice has expired. "
+                "Please request a new entry."
+            )
         )
         return
 
-    db.upsert_user(
-        user.id, user.username, user.first_name, user.last_name
-    )
+    if query.currency != "XTR" or query.total_amount != TOURNAMENT_PRICE:
+        await query.answer(
+            ok=False,
+            error_message="Invalid tournament payment amount."
+        )
+        return
 
-    inserted = db.add_payment(
-        user.id,
-        payment.telegram_payment_charge_id,
-        payment.provider_payment_charge_id,
-        payment.total_amount,
-        payment.currency,
-    )
+    if db.is_banned(query.from_user.id):
+        await query.answer(
+            ok=False,
+            error_message="Your account cannot enter this tournament."
+        )
+        return
 
-    if inserted:
-        db.set_premium(user.id, int(parts[2]))
+    await query.answer(ok=True)
 
+
+async def successful_payment(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+    user = update.effective_user
+    payment = update.message.successful_payment
+
+    session = db.tournament_session()
+    expected_payload = "tournament:" + session["key"]
+
+    if payment.invoice_payload != expected_payload:
         await update.message.reply_text(
-            "✅ Payment successful! Your premium membership is active.",
-            reply_markup=main_keyboard()
+            "Payment received, but the tournament session has changed. "
+            "Please contact support."
+        )
+        return
+
+    if payment.currency != "XTR" or payment.total_amount != TOURNAMENT_PRICE:
+        await update.message.reply_text(
+            "The payment amount could not be verified. "
+            "Please contact support."
+        )
+        return
+
+    inserted = db.record_tournament_payment(
+        uid=user.id,
+        charge_id=payment.telegram_payment_charge_id,
+        provider_id=payment.provider_payment_charge_id,
+        amount=payment.total_amount,
+        currency=payment.currency
+    )
+
+    session = db.tournament_session()
+
+    if db.has_tournament_entry(user.id, session["key"]):
+        await update.message.reply_text(
+            "🎉 PAYMENT SUCCESSFUL!\n\n"
+            "Your 8-Star tournament entry is active.\n"
+            "You can play as many races as you want during this "
+            "tournament day.\n\n"
+            "Your best single-game score counts on the leaderboard.\n"
+            "Your entry ends at 6:00 AM Kenya time.",
+            reply_markup=tournament_keyboard()
+        )
+    elif not inserted:
+        await update.message.reply_text(
+            "This payment was already processed. "
+            "If you need help, contact support."
         )
     else:
         await update.message.reply_text(
-            "This payment was already processed."
+            "Payment was received, but entry activation needs attention. "
+            "Please contact support."
         )
 
 
-async def myid(update: Update, context):
+async def myid(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
     await update.message.reply_text(
-        f"Your Telegram ID: {update.effective_user.id}"
+        f"Your Telegram user ID is: {update.effective_user.id}"
     )
 
 
-@admin_only
-async def admin(update: Update, context):
+async def admin(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+    if update.effective_user.id not in ADMIN_IDS:
+        return
+
     stats = db.get_stats()
 
     await update.message.reply_text(
-        "🛠 NEON RUSH ADMIN\n"
+        "⚙️ NEON RUSH ADMIN\n\n"
         f"Players: {stats['players']}\n"
-        f"Premium members: {stats['premium']}\n"
         f"Payments: {stats['payments']}\n"
-        f"Stars received: {stats['stars']}\n\n"
-        "/grant USER_ID DAYS\n"
-        "/revoke USER_ID\n"
-        "/ban USER_ID\n"
-        "/unban USER_ID\n"
-        "/setprice STARS"
+        f"Stars received: {stats['stars']}\n"
+        f"Today's tournament entries: {stats['tournament_entries']}"
     )
 
 
-@admin_only
-async def grant(update: Update, context):
-    try:
-        uid, days = map(int, context.args)
+async def grant(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+    if update.effective_user.id not in ADMIN_IDS:
+        return
 
-        if days < 1 or days > 3650:
-            raise ValueError()
-
-        if not db.get_user(uid):
-            await update.message.reply_text("Player not found.")
-            return
-
-        db.set_premium(uid, days)
+    if not context.args or not context.args[0].isdigit():
         await update.message.reply_text(
-            "Premium membership granted."
+            "Usage: /grant TELEGRAM_USER_ID"
         )
+        return
 
-    except (ValueError, TypeError):
-        await update.message.reply_text(
-            "Usage: /grant USER_ID DAYS"
-        )
+    uid = int(context.args[0])
+    db.grant_tournament_entry(uid)
 
-
-@admin_only
-async def revoke(update: Update, context):
-    try:
-        uid = int(context.args[0])
-        db.revoke_premium(uid)
-
-        await update.message.reply_text(
-            "Premium membership revoked."
-        )
-
-    except (ValueError, IndexError):
-        await update.message.reply_text(
-            "Usage: /revoke USER_ID"
-        )
-
-
-@admin_only
-async def ban(update: Update, context):
-    try:
-        uid = int(context.args[0])
-        db.set_banned(uid, True)
-
-        await update.message.reply_text("Player banned.")
-
-    except (ValueError, IndexError):
-        await update.message.reply_text(
-            "Usage: /ban USER_ID"
-        )
-
-
-@admin_only
-async def unban(update: Update, context):
-    try:
-        uid = int(context.args[0])
-        db.set_banned(uid, False)
-
-        await update.message.reply_text("Player unbanned.")
-
-    except (ValueError, IndexError):
-        await update.message.reply_text(
-            "Usage: /unban USER_ID"
-        )
-
-
-@admin_only
-async def setprice(update: Update, context):
-    try:
-        price = int(context.args[0])
-
-        if price < 1 or price > 100000:
-            raise ValueError()
-
-        db.set_premium_price(price)
-
-        await update.message.reply_text(
-            f"Premium price set to {price} Stars."
-        )
-
-    except (ValueError, IndexError):
-        await update.message.reply_text(
-            "Usage: /setprice STARS"
-        )
-
-
-async def paysupport(update: Update, context):
     await update.message.reply_text(
-        "For payment assistance, contact the game administrator."
+        f"✅ Tournament access granted to {uid} "
+        "for the current tournament day."
     )
 
 
-async def post_init(app):
-    db.init_db()
+async def revoke(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+    if update.effective_user.id not in ADMIN_IDS:
+        return
+
+    if not context.args or not context.args[0].isdigit():
+        await update.message.reply_text(
+            "Usage: /revoke TELEGRAM_USER_ID"
+        )
+        return
+
+    uid = int(context.args[0])
+    session = db.tournament_session()
+
+    with db._lock:
+        con = db.connect()
+        con.execute("""
+            DELETE FROM tournament_entries
+            WHERE telegram_id=? AND session_key=?
+        """, (uid, session["key"]))
+        con.commit()
+        con.close()
+
+    await update.message.reply_text(
+        f"Current tournament access revoked for {uid}."
+    )
+
+
+async def ban(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+    if update.effective_user.id not in ADMIN_IDS:
+        return
+
+    if not context.args or not context.args[0].isdigit():
+        await update.message.reply_text(
+            "Usage: /ban TELEGRAM_USER_ID"
+        )
+        return
+
+    uid = int(context.args[0])
+    db.set_banned(uid, True)
+
+    await update.message.reply_text(
+        f"🚫 User {uid} has been blocked."
+    )
+
+
+async def unban(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+    if update.effective_user.id not in ADMIN_IDS:
+        return
+
+    if not context.args or not context.args[0].isdigit():
+        await update.message.reply_text(
+            "Usage: /unban TELEGRAM_USER_ID"
+        )
+        return
+
+    uid = int(context.args[0])
+    db.set_banned(uid, False)
+
+    await update.message.reply_text(
+        f"✅ User {uid} has been unblocked."
+    )
+
+
+async def paysupport(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+    await update.message.reply_text(
+        "For payment assistance, contact the NEON RUSH administrator."
+    )
+
+
+async def post_init(application: Application):
+    await application.bot.set_my_commands([
+        ("start", "Open NEON RUSH"),
+        ("leaderboard", "View today's leaderboard"),
+        ("myid", "Show your Telegram user ID"),
+        ("paysupport", "Payment assistance")
+    ])
+
+
+async def command_leaderboard(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+    await leaderboard_message(
+        update.effective_chat.id,
+        context,
+        update.effective_user.id
+    )
 
 
 def build_application():
     if not BOT_TOKEN:
-        raise RuntimeError(
-            "BOT_TOKEN environment variable is missing."
-        )
+        raise RuntimeError("BOT_TOKEN environment variable is missing.")
 
-    if not WEBAPP_URL.startswith("https://"):
-        raise RuntimeError(
-            "WEBAPP_URL must be a valid HTTPS URL."
-        )
-
-    app = (
+    application = (
         Application.builder()
         .token(BOT_TOKEN)
         .post_init(post_init)
         .build()
     )
 
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("menu", menu))
-    app.add_handler(CommandHandler("myid", myid))
-    app.add_handler(CommandHandler("admin", admin))
-    app.add_handler(CommandHandler("grant", grant))
-    app.add_handler(CommandHandler("revoke", revoke))
-    app.add_handler(CommandHandler("ban", ban))
-    app.add_handler(CommandHandler("unban", unban))
-    app.add_handler(CommandHandler("setprice", setprice))
-    app.add_handler(CommandHandler("paysupport", paysupport))
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("leaderboard", command_leaderboard))
+    application.add_handler(CommandHandler("myid", myid))
+    application.add_handler(CommandHandler("paysupport", paysupport))
 
-    app.add_handler(CallbackQueryHandler(buttons))
-    app.add_handler(PreCheckoutQueryHandler(precheckout))
+    application.add_handler(CommandHandler("admin", admin))
+    application.add_handler(CommandHandler("grant", grant))
+    application.add_handler(CommandHandler("revoke", revoke))
+    application.add_handler(CommandHandler("ban", ban))
+    application.add_handler(CommandHandler("unban", unban))
 
-    app.add_handler(
+    application.add_handler(CallbackQueryHandler(buttons))
+
+    application.add_handler(
+        PreCheckoutQueryHandler(precheckout)
+    )
+
+    application.add_handler(
         MessageHandler(
             filters.SUCCESSFUL_PAYMENT,
             successful_payment
         )
     )
 
-    return app
+    return application
 
 
 async def run_bot():
-    app = build_application()
+    application = build_application()
 
-    await app.initialize()
-    await app.start()
-    await app.updater.start_polling()
+    await application.initialize()
+    await application.start()
+
+    if application.updater:
+        await application.updater.start_polling()
+
+    logger.info("NEON RUSH Telegram bot is running.")
 
     try:
-        while True:
-            await asyncio.sleep(3600)
+        await asyncio.Event().wait()
     finally:
-        await app.updater.stop()
-        await app.stop()
-        await app.shutdown()
+        if application.updater:
+            await application.updater.stop()
+
+        await application.stop()
+        await application.shutdown()
