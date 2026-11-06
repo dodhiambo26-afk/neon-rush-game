@@ -1,76 +1,827 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-<title>Neon Rush 3D — Racing</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta name="theme-color" content="#10182a">
+<title>NEON RUSH 3D Racing</title>
+
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+
 <style>
-*{box-sizing:border-box}body{margin:0;overflow:hidden;background:#10182a;font-family:system-ui,Arial;color:#fff}canvas{display:block}
-#hud{position:fixed;top:12px;left:12px;right:12px;display:flex;justify-content:space-between;z-index:2;pointer-events:none}.pill{background:#101b31d9;border:1px solid #ffffff40;border-radius:14px;padding:8px 12px;font-weight:850;box-shadow:0 4px 14px #0005}
-#hint{position:fixed;top:60px;left:50%;transform:translateX(-50%);z-index:2;background:#101b31c9;border-radius:12px;padding:7px 12px;font-size:12px;white-space:nowrap}
-#controls{position:fixed;bottom:18px;left:14px;right:14px;display:flex;justify-content:space-between;align-items:end;z-index:3;touch-action:none}
-.pad{display:flex;gap:10px}.btn{width:68px;height:68px;border:1px solid #ffffff75;border-radius:18px;background:#142b4bdd;color:white;font-size:25px;font-weight:900;box-shadow:0 5px 12px #0005;touch-action:none}
-#nitro{width:82px;height:82px;border-radius:50%;background:#ed7628e8;font-size:14px}
-#overlay{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#071020b8;z-index:5;padding:18px}.panel{max-width:430px;text-align:center;background:linear-gradient(145deg,#203a68,#101b35);border:1px solid #ffffff45;border-radius:24px;padding:24px;box-shadow:0 20px 60px #0008}.panel h1{font-size:clamp(28px,7vw,43px);margin:0 0 8px}.panel p{line-height:1.5;color:#dbe7ff}#start{background:#ffb52e;border:0;border-radius:14px;padding:14px 24px;font-weight:900;font-size:17px;color:#241600}
-#bar{position:fixed;bottom:112px;left:50%;transform:translateX(-50%);width:150px;height:8px;border-radius:9px;background:#ffffff55;overflow:hidden;z-index:2}#fill{height:100%;width:100%;background:#40e7ff}
-</style></head>
+*{box-sizing:border-box}
+body{margin:0;overflow:hidden;background:#10182a;font-family:system-ui,Arial;color:#fff}
+canvas{display:block}
+
+#hud{
+position:fixed;top:12px;left:12px;right:12px;
+display:flex;justify-content:space-between;
+gap:6px;z-index:2;pointer-events:none
+}
+.pill{
+background:#101b31e8;border:1px solid #ffffff40;
+border-radius:14px;padding:8px 10px;
+font-weight:850;font-size:12px;
+box-shadow:0 4px 14px #0005
+}
+#hint{
+position:fixed;top:60px;left:50%;
+transform:translateX(-50%);z-index:2;
+background:#101b31e8;border-radius:12px;
+padding:7px 12px;font-size:12px;
+white-space:nowrap;max-width:94%;
+overflow:hidden;text-overflow:ellipsis
+}
+#controls{
+position:fixed;bottom:18px;left:14px;right:14px;
+display:flex;justify-content:space-between;
+align-items:end;z-index:3;touch-action:none
+}
+.pad{display:flex;gap:10px}
+.btn{
+width:68px;height:68px;border:1px solid #ffffff75;
+border-radius:18px;background:#142b4bdd;color:white;
+font-size:25px;font-weight:900;
+box-shadow:0 5px 12px #0005;touch-action:none
+}
+#nitro{
+width:82px;height:82px;border-radius:50%;
+background:#ed7628e8;font-size:14px
+}
+#overlay{
+position:fixed;inset:0;display:flex;
+align-items:center;justify-content:center;
+background:#071020b8;z-index:5;padding:18px
+}
+.panel{
+max-width:430px;text-align:center;
+background:linear-gradient(145deg,#203a68,#101b35);
+border:1px solid #ffffff45;border-radius:24px;
+padding:24px;box-shadow:0 20px 60px #0008
+}
+.panel h1{font-size:clamp(28px,7vw,43px);margin:0 0 8px}
+.panel p{line-height:1.5;color:#dbe7ff}
+#start{
+background:#ffb52e;border:0;border-radius:14px;
+padding:14px 24px;font-weight:900;
+font-size:17px;color:#241600
+}
+#authStatus{
+font-size:12px;color:#8deaff;
+overflow-wrap:anywhere
+}
+#bar{
+position:fixed;bottom:112px;left:50%;
+transform:translateX(-50%);width:150px;height:8px;
+border-radius:9px;background:#ffffff55;
+overflow:hidden;z-index:2
+}
+#fill{height:100%;width:100%;background:#40e7ff}
+</style>
+</head>
+
 <body>
-<div id="hud"><div class="pill">🏁 NEON RUSH</div><div class="pill">SCORE <span id="score">0</span></div><div class="pill">❤️ <span id="lives">3</span></div></div>
+
+<div id="hud">
+  <div class="pill">🏁 NEON RUSH</div>
+  <div class="pill">👤 <span id="playerName">GUEST</span></div>
+  <div class="pill">SCORE <span id="score">0</span></div>
+  <div class="pill">❤️ <span id="lives">3</span></div>
+</div>
+
 <div id="hint">Dodge traffic • Collect coins • Reach the finish!</div>
+
 <div id="bar"><div id="fill"></div></div>
-<div id="controls"><div class="pad"><button class="btn" id="left">◀</button><button class="btn" id="right">▶</button></div><button class="btn" id="nitro">⚡<br>NITRO</button></div>
-<div id="overlay"><div class="panel"><h1>🏎️ NEON RUSH 3D</h1><p>Race through the neon highway! Dodge traffic, collect golden coins and use nitro to speed up.</p><p><b>Controls:</b> left/right arrows to steer. Hold NITRO for a burst of speed.</p><button id="start">START RACE</button></div></div>
+
+<div id="controls">
+  <div class="pad">
+    <button class="btn" id="left">◀</button>
+    <button class="btn" id="right">▶</button>
+  </div>
+  <button class="btn" id="nitro">⚡<br>NITRO</button>
+</div>
+
+<div id="overlay">
+  <div class="panel">
+    <h1>🏎️ NEON RUSH 3D</h1>
+    <p>Race through the neon highway! Dodge traffic, collect golden coins and use nitro to speed up.</p>
+    <p><b>Controls:</b> Left/right arrows to steer. Hold NITRO for a burst of speed.</p>
+    <p id="authStatus">Connecting to Telegram...</p>
+    <button id="start">START RACE</button>
+  </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+
 <script>
-(()=> {
-const scene=new THREE.Scene();scene.background=new THREE.Color(0x91b8dc);scene.fog=new THREE.Fog(0x91b8dc,28,105);
-const camera=new THREE.PerspectiveCamera(62,innerWidth/innerHeight,.1,180);
-const renderer=new THREE.WebGLRenderer({antialias:true});renderer.setSize(innerWidth,innerHeight);renderer.setPixelRatio(Math.min(devicePixelRatio,1.7));renderer.shadowMap.enabled=true;renderer.outputColorSpace=THREE.SRGBColorSpace;document.body.appendChild(renderer.domElement);
-scene.add(new THREE.HemisphereLight(0xd9efff,0x35415c,2));let sun=new THREE.DirectionalLight(0xffffff,2.4);sun.position.set(-8,18,9);sun.castShadow=true;scene.add(sun);
-const mat=(c,r=.7,m=0)=>new THREE.MeshStandardMaterial({color:c,roughness:r,metalness:m});
-const roadMat=mat(0x252b38),lineMat=mat(0xf2f5ff),grass=mat(0x397a50),coinMat=new THREE.MeshStandardMaterial({color:0xffc928,metalness:.8,roughness:.22,emissive:0x6b3900,emissiveIntensity:.25});
-function box(w,h,d,m,x,y,z){let o=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),m);o.position.set(x,y,z);o.castShadow=true;o.receiveShadow=true;scene.add(o);return o}
-function cyl(rt,rb,h,m,x,y,z){let o=new THREE.Mesh(new THREE.CylinderGeometry(rt,rb,h,12),m);o.position.set(x,y,z);o.castShadow=true;scene.add(o);return o}
-box(200,.2,180,grass,0,-.25,-40);box(12,.25,150,roadMat,0,-.08,-35);
-for(let x of [-2,2])for(let z=-110;z<35;z+=8)box(.13,.025,3.5,lineMat,x,.06,z);
-for(let x of [-7,7])box(.5,.5,150,mat(0x1b4b43),x,-.05,-35);
-// skyline scenery
-for(let i=0;i<48;i++){let side=i%2?1:-1,x=side*(10+Math.random()*18),z=-Math.random()*125;let h=3+Math.random()*12;box(2+Math.random()*3,h,2+Math.random()*3,mat([0x435b7d,0x52647c,0x344e67][i%3]),x,h/2-.15,z)}
-// car group
-function makeCar(color){let g=new THREE.Group();let body=new THREE.Mesh(new THREE.BoxGeometry(1.35,.48,2.45),mat(color,.3,.25));body.position.y=.62;body.castShadow=true;g.add(body);
-let cabin=new THREE.Mesh(new THREE.BoxGeometry(1.02,.48,1.05),mat(0x9dd9ef,.22,.2));cabin.position.set(0,1.04,-.12);cabin.castShadow=true;g.add(cabin);
-let bumper=new THREE.Mesh(new THREE.BoxGeometry(1.3,.18,.2),mat(0xe9edf4,.35));bumper.position.set(0,.48,-1.2);g.add(bumper);
-for(let sx of [-.73,.73])for(let sz of [-.78,.78]){let w=new THREE.Mesh(new THREE.CylinderGeometry(.23,.23,.16,12),mat(0x10141c));w.rotation.z=Math.PI/2;w.position.set(sx,.42,sz);g.add(w)}
-for(let sx of [-.43,.43]){let light=new THREE.Mesh(new THREE.BoxGeometry(.25,.13,.06),mat(0xfff0b2,.2));light.position.set(sx,.68,-1.25);g.add(light)}
-scene.add(g);return g}
-const player=makeCar(0xff3e67);player.position.set(0,0,5);
-const traffic=[];const colors=[0x23c9e8,0xffb52e,0x9d7cff,0xeeeeee,0x58d68d];
-function spawnTraffic(z){let lane=[-3.1,0,3.1][Math.floor(Math.random()*3)];let c=makeCar(colors[Math.floor(Math.random()*colors.length)]);c.position.set(lane,0,z);traffic.push(c)}
-for(let i=0;i<5;i++)spawnTraffic(-22-i*19);
-const coins=[];for(let i=0;i<24;i++){let c=cyl(.38,.38,.13,coinMat,[-3.1,0,3.1][i%3],1.15,-14-i*8);c.rotation.x=Math.PI/2;coins.push(c)}
-let score=0,lives=3,speed=23,active=false,over=false,nitro=100,steer=0;const held={left:false,right:false,nitro:false};
-const startBtn=document.getElementById('start'),overlay=document.getElementById('overlay');
-function reset(){score=0;lives=3;speed=23;nitro=100;player.position.x=0;traffic.forEach((c,i)=>{c.position.set([-3.1,0,3.1][Math.floor(Math.random()*3)],0,-22-i*19)});coins.forEach((c,i)=>{c.visible=true;c.position.set([-3.1,0,3.1][i%3],1.15,-14-i*8)});document.getElementById('score').textContent=0;document.getElementById('lives').textContent=3;document.getElementById('fill').style.width='100%';}
-startBtn.onclick=()=>{if(over)reset();over=false;active=true;overlay.style.display='none';startBtn.textContent='RACE AGAIN'};
-function bind(id,key){let el=document.getElementById(id);el.addEventListener('pointerdown',e=>{e.preventDefault();held[key]=true});['pointerup','pointercancel','pointerleave'].forEach(ev=>el.addEventListener(ev,()=>held[key]=false))}
-bind('left','left');bind('right','right');bind('nitro','nitro');
-addEventListener('keydown',e=>{if(['ArrowLeft','KeyA'].includes(e.code))held.left=true;if(['ArrowRight','KeyD'].includes(e.code))held.right=true;if(e.code==='Space'||e.code==='ShiftLeft')held.nitro=true});
-addEventListener('keyup',e=>{if(['ArrowLeft','KeyA'].includes(e.code))held.left=false;if(['ArrowRight','KeyD'].includes(e.code))held.right=false;if(e.code==='Space'||e.code==='ShiftLeft')held.nitro=false});
-let last=performance.now(),spawnTimer=0;
-function endRace(title,msg){active=false;over=true;overlay.style.display='flex';overlay.querySelector('h1').textContent=title;overlay.querySelector('p').textContent=msg;startBtn.textContent='RACE AGAIN'}
-function frame(now){requestAnimationFrame(frame);let dt=Math.min((now-last)/1000,.04);last=now;if(active){
-let boosting=held.nitro&&nitro>0;if(boosting)nitro=Math.max(0,nitro-34*dt);else nitro=Math.min(100,nitro+12*dt);
-let currentSpeed=speed*(boosting?1.65:1);player.position.x+=(Number(held.right)-Number(held.left))*9*dt;player.position.x=THREE.MathUtils.clamp(player.position.x,-4.2,4.2);player.rotation.z=THREE.MathUtils.lerp(player.rotation.z,(Number(held.left)-Number(held.right))*.16,.15);
-document.getElementById('fill').style.width=nitro+'%';
-for(let o of traffic){o.position.z+=currentSpeed*dt;if(o.position.z>12){o.position.z=-95-Math.random()*30;o.position.x=[-3.1,0,3.1][Math.floor(Math.random()*3)]}
-if(Math.abs(o.position.z-player.position.z)<1.65&&Math.abs(o.position.x-player.position.x)<1.25){o.position.z=-100-Math.random()*20;lives--;document.getElementById('lives').textContent=lives;if(lives<=0){endRace('💥 RACE OVER','You ran out of lives. Try again and dodge the traffic!');break}}
+(() => {
+
+// =====================================
+// TELEGRAM PLAYER VERIFICATION
+// =====================================
+
+const BACKEND_URL =
+"https://neon-rush-backend-u1te.onrender.com";
+
+const telegramApp =
+window.Telegram && window.Telegram.WebApp;
+
+const authStatus =
+document.getElementById("authStatus");
+
+const playerName =
+document.getElementById("playerName");
+
+let verifiedPlayer = null;
+
+async function authenticateTelegram() {
+
+  if (!telegramApp || !telegramApp.initData) {
+
+    authStatus.textContent =
+    "Open NEON RUSH through @NeonRushGamingBot to verify your player account.";
+
+    return;
+  }
+
+  telegramApp.ready();
+  telegramApp.expand();
+
+  try {
+
+    const response = await fetch(
+      BACKEND_URL + "/api/auth/telegram",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          initData: telegramApp.initData
+        })
+      }
+    );
+
+    const result = await response.json();
+
+    if (!response.ok || !result.success) {
+      throw new Error(
+        result.error || "Verification failed"
+      );
+    }
+
+    verifiedPlayer = result.player;
+
+    const name =
+      verifiedPlayer.firstName ||
+      verifiedPlayer.username ||
+      "Racer";
+
+    playerName.textContent = name;
+
+    authStatus.textContent =
+      "✓ Telegram player verified: " + name;
+
+    document.getElementById("hint").textContent =
+      "Welcome " + name + "! Enjoy NEON RUSH.";
+
+  } catch (error) {
+
+    verifiedPlayer = null;
+
+    authStatus.textContent =
+      "Telegram verification failed. Please reopen the game from Telegram.";
+
+    console.error("Telegram authentication error:", error);
+  }
 }
-for(let c of coins){c.rotation.z+=dt*3;c.position.z+=currentSpeed*dt;if(c.position.z>10){c.position.z=-160-Math.random()*30;c.position.x=[-3.1,0,3.1][Math.floor(Math.random()*3)];c.visible=true}
-if(c.visible&&Math.abs(c.position.z-player.position.z)<1.3&&Math.abs(c.position.x-player.position.x)<1.1){c.visible=false;score+=10;document.getElementById('score').textContent=score}}
-speed=Math.min(34,speed+dt*.08);
+
+authenticateTelegram();
+
+
+// =====================================
+// THREE.JS GAME ENGINE
+// =====================================
+
+const scene = new THREE.Scene();
+
+scene.background = new THREE.Color(0x91b8dc);
+scene.fog = new THREE.Fog(0x91b8dc, 28, 105);
+
+const camera = new THREE.PerspectiveCamera(
+  62,
+  innerWidth / innerHeight,
+  0.1,
+  180
+);
+
+const renderer = new THREE.WebGLRenderer({
+  antialias: true
+});
+
+renderer.setSize(innerWidth, innerHeight);
+
+renderer.setPixelRatio(
+  Math.min(devicePixelRatio, 1.7)
+);
+
+renderer.shadowMap.enabled = true;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+document.body.appendChild(renderer.domElement);
+
+
+// =====================================
+// LIGHTING
+// =====================================
+
+scene.add(
+  new THREE.HemisphereLight(
+    0xd9efff,
+    0x35415c,
+    2
+  )
+);
+
+let sun = new THREE.DirectionalLight(
+  0xffffff,
+  2.4
+);
+
+sun.position.set(-8, 18, 9);
+sun.castShadow = true;
+
+scene.add(sun);
+
+
+// =====================================
+// MATERIALS AND OBJECTS
+// =====================================
+
+const mat = (c, r = 0.7, m = 0) =>
+  new THREE.MeshStandardMaterial({
+    color: c,
+    roughness: r,
+    metalness: m
+  });
+
+const roadMat = mat(0x252b38);
+const lineMat = mat(0xf2f5ff);
+const grass = mat(0x397a50);
+
+const coinMat =
+new THREE.MeshStandardMaterial({
+  color: 0xffc928,
+  metalness: 0.8,
+  roughness: 0.22,
+  emissive: 0x6b3900,
+  emissiveIntensity: 0.25
+});
+
+function box(w,h,d,m,x,y,z) {
+
+  let o = new THREE.Mesh(
+    new THREE.BoxGeometry(w,h,d),
+    m
+  );
+
+  o.position.set(x,y,z);
+  o.castShadow = true;
+  o.receiveShadow = true;
+
+  scene.add(o);
+
+  return o;
 }
-camera.position.lerp(new THREE.Vector3(player.position.x*.25,6.3,11.5),.08);camera.lookAt(player.position.x*.2,.5,-5);
-renderer.render(scene,camera)}
+
+function cyl(rt,rb,h,m,x,y,z) {
+
+  let o = new THREE.Mesh(
+    new THREE.CylinderGeometry(rt,rb,h,12),
+    m
+  );
+
+  o.position.set(x,y,z);
+  o.castShadow = true;
+
+  scene.add(o);
+
+  return o;
+}
+
+
+// =====================================
+// ROAD AND ENVIRONMENT
+// =====================================
+
+box(200,.2,180,grass,0,-.25,-40);
+box(12,.25,150,roadMat,0,-.08,-35);
+
+for(let x of [-2,2]) {
+  for(let z=-110;z<35;z+=8) {
+    box(.13,.025,3.5,lineMat,x,.06,z);
+  }
+}
+
+for(let x of [-7,7]) {
+  box(.5,.5,150,mat(0x1b4b43),x,-.05,-35);
+}
+
+// City skyline
+
+for(let i=0;i<48;i++) {
+
+  let side = i%2 ? 1 : -1;
+
+  let x = side*(10+Math.random()*18);
+  let z = -Math.random()*125;
+
+  let h = 3+Math.random()*12;
+
+  box(
+    2+Math.random()*3,
+    h,
+    2+Math.random()*3,
+    mat([0x435b7d,0x52647c,0x344e67][i%3]),
+    x,
+    h/2-.15,
+    z
+  );
+}
+
+
+// =====================================
+// CAR CREATION
+// =====================================
+
+function makeCar(color) {
+
+  let g = new THREE.Group();
+
+  let body = new THREE.Mesh(
+    new THREE.BoxGeometry(1.35,.48,2.45),
+    mat(color,.3,.25)
+  );
+
+  body.position.y = .62;
+  body.castShadow = true;
+  g.add(body);
+
+  let cabin = new THREE.Mesh(
+    new THREE.BoxGeometry(1.02,.48,1.05),
+    mat(0x9dd9ef,.22,.2)
+  );
+
+  cabin.position.set(0,1.04,-.12);
+  cabin.castShadow = true;
+  g.add(cabin);
+
+  let bumper = new THREE.Mesh(
+    new THREE.BoxGeometry(1.3,.18,.2),
+    mat(0xe9edf4,.35)
+  );
+
+  bumper.position.set(0,.48,-1.2);
+  g.add(bumper);
+
+  for(let sx of [-.73,.73]) {
+
+    for(let sz of [-.78,.78]) {
+
+      let w = new THREE.Mesh(
+        new THREE.CylinderGeometry(.23,.23,.16,12),
+        mat(0x10141c)
+      );
+
+      w.rotation.z = Math.PI/2;
+      w.position.set(sx,.42,sz);
+
+      g.add(w);
+    }
+  }
+
+  for(let sx of [-.43,.43]) {
+
+    let light = new THREE.Mesh(
+      new THREE.BoxGeometry(.25,.13,.06),
+      mat(0xfff0b2,.2)
+    );
+
+    light.position.set(sx,.68,-1.25);
+    g.add(light);
+  }
+
+  scene.add(g);
+
+  return g;
+}
+
+
+// =====================================
+// PLAYER CAR
+// =====================================
+
+const player = makeCar(0xff3e67);
+
+player.position.set(0,0,5);
+
+
+// =====================================
+// TRAFFIC
+// =====================================
+
+const traffic = [];
+
+const colors = [
+  0x23c9e8,
+  0xffb52e,
+  0x9d7cff,
+  0xeeeeee,
+  0x58d68d
+];
+
+function spawnTraffic(z) {
+
+  let lane = [-3.1,0,3.1][
+    Math.floor(Math.random()*3)
+  ];
+
+  let c = makeCar(
+    colors[Math.floor(Math.random()*colors.length)]
+  );
+
+  c.position.set(lane,0,z);
+
+  traffic.push(c);
+}
+
+for(let i=0;i<5;i++) {
+  spawnTraffic(-22-i*19);
+}
+
+
+// =====================================
+// COINS
+// =====================================
+
+const coins = [];
+
+for(let i=0;i<24;i++) {
+
+  let c = cyl(
+    .38,.38,.13,
+    coinMat,
+    [-3.1,0,3.1][i%3],
+    1.15,
+    -14-i*8
+  );
+
+  c.rotation.x = Math.PI/2;
+
+  coins.push(c);
+}
+
+
+// =====================================
+// GAME VARIABLES
+// =====================================
+
+let score = 0;
+let lives = 3;
+let speed = 23;
+
+let active = false;
+let over = false;
+
+let nitro = 100;
+
+const held = {
+  left:false,
+  right:false,
+  nitro:false
+};
+
+const startBtn =
+document.getElementById("start");
+
+const overlay =
+document.getElementById("overlay");
+
+
+// =====================================
+// RESET GAME
+// =====================================
+
+function reset() {
+
+  score = 0;
+  lives = 3;
+  speed = 23;
+  nitro = 100;
+
+  player.position.x = 0;
+
+  traffic.forEach((c,i) => {
+
+    c.position.set(
+      [-3.1,0,3.1][Math.floor(Math.random()*3)],
+      0,
+      -22-i*19
+    );
+
+  });
+
+  coins.forEach((c,i) => {
+
+    c.visible = true;
+
+    c.position.set(
+      [-3.1,0,3.1][i%3],
+      1.15,
+      -14-i*8
+    );
+
+  });
+
+  document.getElementById("score").textContent = 0;
+  document.getElementById("lives").textContent = 3;
+
+  document.getElementById("fill").style.width = "100%";
+}
+
+
+// =====================================
+// START BUTTON
+// =====================================
+
+startBtn.onclick = () => {
+
+  if(over) reset();
+
+  over = false;
+  active = true;
+
+  overlay.style.display = "none";
+
+  startBtn.textContent = "RACE AGAIN";
+};
+
+
+// =====================================
+// MOBILE CONTROLS
+// =====================================
+
+function bind(id,key) {
+
+  let el = document.getElementById(id);
+
+  el.addEventListener("pointerdown",e => {
+
+    e.preventDefault();
+
+    held[key] = true;
+
+  });
+
+  ["pointerup","pointercancel","pointerleave"].forEach(ev => {
+
+    el.addEventListener(ev,() => {
+      held[key] = false;
+    });
+
+  });
+}
+
+bind("left","left");
+bind("right","right");
+bind("nitro","nitro");
+
+
+// Keyboard controls
+
+addEventListener("keydown",e => {
+
+  if(["ArrowLeft","KeyA"].includes(e.code))
+    held.left = true;
+
+  if(["ArrowRight","KeyD"].includes(e.code))
+    held.right = true;
+
+  if(e.code==="Space" || e.code==="ShiftLeft")
+    held.nitro = true;
+
+});
+
+addEventListener("keyup",e => {
+
+  if(["ArrowLeft","KeyA"].includes(e.code))
+    held.left = false;
+
+  if(["ArrowRight","KeyD"].includes(e.code))
+    held.right = false;
+
+  if(e.code==="Space" || e.code==="ShiftLeft")
+    held.nitro = false;
+
+});
+
+
+// =====================================
+// GAME OVER
+// =====================================
+
+function endRace(title,msg) {
+
+  active = false;
+  over = true;
+
+  overlay.style.display = "flex";
+
+  overlay.querySelector("h1").textContent = title;
+  overlay.querySelector("p").textContent = msg;
+
+  startBtn.textContent = "RACE AGAIN";
+}
+
+
+// =====================================
+// GAME LOOP
+// =====================================
+
+let last = performance.now();
+
+function frame(now) {
+
+  requestAnimationFrame(frame);
+
+  let dt = Math.min(
+    (now-last)/1000,
+    .04
+  );
+
+  last = now;
+
+  if(active) {
+
+    let boosting =
+      held.nitro && nitro>0;
+
+    if(boosting) {
+      nitro = Math.max(0,nitro-34*dt);
+    } else {
+      nitro = Math.min(100,nitro+12*dt);
+    }
+
+    let currentSpeed =
+      speed*(boosting?1.65:1);
+
+    // Player steering
+
+    player.position.x +=
+      (Number(held.right)-Number(held.left))*9*dt;
+
+    player.position.x =
+      THREE.MathUtils.clamp(
+        player.position.x,
+        -4.2,
+        4.2
+      );
+
+    player.rotation.z =
+      THREE.MathUtils.lerp(
+        player.rotation.z,
+        (Number(held.left)-Number(held.right))*.16,
+        .15
+      );
+
+    document.getElementById("fill").style.width =
+      nitro+"%";
+
+
+    // Traffic movement
+
+    for(let o of traffic) {
+
+      o.position.z += currentSpeed*dt;
+
+      if(o.position.z>12) {
+
+        o.position.z =
+          -95-Math.random()*30;
+
+        o.position.x =
+          [-3.1,0,3.1][Math.floor(Math.random()*3)];
+      }
+
+      // Collision detection
+
+      if(
+        Math.abs(o.position.z-player.position.z)<1.65 &&
+        Math.abs(o.position.x-player.position.x)<1.25
+      ) {
+
+        o.position.z =
+          -100-Math.random()*20;
+
+        lives--;
+
+        document.getElementById("lives").textContent =
+          lives;
+
+        if(lives<=0) {
+
+          endRace(
+            "💥 RACE OVER",
+            "You ran out of lives. Try again and dodge the traffic!"
+          );
+
+          break;
+        }
+      }
+    }
+
+
+    // Coin collection
+
+    for(let c of coins) {
+
+      c.rotation.z += dt*3;
+
+      c.position.z += currentSpeed*dt;
+
+      if(c.position.z>10) {
+
+        c.position.z =
+          -160-Math.random()*30;
+
+        c.position.x =
+          [-3.1,0,3.1][Math.floor(Math.random()*3)];
+
+        c.visible = true;
+      }
+
+      if(
+        c.visible &&
+        Math.abs(c.position.z-player.position.z)<1.3 &&
+        Math.abs(c.position.x-player.position.x)<1.1
+      ) {
+
+        c.visible = false;
+
+        score += 10;
+
+        document.getElementById("score").textContent =
+          score;
+      }
+    }
+
+    speed = Math.min(34,speed+dt*.08);
+  }
+
+
+  // Camera
+
+  camera.position.lerp(
+    new THREE.Vector3(
+      player.position.x*.25,
+      6.3,
+      11.5
+    ),
+    .08
+  );
+
+  camera.lookAt(
+    player.position.x*.2,
+    .5,
+    -5
+  );
+
+  renderer.render(scene,camera);
+}
+
 requestAnimationFrame(frame);
-addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight)});
+
+
+// =====================================
+// SCREEN RESIZE
+// =====================================
+
+addEventListener("resize",() => {
+
+  camera.aspect =
+    innerWidth/innerHeight;
+
+  camera.updateProjectionMatrix();
+
+  renderer.setSize(
+    innerWidth,
+    innerHeight
+  );
+
+});
+
 })();
-</script></body></html>
+</script>
+
+</body>
+</html>
