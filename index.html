@@ -101,11 +101,13 @@ let coins = 0;
 let lives = 3;
 let raceStartedAt = 0;
 
-/* SOUND SYSTEM */
+/* PREMIUM ARCADE SOUND SYSTEM */
 let soundEnabled = true;
 let audioContext = null;
 let engineOscillator = null;
+let engineHarmonic = null;
 let engineGain = null;
+let engineFilter = null;
 
 function getAudio() {
  if(!soundEnabled) return null;
@@ -115,74 +117,151 @@ function getAudio() {
   if(!audioContext) audioContext = new AudioClass();
   if(audioContext.state === "suspended") audioContext.resume();
   return audioContext;
- } catch(e) {
-  return null;
- }
+ } catch(e) { return null; }
 }
 
-function playSound(frequency,duration,type="sine",volume=0.07) {
- const audio = getAudio();
- if(!audio) return;
-
+function makeTone(freq,endFreq,duration,type,volume,delay=0) {
+ const a=getAudio();
+ if(!a) return;
  try {
-  const oscillator = audio.createOscillator();
-  const gain = audio.createGain();
+  const t=a.currentTime+delay;
+  const osc=a.createOscillator();
+  const gain=a.createGain();
 
-  oscillator.type = type;
-  oscillator.frequency.setValueAtTime(frequency,audio.currentTime);
+  osc.type=type;
+  osc.frequency.setValueAtTime(freq,t);
+  osc.frequency.exponentialRampToValueAtTime(Math.max(1,endFreq),t+duration);
 
-  gain.gain.setValueAtTime(volume,audio.currentTime);
-  gain.gain.exponentialRampToValueAtTime(0.001,audio.currentTime+duration);
+  gain.gain.setValueAtTime(0.0001,t);
+  gain.gain.exponentialRampToValueAtTime(volume,t+0.018);
+  gain.gain.exponentialRampToValueAtTime(0.0001,t+duration);
 
-  oscillator.connect(gain);
-  gain.connect(audio.destination);
-
-  oscillator.start();
-  oscillator.stop(audio.currentTime+duration);
+  osc.connect(gain);
+  gain.connect(a.destination);
+  osc.start(t);
+  osc.stop(t+duration+0.03);
  } catch(e) {}
 }
 
-function startEngineSound() {
- const audio = getAudio();
- if(!audio || engineOscillator) return;
+function playStartSound() {
+ makeTone(75,390,0.55,"sawtooth",0.045);
+ makeTone(150,620,0.48,"triangle",0.035,0.08);
+ makeTone(520,1040,0.20,"sine",0.025,0.42);
+}
+
+function playCoinSound() {
+ makeTone(784,1175,0.12,"sine",0.045);
+ makeTone(1175,1568,0.16,"sine",0.04,0.09);
+ makeTone(1568,2093,0.18,"triangle",0.025,0.19);
+}
+
+function playCrashSound() {
+ const a=getAudio();
+ if(!a) return;
 
  try {
-  engineOscillator = audio.createOscillator();
-  engineGain = audio.createGain();
+  const length=Math.floor(a.sampleRate*0.28);
+  const buffer=a.createBuffer(1,length,a.sampleRate);
+  const data=buffer.getChannelData(0);
 
-  engineOscillator.type = "sawtooth";
-  engineOscillator.frequency.value = 65;
-  engineGain.gain.value = 0.018;
+  for(let i=0;i<length;i++) {
+   const fade=1-i/length;
+   data[i]=(Math.random()*2-1)*fade*fade;
+  }
 
-  engineOscillator.connect(engineGain);
-  engineGain.connect(audio.destination);
+  const noise=a.createBufferSource();
+  const filter=a.createBiquadFilter();
+  const gain=a.createGain();
+
+  noise.buffer=buffer;
+  filter.type="lowpass";
+  filter.frequency.setValueAtTime(700,a.currentTime);
+  filter.frequency.exponentialRampToValueAtTime(90,a.currentTime+0.25);
+
+  gain.gain.setValueAtTime(0.16,a.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.001,a.currentTime+0.27);
+
+  noise.connect(filter);
+  filter.connect(gain);
+  gain.connect(a.destination);
+
+  noise.start();
+  noise.stop(a.currentTime+0.29);
+ } catch(e) {}
+
+ makeTone(125,42,0.24,"triangle",0.07);
+}
+
+function startEngineSound() {
+ const a=getAudio();
+ if(!a || engineOscillator) return;
+
+ try {
+  engineOscillator=a.createOscillator();
+  engineHarmonic=a.createOscillator();
+  engineGain=a.createGain();
+  engineFilter=a.createBiquadFilter();
+
+  engineOscillator.type="sawtooth";
+  engineHarmonic.type="triangle";
+
+  engineOscillator.frequency.value=72;
+  engineHarmonic.frequency.value=144;
+
+  engineFilter.type="lowpass";
+  engineFilter.frequency.value=300;
+
+  engineGain.gain.value=0.0001;
+
+  engineOscillator.connect(engineFilter);
+  engineHarmonic.connect(engineFilter);
+  engineFilter.connect(engineGain);
+  engineGain.connect(a.destination);
+
+  engineGain.gain.setTargetAtTime(0.018,a.currentTime,0.35);
+
   engineOscillator.start();
+  engineHarmonic.start();
  } catch(e) {
-  engineOscillator = null;
-  engineGain = null;
+  stopEngineSound();
  }
+}
+
+function updateEngineSound(speed) {
+ if(!engineOscillator || !audioContext) return;
+
+ const a=audioContext;
+ const pitch=66+Math.min(85,speed*7.5);
+
+ engineOscillator.frequency.setTargetAtTime(pitch,a.currentTime,0.12);
+ engineHarmonic.frequency.setTargetAtTime(pitch*2,a.currentTime,0.12);
+ engineFilter.frequency.setTargetAtTime(260+speed*48,a.currentTime,0.16);
 }
 
 function stopEngineSound() {
  try {
+  if(engineGain && audioContext) {
+   engineGain.gain.setTargetAtTime(0.0001,audioContext.currentTime,0.04);
+  }
   if(engineOscillator) engineOscillator.stop();
+  if(engineHarmonic) engineHarmonic.stop();
  } catch(e) {}
 
- engineOscillator = null;
- engineGain = null;
+ engineOscillator=null;
+ engineHarmonic=null;
+ engineGain=null;
+ engineFilter=null;
 }
 
 soundBtn.addEventListener("click",()=>{
- soundEnabled = !soundEnabled;
- soundBtn.textContent = soundEnabled ? "🔊 SOUND ON" : "🔇 SOUND OFF";
+ soundEnabled=!soundEnabled;
+ soundBtn.textContent=soundEnabled ? "🔊 SOUND ON" : "🔇 SOUND OFF";
 
  if(!soundEnabled) {
   stopEngineSound();
- } else if(active) {
-  startEngineSound();
-  playSound(660,0.1);
  } else {
-  playSound(660,0.1);
+  if(active) startEngineSound();
+  makeTone(660,990,0.13,"sine",0.035);
  }
 });
 
@@ -318,7 +397,6 @@ function drawGame() {
  ctx.fillStyle = "#071326";
  ctx.fillRect(0,0,W,H);
 
- /* CITY */
  ctx.fillStyle = "#101e36";
 
  for(let i=0;i<12;i++) {
@@ -328,7 +406,6 @@ function drawGame() {
   ctx.fillRect(x,H*0.25-bh,bw,bh);
  }
 
- /* ROAD */
  const road = roadDimensions();
 
  ctx.fillStyle = "#171e2d";
@@ -338,7 +415,6 @@ function drawGame() {
  ctx.fillRect(road.left,0,3,H);
  ctx.fillRect(road.left+road.width-3,0,3,H);
 
- /* ROAD MARKINGS */
  ctx.fillStyle = "#9bb4c7";
 
  for(let divider=1;divider<=2;divider++) {
@@ -349,16 +425,13 @@ function drawGame() {
   }
  }
 
- /* PLAYER */
  const playerY = H*0.78;
  drawCar(laneX(lane),playerY,"#00cfff",true);
 
- /* TRAFFIC */
  for(const car of traffic) {
   drawCar(laneX(car.lane),car.y,car.color,false);
  }
 
- /* COINS */
  for(const coin of pickups) {
   drawCoin(laneX(coin.lane),coin.y);
  }
@@ -598,7 +671,6 @@ function spawnTraffic() {
  if(traffic.length>=MAX_TRAFFIC) return;
 
  const colors = ["#ff3355","#ffb52e","#9b59ff","#36e27b"];
-
  const chosenLane = Math.floor(Math.random()*3);
 
  traffic.push({
@@ -692,23 +764,21 @@ function gameLoop(time) {
 
 /* ENDLESS RACING */
 function updateGame(delta) {
- /* Speed gradually increases as the player scores more points. */
  const speed = Math.min(10,4.2+score/180);
 
  roadOffset += speed*delta;
+ updateEngineSound(speed);
 
  trafficTimer += delta;
  coinTimer += delta;
  distanceTimer += delta;
 
- /* Distance points: one point every 30 game frames. */
  if(distanceTimer>=30) {
   score += 1;
   distanceTimer = 0;
   updateHUD();
  }
 
- /* Traffic appears more frequently as the score rises. */
  const trafficInterval = Math.max(38,68-score/35);
 
  if(trafficTimer>trafficInterval && traffic.length<MAX_TRAFFIC) {
@@ -716,7 +786,6 @@ function updateGame(delta) {
   trafficTimer = 0;
  }
 
- /* More frequent coin appearances. */
  const coinInterval = Math.max(24,42-score/80);
 
  if(coinTimer>coinInterval && pickups.length<MAX_COINS) {
@@ -727,7 +796,6 @@ function updateGame(delta) {
  const playerY = H*0.78;
  const carHeight = 62;
 
- /* TRAFFIC MOVEMENT AND COLLISIONS */
  for(let i=traffic.length-1;i>=0;i--) {
   const car = traffic[i];
   car.y += speed*delta;
@@ -739,7 +807,7 @@ function updateGame(delta) {
    traffic.splice(i,1);
    lives--;
 
-   playSound(115,0.25,"sawtooth",0.10);
+   playCrashSound();
    updateHUD();
    setStatus("Collision! Watch out for traffic!");
 
@@ -756,7 +824,6 @@ function updateGame(delta) {
   }
  }
 
- /* COIN MOVEMENT AND COLLECTION */
  for(let i=pickups.length-1;i>=0;i--) {
   const coin = pickups[i];
   coin.y += speed*delta;
@@ -769,7 +836,7 @@ function updateGame(delta) {
    coins++;
    score += 10;
 
-   playSound(880,0.10,"sine",0.08);
+   playCoinSound();
    updateHUD();
    setStatus("🪙 Coin collected! +10 points");
    continue;
@@ -830,9 +897,8 @@ startBtn.addEventListener("click",event=>{
  scoreSubmitted = false;
  raceStartedAt = Date.now();
 
- /* Audio starts after the player's button press. */
  startEngineSound();
- playSound(520,0.12,"square",0.045);
+ playStartSound();
 
  overlay.style.display = "none";
  $("retrySave").style.display = "none";
