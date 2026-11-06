@@ -25,18 +25,33 @@ import database as db
 
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
+
 WEBAPP_URL = os.getenv(
     "WEBAPP_URL",
     "https://dodhiambo26-afk.github.io/neon-rush-game/"
 )
 
+ADMIN_DASHBOARD_URL = os.getenv(
+    "ADMIN_DASHBOARD_URL",
+    "https://dodhiambo26-afk.github.io/neon-rush-game/admin.html"
+)
+
 TOURNAMENT_PRICE = 8
 
-ADMIN_IDS = {
-    int(value.strip())
-    for value in os.getenv("ADMIN_IDS", "").split(",")
-    if value.strip().isdigit()
-}
+
+# Supports both ADMIN_ID and ADMIN_IDS in Render.
+ADMIN_IDS = set()
+
+for env_name in ("ADMIN_ID", "ADMIN_IDS"):
+    for value in os.getenv(env_name, "").split(","):
+        value = value.strip()
+        if value.isdigit():
+            ADMIN_IDS.add(int(value))
+
+
+def is_admin(uid):
+    return uid in ADMIN_IDS
+
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -51,8 +66,8 @@ def tournament_url():
     return WEBAPP_URL + separator + "mode=tournament"
 
 
-def free_keyboard():
-    return InlineKeyboardMarkup([
+def free_keyboard(uid=None):
+    keyboard = [
         [
             InlineKeyboardButton(
                 "🏎 PLAY FREE GAME",
@@ -75,11 +90,32 @@ def free_keyboard():
                 callback_data="profile"
             )
         ]
+    ]
+
+    if uid is not None and is_admin(uid):
+        keyboard.append([
+            InlineKeyboardButton(
+                "⚙️ ADMIN DASHBOARD",
+                web_app=WebAppInfo(url=ADMIN_DASHBOARD_URL)
+            )
+        ])
+
+    return InlineKeyboardMarkup(keyboard)
+
+
+def admin_keyboard():
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton(
+                "⚙️ OPEN ADMIN DASHBOARD",
+                web_app=WebAppInfo(url=ADMIN_DASHBOARD_URL)
+            )
+        ]
     ])
 
 
-def tournament_keyboard():
-    return InlineKeyboardMarkup([
+def tournament_keyboard(uid=None):
+    keyboard = [
         [
             InlineKeyboardButton(
                 "🏁 ENTER TOURNAMENT",
@@ -98,7 +134,17 @@ def tournament_keyboard():
                 callback_data="menu"
             )
         ]
-    ])
+    ]
+
+    if uid is not None and is_admin(uid):
+        keyboard.append([
+            InlineKeyboardButton(
+                "⚙️ ADMIN DASHBOARD",
+                web_app=WebAppInfo(url=ADMIN_DASHBOARD_URL)
+            )
+        ])
+
+    return InlineKeyboardMarkup(keyboard)
 
 
 def main_text():
@@ -134,7 +180,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(
         main_text(),
-        reply_markup=free_keyboard()
+        reply_markup=free_keyboard(user.id)
     )
 
 
@@ -151,7 +197,7 @@ async def send_tournament_invoice(
         await query.message.reply_text(
             "✅ You have already entered today's tournament!\n\n"
             "Your 8-Star entry is valid until 6:00 AM Kenya time.",
-            reply_markup=tournament_keyboard()
+            reply_markup=tournament_keyboard(user.id)
         )
         return
 
@@ -182,6 +228,7 @@ async def leaderboard_message(
     uid=None
 ):
     session = db.tournament_session()
+
     rows = db.list_top_scores(
         limit=10,
         session_key=session["key"]
@@ -194,7 +241,10 @@ async def leaderboard_message(
     )
 
     if not rows:
-        message += "No tournament scores yet. Be the first racer!\n"
+        message += (
+            "No tournament scores yet. "
+            "Be the first racer!\n"
+        )
     else:
         medals = ["🥇", "🥈", "🥉"]
 
@@ -211,13 +261,18 @@ async def leaderboard_message(
             )
 
     if uid is not None:
-        player = db.get_player_ranking(uid, session["key"])
+        player = db.get_player_ranking(
+            uid,
+            session["key"]
+        )
 
         message += "\n━━━━━━━━━━━━━━━━━━\n"
         message += "👤 YOUR POSITION\n"
 
         if player["position"] is None:
-            message += "You have not posted a tournament score yet.\n"
+            message += (
+                "You have not posted a tournament score yet.\n"
+            )
         else:
             message += (
                 f"Rank: #{player['position']}\n"
@@ -257,7 +312,7 @@ async def buttons(
     if action == "menu":
         await query.message.reply_text(
             main_text(),
-            reply_markup=free_keyboard()
+            reply_markup=free_keyboard(user.id)
         )
 
     elif action == "tournament":
@@ -266,7 +321,7 @@ async def buttons(
         if db.has_tournament_entry(user.id, session["key"]):
             await query.message.reply_text(
                 "✅ Your tournament entry is active!",
-                reply_markup=tournament_keyboard()
+                reply_markup=tournament_keyboard(user.id)
             )
         else:
             await send_tournament_invoice(update, context)
@@ -280,6 +335,7 @@ async def buttons(
 
     elif action == "profile":
         session = db.tournament_session()
+
         entry = db.has_tournament_entry(
             user.id,
             session["key"]
@@ -297,7 +353,8 @@ async def buttons(
             "━━━━━━━━━━━━━━━━━━\n"
             f"Name: {name}\n"
             f"Telegram ID: {user.id}\n\n"
-            f"Tournament entry: {'ACTIVE' if entry else 'NOT ENTERED'}\n"
+            f"Tournament entry: "
+            f"{'ACTIVE' if entry else 'NOT ENTERED'}\n"
             f"Best tournament score: {player['score']}\n"
         )
 
@@ -306,7 +363,7 @@ async def buttons(
 
         await query.message.reply_text(
             text,
-            reply_markup=free_keyboard()
+            reply_markup=free_keyboard(user.id)
         )
 
 
@@ -329,7 +386,10 @@ async def precheckout(
         )
         return
 
-    if query.currency != "XTR" or query.total_amount != TOURNAMENT_PRICE:
+    if (
+        query.currency != "XTR"
+        or query.total_amount != TOURNAMENT_PRICE
+    ):
         await query.answer(
             ok=False,
             error_message="Invalid tournament payment amount."
@@ -339,7 +399,9 @@ async def precheckout(
     if db.is_banned(query.from_user.id):
         await query.answer(
             ok=False,
-            error_message="Your account cannot enter this tournament."
+            error_message=(
+                "Your account cannot enter this tournament."
+            )
         )
         return
 
@@ -363,7 +425,10 @@ async def successful_payment(
         )
         return
 
-    if payment.currency != "XTR" or payment.total_amount != TOURNAMENT_PRICE:
+    if (
+        payment.currency != "XTR"
+        or payment.total_amount != TOURNAMENT_PRICE
+    ):
         await update.message.reply_text(
             "The payment amount could not be verified. "
             "Please contact support."
@@ -388,13 +453,15 @@ async def successful_payment(
             "tournament day.\n\n"
             "Your best single-game score counts on the leaderboard.\n"
             "Your entry ends at 6:00 AM Kenya time.",
-            reply_markup=tournament_keyboard()
+            reply_markup=tournament_keyboard(user.id)
         )
+
     elif not inserted:
         await update.message.reply_text(
             "This payment was already processed. "
             "If you need help, contact support."
         )
+
     else:
         await update.message.reply_text(
             "Payment was received, but entry activation needs attention. "
@@ -415,7 +482,12 @@ async def admin(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE
 ):
-    if update.effective_user.id not in ADMIN_IDS:
+    uid = update.effective_user.id
+
+    if not is_admin(uid):
+        await update.message.reply_text(
+            "⛔ You are not authorized to access the admin panel."
+        )
         return
 
     stats = db.get_stats()
@@ -425,7 +497,9 @@ async def admin(
         f"Players: {stats['players']}\n"
         f"Payments: {stats['payments']}\n"
         f"Stars received: {stats['stars']}\n"
-        f"Today's tournament entries: {stats['tournament_entries']}"
+        f"Tournament entries: {stats['tournament_entries']}\n\n"
+        "Use the secure dashboard for full administration.",
+        reply_markup=admin_keyboard()
     )
 
 
@@ -433,7 +507,7 @@ async def grant(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE
 ):
-    if update.effective_user.id not in ADMIN_IDS:
+    if not is_admin(update.effective_user.id):
         return
 
     if not context.args or not context.args[0].isdigit():
@@ -443,6 +517,7 @@ async def grant(
         return
 
     uid = int(context.args[0])
+
     db.grant_tournament_entry(uid)
 
     await update.message.reply_text(
@@ -455,7 +530,7 @@ async def revoke(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE
 ):
-    if update.effective_user.id not in ADMIN_IDS:
+    if not is_admin(update.effective_user.id):
         return
 
     if not context.args or not context.args[0].isdigit():
@@ -469,10 +544,12 @@ async def revoke(
 
     with db._lock:
         con = db.connect()
+
         con.execute("""
             DELETE FROM tournament_entries
             WHERE telegram_id=? AND session_key=?
         """, (uid, session["key"]))
+
         con.commit()
         con.close()
 
@@ -485,7 +562,7 @@ async def ban(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE
 ):
-    if update.effective_user.id not in ADMIN_IDS:
+    if not is_admin(update.effective_user.id):
         return
 
     if not context.args or not context.args[0].isdigit():
@@ -495,6 +572,13 @@ async def ban(
         return
 
     uid = int(context.args[0])
+
+    if is_admin(uid):
+        await update.message.reply_text(
+            "You cannot ban a configured administrator."
+        )
+        return
+
     db.set_banned(uid, True)
 
     await update.message.reply_text(
@@ -506,7 +590,7 @@ async def unban(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE
 ):
-    if update.effective_user.id not in ADMIN_IDS:
+    if not is_admin(update.effective_user.id):
         return
 
     if not context.args or not context.args[0].isdigit():
@@ -516,6 +600,7 @@ async def unban(
         return
 
     uid = int(context.args[0])
+
     db.set_banned(uid, False)
 
     await update.message.reply_text(
@@ -537,7 +622,8 @@ async def post_init(application: Application):
         ("start", "Open NEON RUSH"),
         ("leaderboard", "View today's leaderboard"),
         ("myid", "Show your Telegram user ID"),
-        ("paysupport", "Payment assistance")
+        ("paysupport", "Payment assistance"),
+        ("admin", "Open administrator dashboard")
     ])
 
 
@@ -554,7 +640,9 @@ async def command_leaderboard(
 
 def build_application():
     if not BOT_TOKEN:
-        raise RuntimeError("BOT_TOKEN environment variable is missing.")
+        raise RuntimeError(
+            "BOT_TOKEN environment variable is missing."
+        )
 
     application = (
         Application.builder()
@@ -564,7 +652,9 @@ def build_application():
     )
 
     application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("leaderboard", command_leaderboard))
+    application.add_handler(
+        CommandHandler("leaderboard", command_leaderboard)
+    )
     application.add_handler(CommandHandler("myid", myid))
     application.add_handler(CommandHandler("paysupport", paysupport))
 
@@ -603,6 +693,7 @@ async def run_bot():
 
     try:
         await asyncio.Event().wait()
+
     finally:
         if application.updater:
             await application.updater.stop()
