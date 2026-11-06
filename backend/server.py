@@ -1,15 +1,14 @@
 
 import os
-import asyncio
-import hashlib
 import hmac
 import json
-import time
+import hashlib
+import asyncio
 
-from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from urllib.parse import parse_qsl
 
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -20,151 +19,67 @@ from bot import run_bot
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 MAX_AUTH_AGE = 86400
+TOURNAMENT_STARS = 8
 
 
-# =====================================
-# TELEGRAM AUTHENTICATION
-# =====================================
-
-def verify_telegram_data(init_data: str):
-
+def verify_telegram_data(init_data):
     if not BOT_TOKEN or not init_data:
         return None
 
     try:
+        data = dict(parse_qsl(init_data, keep_blank_values=True))
 
-        pairs = dict(parse_qsl(init_data, keep_blank_values=True))
-
-        received_hash = pairs.pop("hash", None)
-        auth_date = int(pairs.get("auth_date", "0"))
-
-        if not received_hash or time.time() - auth_date > MAX_AUTH_AGE:
+        received_hash = data.pop("hash", None)
+        if not received_hash:
             return None
 
-        if auth_date > time.time() + 60:
+        auth_date = int(data.get("auth_date", "0"))
+        now = int(datetime.now(timezone.utc).timestamp())
+
+        if auth_date > now + 60:
             return None
 
-        data_check = "\n".join(
+        if now - auth_date > MAX_AUTH_AGE:
+            return None
+
+        data_check_string = "\n".join(
             f"{key}={value}"
-            for key, value in sorted(pairs.items())
+            for key, value in sorted(data.items())
         )
 
-        secret = hmac.new(
+        secret_key = hmac.new(
             b"WebAppData",
             BOT_TOKEN.encode(),
             hashlib.sha256
         ).digest()
 
-        calculated = hmac.new(
-            secret,
-            data_check.encode(),
+        calculated_hash = hmac.new(
+            secret_key,
+            data_check_string.encode(),
             hashlib.sha256
         ).hexdigest()
 
-        if not hmac.compare_digest(calculated, received_hash):
+        if not hmac.compare_digest(calculated_hash, received_hash):
             return None
 
-        user = json.loads(pairs["user"])
+        user_data = json.loads(data.get("user", "{}"))
 
-        return user if isinstance(user, dict) and user.get("id") else None
+        if not user_data.get("id"):
+            return None
 
-    except (
-        ValueError,
-        KeyError,
-        TypeError,
-        json.JSONDecodeError
-    ):
+        return user_data
+
+    except (ValueError, TypeError, json.JSONDecodeError):
         return None
 
 
-# =====================================
-# DATABASE AND BOT STARTUP
-# =====================================
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-
-    db.init_db()
-
-    task = asyncio.create_task(run_bot())
-    app.state.bot_task = task
-
-    try:
-        yield
-
-    finally:
-
-        task.cancel()
-
-        try:
-            await task
-        except asyncio.CancelledError:
-            pass
-
-
-# =====================================
-# FASTAPI APPLICATION
-# =====================================
-
-app = FastAPI(
-    title="NEON RUSH API",
-    lifespan=lifespan
-)
-
-
-# =====================================
-# CORS - ALLOW GITHUB PAGES GAME
-# =====================================
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        "https://dodhiambo26-afk.github.io"
-    ],
-    allow_credentials=False,
-    allow_methods=[
-        "GET",
-        "POST",
-        "OPTIONS"
-    ],
-    allow_headers=[
-        "Content-Type",
-        "X-Telegram-Init-Data"
-    ],
-)
-
-
-# =====================================
-# SCORE DATA MODEL
-# =====================================
-
-class ScoreSubmission(BaseModel):
-
-    score: int = Field(
-        ge=0,
-        le=100000
-    )
-
-    mode: str
-
-    duration: int = Field(
-        ge=1,
-        le=3600
-    )
-
-
-# =====================================
-# VERIFY TELEGRAM PLAYER
-# =====================================
-
 def authenticate(init_data):
-
-    user = verify_telegram_data(init_data or "")
+    user = verify_telegram_data(init_data)
 
     if not user:
         raise HTTPException(
             status_code=401,
-            detail="Invalid Telegram authentication"
+            detail="Telegram authentication failed. Open the game through Telegram."
         )
 
     uid = int(user["id"])
@@ -179,151 +94,240 @@ def authenticate(init_data):
     if db.is_banned(uid):
         raise HTTPException(
             status_code=403,
-            detail="Account restricted"
+            detail="Your account has been blocked."
         )
 
     return user
 
 
-# =====================================
-# HOME / HEALTH CHECK
-# =====================================
+def display_name(user):
+    name = " ".join(
+        part for part in [
+            user.get("first_name"),
+            user.get("last_name")
+        ] if part
+    )
+
+    if name:
+        return name
+
+    if user.get("username"):
+        return "@" + user["username"]
+
+    return "Player " + str(user["id"])
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    db.init_db()
+
+    bot_task = asyncio.create_task(run_bot())
+
+    yield
+
+    bot_task.cancel()
+
+
+app = FastAPI(
+    title="Neon Rush Game Backend",
+    lifespan=lifespan
+)
+
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "https://dodhiambo26-afk.github.io"
+    ],
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Content-Type", "X-Telegram-Init-Data"]
+)
+
+
+class ScoreSubmission(BaseModel):
+    score: int = Field(ge=0, le=100000)
+    mode: str = Field(default="free")
+    duration: int = Field(default=0, ge=0, le=3600)
+
 
 @app.get("/")
 def home():
-
     return {
         "status": "online",
         "game": "NEON RUSH",
-        "version": "2.0"
+        "tournament_entry_stars": TOURNAMENT_STARS,
+        "tournament_hours": "6:00 AM to 6:00 AM",
+        "timezone": "Africa/Nairobi"
     }
 
 
-# =====================================
-# TELEGRAM LOGIN
-# =====================================
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
 
 @app.post("/api/auth/telegram")
 def telegram_auth(
-    x_telegram_init_data: str = Header(default="")
+    x_telegram_init_data: str = Header(
+        default="",
+        alias="X-Telegram-Init-Data"
+    )
 ):
-
     user = authenticate(x_telegram_init_data)
-
     uid = int(user["id"])
 
-    record = db.get_user(uid)
-
-    premium = False
-
-    if record and record["premium_until"]:
-
-        expiry = datetime.fromisoformat(
-            record["premium_until"]
-        )
-
-        if expiry.tzinfo is None:
-            expiry = expiry.replace(tzinfo=timezone.utc)
-
-        premium = expiry > datetime.now(timezone.utc)
+    session = db.tournament_session()
+    has_entry = db.has_tournament_entry(uid, session["key"])
 
     return {
         "authenticated": True,
-
         "user": {
             "id": uid,
-            "name": user.get("first_name") or "Player",
-            "username": user.get("username")
+            "username": user.get("username"),
+            "first_name": user.get("first_name"),
+            "last_name": user.get("last_name"),
+            "display_name": display_name(user)
+        },
+        "tournament_access": has_entry,
+        "tournament": {
+            "session": session["key"],
+            "starts_at": session["starts_at"],
+            "ends_at": session["ends_at"],
+            "timezone": "Africa/Nairobi",
+            "entry_price": TOURNAMENT_STARS
         },
 
-        "premium": premium
+        # Temporary compatibility with the previous game version.
+        "premium": has_entry
     }
 
-
-# =====================================
-# SAVE PLAYER SCORE
-# =====================================
 
 @app.post("/api/scores")
 def submit_score(
     submission: ScoreSubmission,
-    x_telegram_init_data: str = Header(default="")
+    x_telegram_init_data: str = Header(
+        default="",
+        alias="X-Telegram-Init-Data"
+    )
 ):
-
     user = authenticate(x_telegram_init_data)
+    uid = int(user["id"])
 
-    if submission.mode not in ("free", "tournament"):
+    mode = submission.mode.lower().strip()
 
+    if mode not in ("free", "tournament"):
         raise HTTPException(
             status_code=400,
-            detail="Invalid game mode"
+            detail="Invalid game mode."
         )
 
-    # Premium verification for tournaments
+    if mode == "tournament":
+        session = db.tournament_session()
 
-    if submission.mode == "tournament":
-
-        record = db.get_user(int(user["id"]))
-
-        if not record or not record["premium_until"]:
-
+        if not db.has_tournament_entry(uid, session["key"]):
             raise HTTPException(
                 status_code=403,
-                detail="Premium required"
+                detail="Tournament entry required. Pay 8 Telegram Stars to enter."
             )
-
-        expiry = datetime.fromisoformat(
-            record["premium_until"]
-        )
-
-        if expiry.tzinfo is None:
-            expiry = expiry.replace(tzinfo=timezone.utc)
-
-        if expiry <= datetime.now(timezone.utc):
-
-            raise HTTPException(
-                status_code=403,
-                detail="Premium membership expired"
-            )
-
-    name = (
-        user.get("first_name")
-        or user.get("username")
-        or "Player"
-    )
 
     db.save_score(
-        int(user["id"]),
-        name,
+        uid,
+        display_name(user),
         submission.score,
-        submission.mode,
+        mode,
         submission.duration
     )
 
-    return {
+    result = {
         "saved": True,
         "score": submission.score,
-        "mode": submission.mode
+        "mode": mode
+    }
+
+    if mode == "tournament":
+        session = db.tournament_session()
+
+        top_rows = db.list_top_scores(
+            limit=10,
+            session_key=session["key"]
+        )
+
+        top_ten = [
+            {
+                "position": index + 1,
+                "telegram_id": int(row["telegram_id"]),
+                "name": row["display_name"],
+                "score": int(row["score"])
+            }
+            for index, row in enumerate(top_rows)
+        ]
+
+        player = db.get_player_ranking(
+            uid,
+            session["key"]
+        )
+
+        result["leaderboard"] = top_ten
+        result["player"] = player
+        result["tournament"] = session
+
+    return result
+
+
+@app.get("/api/leaderboard")
+def leaderboard(
+    x_telegram_init_data: str = Header(
+        default="",
+        alias="X-Telegram-Init-Data"
+    )
+):
+    user = authenticate(x_telegram_init_data)
+    uid = int(user["id"])
+
+    session = db.tournament_session()
+
+    rows = db.list_top_scores(
+        limit=10,
+        session_key=session["key"]
+    )
+
+    top_ten = [
+        {
+            "position": index + 1,
+            "name": row["display_name"],
+            "score": int(row["score"])
+        }
+        for index, row in enumerate(rows)
+    ]
+
+    player = db.get_player_ranking(
+        uid,
+        session["key"]
+    )
+
+    return {
+        "leaderboard": top_ten,
+        "player": player,
+        "tournament": session,
+        "has_entry": db.has_tournament_entry(uid, session["key"])
     }
 
 
-# =====================================
-# GLOBAL LEADERBOARD
-# =====================================
+@app.get("/api/tournament/status")
+def tournament_status(
+    x_telegram_init_data: str = Header(
+        default="",
+        alias="X-Telegram-Init-Data"
+    )
+):
+    user = authenticate(x_telegram_init_data)
+    uid = int(user["id"])
 
-@app.get("/api/leaderboard")
-def leaderboard():
-
-    rows = db.list_top_scores(10)
+    session = db.tournament_session()
 
     return {
-        "leaderboard": [
-            {
-                "position": i,
-                "name": row["display_name"],
-                "score": row["score"]
-            }
-
-            for i, row in enumerate(rows, 1)
-        ]
+        "has_entry": db.has_tournament_entry(uid, session["key"]),
+        "entry_price": TOURNAMENT_STARS,
+        "session": session
     }
