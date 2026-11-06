@@ -2,1045 +2,725 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
+<meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <meta name="theme-color" content="#10182a">
 <title>NEON RUSH 3D Racing</title>
 
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
 
 <style>
 *{box-sizing:border-box}
-body{margin:0;overflow:hidden;background:#10182a;font-family:system-ui,Arial;color:#fff}
+body{margin:0;overflow:hidden;background:#10182a;color:white;font-family:Arial,sans-serif;touch-action:none}
 canvas{display:block}
-
-#hud{
-position:fixed;top:12px;left:12px;right:12px;
-display:flex;justify-content:space-between;
-gap:6px;z-index:2;pointer-events:none
-}
-.pill{
-background:#101b31e8;border:1px solid #ffffff40;
-border-radius:14px;padding:8px 10px;
-font-weight:850;font-size:12px;
-box-shadow:0 4px 14px #0005
-}
-#hint{
-position:fixed;top:60px;left:50%;
-transform:translateX(-50%);z-index:2;
-background:#101b31e8;border-radius:12px;
-padding:7px 12px;font-size:12px;
-white-space:nowrap;max-width:94%;
-overflow:hidden;text-overflow:ellipsis
-}
-#controls{
-position:fixed;bottom:18px;left:14px;right:14px;
-display:flex;justify-content:space-between;
-align-items:end;z-index:3;touch-action:none
-}
-.pad{display:flex;gap:10px}
-.btn{
-width:68px;height:68px;border:1px solid #ffffff75;
-border-radius:18px;background:#142b4bdd;color:white;
-font-size:25px;font-weight:900;
-box-shadow:0 5px 12px #0005;touch-action:none
-}
-#nitro{
-width:82px;height:82px;border-radius:50%;
-background:#ed7628e8;font-size:14px
-}
-#overlay{
-position:fixed;inset:0;display:flex;
-align-items:center;justify-content:center;
-background:#071020b8;z-index:5;padding:18px
-}
-.panel{
-max-width:430px;width:100%;text-align:center;
-background:linear-gradient(145deg,#203a68,#101b35);
-border:1px solid #ffffff45;border-radius:24px;
-padding:24px;box-shadow:0 20px 60px #0008
-}
-.panel h1{font-size:clamp(28px,7vw,43px);margin:0 0 8px}
-.panel p{line-height:1.5;color:#dbe7ff}
-#start{
-background:#ffb52e;border:0;border-radius:14px;
-padding:14px 24px;font-weight:900;
-font-size:17px;color:#241600
-}
-#authStatus{
-font-size:12px;color:#8deaff;
-overflow-wrap:anywhere
-}
-#retrySave{
-margin-top:12px;padding:12px 18px;
-border:1px solid #8deaff;border-radius:12px;
-background:#142b4b;color:white;font-weight:800;
-display:none
-}
-#bar{
-position:fixed;bottom:112px;left:50%;
-transform:translateX(-50%);width:150px;height:8px;
-border-radius:9px;background:#ffffff55;
-overflow:hidden;z-index:2
-}
-#fill{height:100%;width:100%;background:#40e7ff}
+#hud{position:fixed;top:12px;left:12px;right:12px;z-index:3;display:flex;justify-content:space-between;gap:8px;pointer-events:none}
+.stat{background:#101b31dd;border:1px solid #25d9ff66;border-radius:10px;padding:9px 12px;font-size:13px}
+#leaderboardToggle{pointer-events:auto;background:#182b49;color:white;border:1px solid #25d9ff;border-radius:10px;padding:9px 12px;font-weight:bold}
+#status{position:fixed;top:65px;left:12px;right:12px;text-align:center;font-size:12px;color:#8deaff;z-index:3;pointer-events:none}
+#controls{position:fixed;bottom:20px;left:0;right:0;display:flex;justify-content:space-between;padding:0 22px;z-index:3;pointer-events:none}
+.control{width:76px;height:66px;border-radius:16px;border:1px solid #2ce5ff;background:#102642cc;color:white;font-size:28px;pointer-events:auto;touch-action:none}
+#overlay{position:fixed;inset:0;background:#07101de8;display:flex;align-items:center;justify-content:center;z-index:5;padding:20px}
+#menu{width:min(420px,100%);background:#101d34;border:1px solid #24dfff;border-radius:20px;padding:25px;text-align:center;box-shadow:0 0 35px #00cfff33}
+#menu h1{margin:0 0 10px;color:#36e6ff;font-size:30px}
+#menu p{font-size:14px;line-height:1.6;color:#c6d8ec}
+.action{width:100%;padding:15px;margin-top:12px;border:0;border-radius:12px;background:linear-gradient(90deg,#00bde8,#6b4cff);color:white;font-weight:bold;font-size:16px}
+.action:disabled{opacity:.45}
+#retrySave{display:none;background:#253b5d}
+#leaderboardPanel{display:none;position:fixed;top:105px;right:12px;width:min(320px,calc(100vw - 24px));max-height:65vh;overflow:auto;z-index:4;background:#101b31f5;border:1px solid #28dfff;border-radius:14px;padding:14px}
+#leaderboardPanel h3{margin:0 0 10px;color:#39e5ff}
+.lbrow{display:flex;justify-content:space-between;padding:8px 5px;border-bottom:1px solid #ffffff18;font-size:13px;gap:10px}
+#myRank{margin-top:12px;padding:10px;background:#173c50;border-radius:9px;font-size:13px}
+#closeLeaderboard{float:right;background:none;border:0;color:white;font-size:20px}
+#hint{position:fixed;bottom:100px;left:0;right:0;text-align:center;color:#b8d9ef;font-size:12px;pointer-events:none}
 </style>
 </head>
 
 <body>
-
 <div id="hud">
-  <div class="pill">🏁 NEON RUSH</div>
-  <div class="pill">👤 <span id="playerName">GUEST</span></div>
-  <div class="pill">SCORE <span id="score">0</span></div>
-  <div class="pill">❤️ <span id="lives">3</span></div>
+  <div class="stat">🏁 Points: <b id="score">0</b></div>
+  <div class="stat">❤️ Lives: <b id="lives">3</b></div>
+  <div class="stat">🪙 Coins: <b id="coins">0</b></div>
+  <button id="leaderboardToggle">🏆 TOP 10</button>
 </div>
 
-<div id="hint">Dodge traffic • Collect coins • Reach the finish!</div>
+<div id="status">Connecting...</div>
+<div id="hint">Use ◀ ▶ or swipe to steer</div>
 
-<div id="bar"><div id="fill"></div></div>
+<div id="leaderboardPanel">
+  <button id="closeLeaderboard">×</button>
+  <h3>🏆 Tournament Leaderboard</h3>
+  <div id="leaderboardRows">Open the leaderboard to load scores.</div>
+  <div id="myRank">Your position: Not available</div>
+</div>
 
 <div id="controls">
-  <div class="pad">
-    <button class="btn" id="left">◀</button>
-    <button class="btn" id="right">▶</button>
-  </div>
-  <button class="btn" id="nitro">⚡<br>NITRO</button>
+  <button class="control" id="left">◀</button>
+  <button class="control" id="right">▶</button>
 </div>
 
 <div id="overlay">
-  <div class="panel">
-    <h1>🏎️ NEON RUSH 3D</h1>
-    <p id="introText">
-      Race through the neon highway! Dodge traffic,
-      collect golden coins and use nitro to speed up.
-    </p>
-    <p><b>Controls:</b> Left/right arrows to steer. Hold NITRO for a burst of speed.</p>
+  <div id="menu">
+    <h1>🏎️ NEON RUSH</h1>
+    <p id="introText">Race through the neon highway. Avoid traffic and collect coins!</p>
     <p id="authStatus">Connecting to Telegram...</p>
-    <button id="start" disabled>CONNECTING...</button>
-    <br>
-    <button id="retrySave">SAVE SCORE AGAIN</button>
+    <button class="action" id="start" disabled>CONNECTING...</button>
+    <button class="action" id="retrySave">SAVE SCORE AGAIN</button>
+    <p style="font-size:11px;color:#829bb5">Free racing is available. Tournament entry costs 8 Telegram Stars for the daily session (6 AM–6 AM Kenya time).</p>
   </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
-
 <script>
 (() => {
-
 "use strict";
 
-// =====================================
-// BACKEND AND TELEGRAM AUTHENTICATION
-// =====================================
+const BACKEND_URL = "https://neon-rush-game-backend.onrender.com";
+const tg = window.Telegram?.WebApp;
+const initData = tg?.initData || "";
+const params = new URLSearchParams(location.search);
+const gameMode = params.get("mode") === "tournament" ? "tournament" : "free";
 
-const BACKEND_URL =
-"https://neon-rush-game-backend.onrender.com";
-
-const telegramApp =
-window.Telegram && window.Telegram.WebApp;
-
-const authStatus = document.getElementById("authStatus");
-const playerName = document.getElementById("playerName");
-const startBtn = document.getElementById("start");
-const overlay = document.getElementById("overlay");
-const retrySaveBtn = document.getElementById("retrySave");
-
-const urlParams = new URLSearchParams(window.location.search);
-
-const gameMode =
-urlParams.get("mode") === "tournament"
-? "tournament"
-: "free";
+const $ = id => document.getElementById(id);
+const startBtn = $("start");
+const overlay = $("overlay");
+const statusBox = $("status");
 
 let verifiedPlayer = null;
-let premiumPlayer = false;
+let tournamentAccess = false;
 let authReady = false;
-
-let raceStartedAt = 0;
+let authFailed = false;
+let active = false;
+let gameOver = false;
 let scoreSubmitted = false;
-let submissionInProgress = false;
+let score = 0;
+let coins = 0;
+let lives = 3;
+let raceStartedAt = 0;
+let lastSubmitResult = null;
 
 function setStatus(message) {
-  authStatus.textContent = message;
+  statusBox.textContent = message;
+}
+
+function setAuthMessage(message) {
+  $("authStatus").textContent = message;
+}
+
+function playerName() {
+  return verifiedPlayer?.display_name ||
+    verifiedPlayer?.username ||
+    verifiedPlayer?.first_name ||
+    "Racer";
+}
+
+function updateHUD() {
+  $("score").textContent = score;
+  $("lives").textContent = lives;
+  $("coins").textContent = coins;
 }
 
 async function authenticateTelegram() {
+  if (tg) {
+    try {
+      tg.ready();
+      tg.expand();
+    } catch (e) {}
+  }
 
-  if (!telegramApp || !telegramApp.initData) {
-
+  if (!initData) {
     authReady = true;
-
-    setStatus(
-      "Open NEON RUSH through @NeonRushGamingBot to verify your account."
-    );
-
-    startBtn.disabled = false;
-    startBtn.textContent = "PLAY AS GUEST";
-
+    if (gameMode === "tournament") {
+      setAuthMessage("Open this game through @NeonRushGamingBot and purchase the daily tournament pass.");
+      startBtn.textContent = "OPEN THROUGH TELEGRAM";
+      startBtn.disabled = true;
+    } else {
+      setAuthMessage("Guest mode: your score will not be saved to the global leaderboard.");
+      startBtn.textContent = "START FREE GAME";
+      startBtn.disabled = false;
+    }
     return;
   }
 
-  telegramApp.ready();
-  telegramApp.expand();
+  setAuthMessage("Verifying your Telegram account...");
+  startBtn.disabled = true;
+  startBtn.textContent = "VERIFYING...";
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 12000);
 
   try {
+    const response = await fetch(BACKEND_URL + "/api/auth/telegram", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Telegram-Init-Data": initData
+      },
+      body: JSON.stringify({}),
+      signal: controller.signal
+    });
 
-    setStatus("Verifying your Telegram account...");
-
-    const response = await fetch(
-      BACKEND_URL + "/api/auth/telegram",
-      {
-        method: "POST",
-        headers: {
-          "X-Telegram-Init-Data": telegramApp.initData
-        }
-      }
-    );
+    if (!response.ok) throw new Error("Authentication failed (" + response.status + ")");
 
     const result = await response.json();
-
-    if (!response.ok || !result.authenticated) {
-      throw new Error(
-        result.detail || "Telegram verification failed"
-      );
-    }
-
-    verifiedPlayer = result.user;
-    premiumPlayer = result.premium === true;
-
-    const name =
-      verifiedPlayer.name ||
-      verifiedPlayer.username ||
-      "Racer";
-
-    playerName.textContent = name;
-
+    verifiedPlayer = result.user || null;
+    tournamentAccess = result.tournament_access === true;
     authReady = true;
 
-    setStatus("✓ Telegram player verified: " + name);
-
-    document.getElementById("hint").textContent =
-      "Welcome " + name + "! Enjoy NEON RUSH.";
+    if (!verifiedPlayer) throw new Error("Telegram player details were not returned.");
 
     if (gameMode === "tournament") {
-
-      if (premiumPlayer) {
-
-        document.getElementById("introText").textContent =
-          "Premium Tournament mode. Race for the highest score!";
-
+      if (tournamentAccess) {
+        setAuthMessage("Welcome " + playerName() + "! Your daily tournament pass is active.");
         startBtn.textContent = "START TOURNAMENT";
-
+        startBtn.disabled = false;
+        loadLeaderboard();
       } else {
-
-        document.getElementById("introText").textContent =
-          "Tournament access requires an active Premium membership.";
-
-        startBtn.textContent = "PREMIUM REQUIRED";
+        setAuthMessage("You do not have today's tournament pass. Pay 8 Telegram Stars through the bot.");
+        startBtn.textContent = "TOURNAMENT PASS REQUIRED";
         startBtn.disabled = true;
-
-        setStatus(
-          "Your account is verified, but Premium Tournament access is not active."
-        );
-
       }
-
     } else {
-
-      startBtn.textContent = "START RACE";
-
+      setAuthMessage("Welcome " + playerName() + "! You can play for free.");
+      startBtn.textContent = "START FREE GAME";
+      startBtn.disabled = false;
     }
-
   } catch (error) {
-
-    console.error("Authentication error:", error);
-
-    verifiedPlayer = null;
-    premiumPlayer = false;
+    authFailed = true;
     authReady = true;
+    console.error(error);
 
-    setStatus(
-      "Verification failed. Reopen the game through Telegram and try again."
-    );
-
-    startBtn.textContent = "PLAY AS GUEST";
-
+    if (gameMode === "tournament") {
+      setAuthMessage("Could not verify tournament access. Reopen the game through @NeonRushGamingBot.");
+      startBtn.textContent = "VERIFICATION REQUIRED";
+      startBtn.disabled = true;
+    } else {
+      setAuthMessage("Could not connect to the server. You can still play free as a guest.");
+      startBtn.textContent = "START FREE GAME";
+      startBtn.disabled = false;
+    }
+  } finally {
+    clearTimeout(timeout);
   }
-
 }
 
+/* LEADERBOARD */
 
-// =====================================
-// SAVE SCORE TO BACKEND
-// =====================================
+function renderLeaderboard(data) {
+  if (!data) return;
 
-async function submitScore() {
+  const rows = data.leaderboard || data.top || [];
+  const container = $("leaderboardRows");
+  container.replaceChildren();
 
-  if (scoreSubmitted || submissionInProgress) return;
+  if (!rows.length) {
+    container.textContent = "No tournament scores yet. Be the first racer!";
+  } else {
+    rows.slice(0, 10).forEach((item, index) => {
+      const row = document.createElement("div");
+      row.className = "lbrow";
 
-  if (!verifiedPlayer || !telegramApp || !telegramApp.initData) {
+      const rank = document.createElement("span");
+      rank.textContent = "#" + (item.rank || index + 1) + "  " +
+        (item.display_name || item.name || item.username || "Racer");
 
-    setStatus(
-      "Score not saved. Telegram verification is required."
-    );
+      const points = document.createElement("b");
+      points.textContent = Number(item.score ?? item.points ?? 0) + " pts";
 
-    retrySaveBtn.style.display = "none";
-    return;
+      row.append(rank, points);
+      container.appendChild(row);
+    });
   }
 
-  if (gameMode === "tournament" && !premiumPlayer) {
+  const player = data.player || data.my_rank || data.player_ranking;
+  if (player) {
+    const rank = player.rank ?? player.position ?? "—";
+    const points = player.score ?? player.points ?? 0;
+    $("myRank").textContent = "Your position: #" + rank + " | Your best score: " + points + " points";
+  } else {
+    $("myRank").textContent = "Your position will appear after your first tournament game.";
+  }
+}
 
-    setStatus("Premium membership is required for tournament scores.");
+async function loadLeaderboard() {
+  if (!initData || !verifiedPlayer) {
+    $("leaderboardRows").textContent = "Open the game through Telegram to view the leaderboard.";
     return;
   }
-
-  const durationSeconds = Math.floor(
-    (Date.now() - raceStartedAt) / 1000
-  );
-
-  if (durationSeconds < 5) {
-
-    setStatus("Race too short to submit a score.");
-    scoreSubmitted = true;
-    return;
-  }
-
-  submissionInProgress = true;
-  retrySaveBtn.style.display = "none";
-
-  setStatus("Saving your score...");
 
   try {
-
-    const response = await fetch(
-      BACKEND_URL + "/api/scores",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Telegram-Init-Data": telegramApp.initData
-        },
-        body: JSON.stringify({
-          score: score,
-          mode: gameMode,
-          duration: durationSeconds
-        })
-      }
-    );
-
+    const response = await fetch(BACKEND_URL + "/api/leaderboard", {
+      headers: { "X-Telegram-Init-Data": initData }
+    });
+    if (!response.ok) throw new Error("Leaderboard unavailable");
     const result = await response.json();
-
-    if (!response.ok || !result.saved) {
-
-      throw new Error(
-        result.detail || "Score submission failed"
-      );
-
-    }
-
-    scoreSubmitted = true;
-
-    setStatus("✓ Score saved successfully! Your score: " + score);
-
-    document.getElementById("hint").textContent =
-      "Your race score has been saved!";
-
-    retrySaveBtn.style.display = "none";
-
+    renderLeaderboard(result);
   } catch (error) {
+    $("leaderboardRows").textContent = "Could not load leaderboard. Try again.";
+  }
+}
 
-    console.error("Score submission error:", error);
+$("leaderboardToggle").addEventListener("click", () => {
+  const panel = $("leaderboardPanel");
+  const opening = panel.style.display !== "block";
+  panel.style.display = opening ? "block" : "none";
+  if (opening) loadLeaderboard();
+});
 
-    setStatus(
-      "Score saving failed. Check your connection and try again."
-    );
+$("closeLeaderboard").addEventListener("click", () => {
+  $("leaderboardPanel").style.display = "none";
+});
 
-    retrySaveBtn.style.display = "inline-block";
+/* SCORE SUBMISSION */
 
-  } finally {
-
-    submissionInProgress = false;
-
+async function submitScore() {
+  if (scoreSubmitted) return;
+  if (!verifiedPlayer || !initData) {
+    setStatus("Guest score cannot be saved to the global leaderboard.");
+    return;
   }
 
+  if (gameMode === "tournament" && !tournamentAccess) {
+    setStatus("Tournament access is required.");
+    return;
+  }
+
+  const duration = Math.max(1, Math.floor((Date.now() - raceStartedAt) / 1000));
+  if (duration < 5) {
+    setStatus("Race was too short to submit.");
+    return;
+  }
+
+  setStatus("Saving your score...");
+  $("retrySave").style.display = "none";
+
+  try {
+    const response = await fetch(BACKEND_URL + "/api/scores", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Telegram-Init-Data": initData
+      },
+      body: JSON.stringify({
+        score: score,
+        mode: gameMode,
+        duration: duration
+      })
+    });
+
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.detail || "Score could not be saved.");
+
+    scoreSubmitted = true;
+    lastSubmitResult = result;
+
+    if (gameMode === "tournament") {
+      renderLeaderboard(result);
+      $("leaderboardPanel").style.display = "block";
+      setStatus("Score saved! Your tournament leaderboard has been updated.");
+    } else {
+      setStatus("Free game completed. Score: " + score);
+    }
+  } catch (error) {
+    console.error(error);
+    setStatus("Score not saved: " + error.message);
+    $("retrySave").style.display = "block";
+  }
 }
+
+$("retrySave").addEventListener("click", submitScore);
+
+/* THREE.JS GAME */
+
+if (!window.THREE) {
+  setAuthMessage("The 3D game engine could not load. Check your internet connection and reload.");
+  startBtn.disabled = true;
+  setStatus("3D engine unavailable.");
+  return;
+}
+
+let scene, camera, renderer, player;
+let roadLines = [];
+let traffic = [];
+let pickups = [];
+let scenery = [];
+let playerLane = 0;
+let targetX = 0;
+let worldSpeed = 0.55;
+let spawnTimer = 0;
+let coinTimer = 0;
+let lastFrame = 0;
+let swipeStartX = null;
+
+const laneWidth = 3;
+const lanePositions = [-laneWidth, 0, laneWidth];
+
+try {
+  scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x071326);
+  scene.fog = new THREE.Fog(0x071326, 25, 120);
+
+  camera = new THREE.PerspectiveCamera(65, innerWidth / innerHeight, 0.1, 200);
+  camera.position.set(0, 7, 12);
+  camera.lookAt(0, 0, -8);
+
+  renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+  renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 1.5));
+  renderer.setSize(innerWidth, innerHeight);
+  renderer.shadowMap.enabled = false;
+  document.body.appendChild(renderer.domElement);
+
+  const ambient = new THREE.HemisphereLight(0x9bcaff, 0x182033, 2);
+  scene.add(ambient);
+
+  const light = new THREE.DirectionalLight(0xffffff, 2);
+  light.position.set(5, 12, 8);
+  scene.add(light);
+
+  const road = new THREE.Mesh(
+    new THREE.PlaneGeometry(12, 220),
+    new THREE.MeshStandardMaterial({ color: 0x151d2d, roughness: 0.85 })
+  );
+  road.rotation.x = -Math.PI / 2;
+  road.position.z = -85;
+  scene.add(road);
+
+  const ground = new THREE.Mesh(
+    new THREE.PlaneGeometry(200, 240),
+    new THREE.MeshStandardMaterial({ color: 0x07101c })
+  );
+  ground.rotation.x = -Math.PI / 2;
+  ground.position.y = -0.08;
+  ground.position.z = -85;
+  scene.add(ground);
+
+  const edgeMaterial = new THREE.MeshStandardMaterial({
+    color: 0x00dfff,
+    emissive: 0x007caa,
+    emissiveIntensity: 1.5
+  });
+
+  [-6.1, 6.1].forEach(x => {
+    const edge = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.08, 220), edgeMaterial);
+    edge.position.set(x, 0.06, -85);
+    scene.add(edge);
+  });
+
+  const lineMaterial = new THREE.MeshStandardMaterial({
+    color: 0x8beeff,
+    emissive: 0x087eaa,
+    emissiveIntensity: 0.8
+  });
+
+  for (let lane = -1; lane <= 1; lane++) {
+    if (lane === 0) continue;
+    for (let i = 0; i < 18; i++) {
+      const line = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.04, 3), lineMaterial);
+      line.position.set(lane * laneWidth / 2, 0.04, -i * 10);
+      scene.add(line);
+      roadLines.push(line);
+    }
+  }
+
+  // Neon city buildings
+  for (let i = 0; i < 38; i++) {
+    [-1, 1].forEach(side => {
+      const height = 4 + Math.random() * 14;
+      const width = 2 + Math.random() * 3;
+      const building = new THREE.Mesh(
+        new THREE.BoxGeometry(width, height, 4 + Math.random() * 5),
+        new THREE.MeshStandardMaterial({
+          color: side === -1 ? 0x142b50 : 0x201b48,
+          emissive: side === -1 ? 0x062e58 : 0x35105c,
+          emissiveIntensity: 0.7
+        })
+      );
+      building.position.set(side * (10 + Math.random() * 9), height / 2, -i * 7 - 5);
+      scene.add(building);
+      scenery.push(building);
+    });
+  }
+
+  function makeCar(color, isPlayer = false) {
+    const group = new THREE.Group();
+
+    const body = new THREE.Mesh(
+      new THREE.BoxGeometry(1.65, 0.65, 3),
+      new THREE.MeshStandardMaterial({
+        color,
+        metalness: 0.55,
+        roughness: 0.3,
+        emissive: color,
+        emissiveIntensity: isPlayer ? 0.22 : 0.05
+      })
+    );
+    body.position.y = 0.65;
+    group.add(body);
+
+    const cabin = new THREE.Mesh(
+      new THREE.BoxGeometry(1.15, 0.65, 1.4),
+      new THREE.MeshStandardMaterial({ color: 0x142b44, metalness: 0.7, roughness: 0.2 })
+    );
+    cabin.position.set(0, 1.2, -0.15);
+    group.add(cabin);
+
+    const wheelMaterial = new THREE.MeshStandardMaterial({ color: 0x080b12 });
+    for (const x of [-0.88, 0.88]) {
+      for (const z of [-0.95, 0.95]) {
+        const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.35, 0.22, 12), wheelMaterial);
+        wheel.rotation.z = Math.PI / 2;
+        wheel.position.set(x, 0.38, z);
+        group.add(wheel);
+      }
+    }
+
+    if (isPlayer) {
+      const glow = new THREE.PointLight(0x00dfff, 2, 7);
+      glow.position.set(0, 1.1, 1.8);
+      group.add(glow);
+    }
+
+    return group;
+  }
+
+  player = makeCar(0x00cfff, true);
+  player.position.set(0, 0, 5);
+  scene.add(player);
+
+} catch (error) {
+  console.error("3D setup error:", error);
+  setAuthMessage("The 3D game could not start. Please reload the page.");
+  startBtn.disabled = true;
+  setStatus("Game setup error.");
+  return;
+}
+
+/* GAME OBJECTS */
+
+function spawnTraffic() {
+  const lane = Math.floor(Math.random() * 3) - 1;
+  const colors = [0xff3355, 0xffb52e, 0x9b59ff, 0x36e27b];
+  const car = makeCar(colors[Math.floor(Math.random() * colors.length)]);
+  car.position.set(lane * laneWidth, 0, -85);
+  scene.add(car);
+  traffic.push(car);
+}
+
+function spawnCoin() {
+  const lane = Math.floor(Math.random() * 3) - 1;
+  const coin = new THREE.Mesh(
+    new THREE.TorusGeometry(0.48, 0.13, 8, 18),
+    new THREE.MeshStandardMaterial({
+      color: 0xffd52a,
+      emissive: 0xff9d00,
+      emissiveIntensity: 1.5,
+      metalness: 0.8
+    })
+  );
+  coin.position.set(lane * laneWidth, 1.2, -85);
+  scene.add(coin);
+  pickups.push(coin);
+}
+
+function moveLane(direction) {
+  if (!active) return;
+  playerLane = Math.max(-1, Math.min(1, playerLane + direction));
+  targetX = playerLane * laneWidth;
+}
+
+function resetGame() {
+  score = 0;
+  coins = 0;
+  lives = 3;
+  playerLane = 0;
+  targetX = 0;
+  worldSpeed = 0.55;
+  spawnTimer = 0;
+  coinTimer = 0;
+  scoreSubmitted = false;
+  gameOver = false;
+  active = false;
+
+  traffic.forEach(item => scene.remove(item));
+  pickups.forEach(item => scene.remove(item));
+  traffic = [];
+  pickups = [];
+
+  player.position.set(0, 0, 5);
+  updateHUD();
+}
+
+function finishRace() {
+  if (gameOver) return;
+
+  active = false;
+  gameOver = true;
+
+  overlay.style.display = "flex";
+  $("introText").textContent = "Race completed! You scored " + score + " points and collected " + coins + " coins.";
+  startBtn.textContent = "RACE AGAIN";
+  startBtn.disabled = false;
+  $("retrySave").style.display = "none";
+
+  if (gameMode === "tournament") {
+    setAuthMessage("Submitting your tournament score...");
+  } else {
+    setAuthMessage("Race complete! Start another free race.");
+  }
+
+  submitScore();
+}
+
+/* BUTTONS */
+
+startBtn.addEventListener("click", event => {
+  event.preventDefault();
+
+  if (!authReady) {
+    setAuthMessage("Still connecting. Please wait a moment.");
+    return;
+  }
+
+  if (gameMode === "tournament" && (!verifiedPlayer || !tournamentAccess)) {
+    setAuthMessage("A valid 8-Star daily tournament pass is required.");
+    return;
+  }
+
+  if (gameOver) resetGame();
+
+  if (active) return;
+
+  active = true;
+  gameOver = false;
+  scoreSubmitted = false;
+  raceStartedAt = Date.now();
+
+  overlay.style.display = "none";
+  $("retrySave").style.display = "none";
+  setStatus(gameMode === "tournament" ? "Tournament race in progress!" : "Free race in progress!");
+});
+
+$("left").addEventListener("pointerdown", e => {
+  e.preventDefault();
+  moveLane(-1);
+});
+$("right").addEventListener("pointerdown", e => {
+  e.preventDefault();
+  moveLane(1);
+});
+
+window.addEventListener("keydown", e => {
+  if (e.key === "ArrowLeft" || e.key.toLowerCase() === "a") moveLane(-1);
+  if (e.key === "ArrowRight" || e.key.toLowerCase() === "d") moveLane(1);
+});
+
+renderer.domElement.addEventListener("touchstart", e => {
+  if (e.touches.length) swipeStartX = e.touches[0].clientX;
+}, { passive: true });
+
+renderer.domElement.addEventListener("touchend", e => {
+  if (swipeStartX === null || !e.changedTouches.length) return;
+  const delta = e.changedTouches[0].clientX - swipeStartX;
+  if (Math.abs(delta) > 25) moveLane(delta > 0 ? 1 : -1);
+  swipeStartX = null;
+}, { passive: true });
+
+/* GAME LOOP */
+
+function animate(time) {
+  requestAnimationFrame(animate);
+
+  const delta = Math.min((time - (lastFrame || time)) / 16.67, 2);
+  lastFrame = time;
+
+  if (active) {
+    worldSpeed = Math.min(1.15, worldSpeed + 0.00015 * delta);
+
+    player.position.x += (targetX - player.position.x) * 0.18 * delta;
+    player.rotation.z = (targetX - player.position.x) * -0.035;
+
+    roadLines.forEach(line => {
+      line.position.z += worldSpeed * 2.5 * delta;
+      if (line.position.z > 12) line.position.z -= 180;
+    });
+
+    scenery.forEach(building => {
+      building.position.z += worldSpeed * 0.8 * delta;
+      if (building.position.z > 15) building.position.z -= 270;
+    });
+
+    spawnTimer += delta;
+    coinTimer += delta;
+
+    if (spawnTimer > Math.max(30, 75 - worldSpeed * 25)) {
+      spawnTraffic();
+      spawnTimer = 0;
+    }
+
+    if (coinTimer > 38) {
+      spawnCoin();
+      coinTimer = 0;
+    }
+
+    traffic.forEach((car, index) => {
+      car.position.z += worldSpeed * 1.7 * delta;
+
+      if (car.position.z > 12) {
+        scene.remove(car);
+        traffic.splice(index, 1);
+        return;
+      }
+
+      const hitX = Math.abs(car.position.x - player.position.x) < 1.45;
+      const hitZ = Math.abs(car.position.z - player.position.z) < 2.1;
+
+      if (hitX && hitZ) {
+        scene.remove(car);
+        traffic.splice(index, 1);
+        lives--;
+        updateHUD();
+        setStatus("Collision! Watch out for traffic!");
+
+        if (lives <= 0) finishRace();
+      }
+    });
+
+    pickups.forEach((coin, index) => {
+      coin.position.z += worldSpeed * 1.7 * delta;
+      coin.rotation.y += 0.08 * delta;
+
+      if (coin.position.z > 12) {
+        scene.remove(coin);
+        pickups.splice(index, 1);
+        return;
+      }
+
+      const hitX = Math.abs(coin.position.x - player.position.x) < 1.2;
+      const hitZ = Math.abs(coin.position.z - player.position.z) < 1.8;
+
+      if (hitX && hitZ) {
+        scene.remove(coin);
+        pickups.splice(index, 1);
+        coins++;
+        score += 10;
+        updateHUD();
+      }
+    });
+  }
+
+  renderer.render(scene, camera);
+}
+
+requestAnimationFrame(animate);
+
+window.addEventListener("resize", () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
 
 authenticateTelegram();
 
-
-// =====================================
-// THREE.JS GAME ENGINE
-// =====================================
-
-const scene = new THREE.Scene();
-
-scene.background = new THREE.Color(0x91b8dc);
-scene.fog = new THREE.Fog(0x91b8dc, 28, 105);
-
-const camera = new THREE.PerspectiveCamera(
-  62,
-  innerWidth / innerHeight,
-  0.1,
-  180
-);
-
-const renderer = new THREE.WebGLRenderer({
-  antialias: true
-});
-
-renderer.setSize(innerWidth, innerHeight);
-
-renderer.setPixelRatio(
-  Math.min(devicePixelRatio, 1.7)
-);
-
-renderer.shadowMap.enabled = true;
-renderer.outputColorSpace = THREE.SRGBColorSpace;
-
-document.body.appendChild(renderer.domElement);
-
-
-// =====================================
-// LIGHTING
-// =====================================
-
-scene.add(
-  new THREE.HemisphereLight(
-    0xd9efff,
-    0x35415c,
-    2
-  )
-);
-
-const sun = new THREE.DirectionalLight(
-  0xffffff,
-  2.4
-);
-
-sun.position.set(-8, 18, 9);
-sun.castShadow = true;
-
-scene.add(sun);
-
-
-// =====================================
-// MATERIALS AND OBJECTS
-// =====================================
-
-const mat = (c, r = 0.7, m = 0) =>
-  new THREE.MeshStandardMaterial({
-    color: c,
-    roughness: r,
-    metalness: m
-  });
-
-const roadMat = mat(0x252b38);
-const lineMat = mat(0xf2f5ff);
-const grass = mat(0x397a50);
-
-const coinMat = new THREE.MeshStandardMaterial({
-  color: 0xffc928,
-  metalness: 0.8,
-  roughness: 0.22,
-  emissive: 0x6b3900,
-  emissiveIntensity: 0.25
-});
-
-function box(w,h,d,m,x,y,z) {
-
-  const o = new THREE.Mesh(
-    new THREE.BoxGeometry(w,h,d),
-    m
-  );
-
-  o.position.set(x,y,z);
-  o.castShadow = true;
-  o.receiveShadow = true;
-
-  scene.add(o);
-
-  return o;
-}
-
-function cyl(rt,rb,h,m,x,y,z) {
-
-  const o = new THREE.Mesh(
-    new THREE.CylinderGeometry(rt,rb,h,12),
-    m
-  );
-
-  o.position.set(x,y,z);
-  o.castShadow = true;
-
-  scene.add(o);
-
-  return o;
-}
-
-
-// =====================================
-// ROAD AND ENVIRONMENT
-// =====================================
-
-box(200,.2,180,grass,0,-.25,-40);
-box(12,.25,150,roadMat,0,-.08,-35);
-
-for(let x of [-2,2]) {
-  for(let z=-110;z<35;z+=8) {
-    box(.13,.025,3.5,lineMat,x,.06,z);
-  }
-}
-
-for(let x of [-7,7]) {
-  box(.5,.5,150,mat(0x1b4b43),x,-.05,-35);
-}
-
-
-// City skyline
-
-for(let i=0;i<48;i++) {
-
-  const side = i%2 ? 1 : -1;
-
-  const x = side*(10+Math.random()*18);
-  const z = -Math.random()*125;
-
-  const h = 3+Math.random()*12;
-
-  box(
-    2+Math.random()*3,
-    h,
-    2+Math.random()*3,
-    mat([0x435b7d,0x52647c,0x344e67][i%3]),
-    x,
-    h/2-.15,
-    z
-  );
-
-}
-
-
-// =====================================
-// CAR CREATION
-// =====================================
-
-function makeCar(color) {
-
-  const g = new THREE.Group();
-
-  const body = new THREE.Mesh(
-    new THREE.BoxGeometry(1.35,.48,2.45),
-    mat(color,.3,.25)
-  );
-
-  body.position.y = .62;
-  body.castShadow = true;
-  g.add(body);
-
-  const cabin = new THREE.Mesh(
-    new THREE.BoxGeometry(1.02,.48,1.05),
-    mat(0x9dd9ef,.22,.2)
-  );
-
-  cabin.position.set(0,1.04,-.12);
-  cabin.castShadow = true;
-  g.add(cabin);
-
-  const bumper = new THREE.Mesh(
-    new THREE.BoxGeometry(1.3,.18,.2),
-    mat(0xe9edf4,.35)
-  );
-
-  bumper.position.set(0,.48,-1.2);
-  g.add(bumper);
-
-  for(let sx of [-.73,.73]) {
-
-    for(let sz of [-.78,.78]) {
-
-      const w = new THREE.Mesh(
-        new THREE.CylinderGeometry(.23,.23,.16,12),
-        mat(0x10141c)
-      );
-
-      w.rotation.z = Math.PI/2;
-      w.position.set(sx,.42,sz);
-
-      g.add(w);
-
-    }
-
-  }
-
-  for(let sx of [-.43,.43]) {
-
-    const light = new THREE.Mesh(
-      new THREE.BoxGeometry(.25,.13,.06),
-      mat(0xfff0b2,.2)
-    );
-
-    light.position.set(sx,.68,-1.25);
-    g.add(light);
-
-  }
-
-  scene.add(g);
-
-  return g;
-}
-
-
-// =====================================
-// PLAYER CAR
-// =====================================
-
-const player = makeCar(0xff3e67);
-player.position.set(0,0,5);
-
-
-// =====================================
-// TRAFFIC
-// =====================================
-
-const traffic = [];
-
-const colors = [
-  0x23c9e8,
-  0xffb52e,
-  0x9d7cff,
-  0xeeeeee,
-  0x58d68d
-];
-
-function spawnTraffic(z) {
-
-  const lane = [-3.1,0,3.1][
-    Math.floor(Math.random()*3)
-  ];
-
-  const c = makeCar(
-    colors[Math.floor(Math.random()*colors.length)]
-  );
-
-  c.position.set(lane,0,z);
-
-  traffic.push(c);
-}
-
-for(let i=0;i<5;i++) {
-  spawnTraffic(-22-i*19);
-}
-
-
-// =====================================
-// COINS
-// =====================================
-
-const coins = [];
-
-for(let i=0;i<24;i++) {
-
-  const c = cyl(
-    .38,.38,.13,
-    coinMat,
-    [-3.1,0,3.1][i%3],
-    1.15,
-    -14-i*8
-  );
-
-  c.rotation.x = Math.PI/2;
-
-  coins.push(c);
-}
-
-
-// =====================================
-// GAME VARIABLES
-// =====================================
-
-let score = 0;
-let lives = 3;
-let speed = 23;
-
-let active = false;
-let over = false;
-
-let nitro = 100;
-
-const held = {
-  left:false,
-  right:false,
-  nitro:false
-};
-
-
-// =====================================
-// RESET GAME
-// =====================================
-
-function reset() {
-
-  score = 0;
-  lives = 3;
-  speed = 23;
-  nitro = 100;
-
-  player.position.x = 0;
-  player.rotation.z = 0;
-
-  traffic.forEach((c,i) => {
-
-    c.position.set(
-      [-3.1,0,3.1][Math.floor(Math.random()*3)],
-      0,
-      -22-i*19
-    );
-
-  });
-
-  coins.forEach((c,i) => {
-
-    c.visible = true;
-
-    c.position.set(
-      [-3.1,0,3.1][i%3],
-      1.15,
-      -14-i*8
-    );
-
-  });
-
-  document.getElementById("score").textContent = 0;
-  document.getElementById("lives").textContent = 3;
-  document.getElementById("fill").style.width = "100%";
-
-  document.getElementById("retrySave").style.display = "none";
-
-  document.getElementById("hint").textContent =
-    "Dodge traffic • Collect coins • Reach the finish!";
-
-}
-
-
-// =====================================
-// START BUTTON
-// =====================================
-
-startBtn.onclick = () => {
-
-  if (!authReady) return;
-
-  if (gameMode === "tournament" &&
-      (!verifiedPlayer || !premiumPlayer)) {
-
-    setStatus("Premium membership is required.");
-    return;
-
-  }
-
-  if (over) reset();
-
-  over = false;
-  active = true;
-
-  raceStartedAt = Date.now();
-
-  scoreSubmitted = false;
-  submissionInProgress = false;
-
-  overlay.style.display = "none";
-
-  startBtn.textContent =
-    gameMode === "tournament"
-    ? "RACE AGAIN"
-    : "RACE AGAIN";
-
-  setStatus(
-    verifiedPlayer
-    ? "Race in progress..."
-    : "Playing as guest. Scores require Telegram verification."
-  );
-
-};
-
-
-// =====================================
-// RETRY SCORE SAVE
-// =====================================
-
-retrySaveBtn.onclick = () => {
-  submitScore();
-};
-
-
-// =====================================
-// MOBILE CONTROLS
-// =====================================
-
-function bind(id,key) {
-
-  const el = document.getElementById(id);
-
-  el.addEventListener("pointerdown",e => {
-    e.preventDefault();
-    held[key] = true;
-  });
-
-  ["pointerup","pointercancel","pointerleave"].forEach(ev => {
-
-    el.addEventListener(ev,() => {
-      held[key] = false;
-    });
-
-  });
-
-}
-
-bind("left","left");
-bind("right","right");
-bind("nitro","nitro");
-
-
-// Keyboard controls
-
-addEventListener("keydown",e => {
-
-  if(["ArrowLeft","KeyA"].includes(e.code))
-    held.left = true;
-
-  if(["ArrowRight","KeyD"].includes(e.code))
-    held.right = true;
-
-  if(e.code==="Space" || e.code==="ShiftLeft")
-    held.nitro = true;
-
-});
-
-addEventListener("keyup",e => {
-
-  if(["ArrowLeft","KeyA"].includes(e.code))
-    held.left = false;
-
-  if(["ArrowRight","KeyD"].includes(e.code))
-    held.right = false;
-
-  if(e.code==="Space" || e.code==="ShiftLeft")
-    held.nitro = false;
-
-});
-
-
-// =====================================
-// GAME OVER
-// =====================================
-
-function endRace(title,msg) {
-
-  if (over) return;
-
-  active = false;
-  over = true;
-
-  overlay.style.display = "flex";
-
-  overlay.querySelector("h1").textContent = title;
-  document.getElementById("introText").textContent = msg;
-
-  startBtn.textContent = "RACE AGAIN";
-
-  submitScore();
-
-}
-
-
-// =====================================
-// GAME LOOP
-// =====================================
-
-let last = performance.now();
-
-function frame(now) {
-
-  requestAnimationFrame(frame);
-
-  const dt = Math.min(
-    (now-last)/1000,
-    .04
-  );
-
-  last = now;
-
-  if(active) {
-
-    const boosting =
-      held.nitro && nitro>0;
-
-    if(boosting) {
-      nitro = Math.max(0,nitro-34*dt);
-    } else {
-      nitro = Math.min(100,nitro+12*dt);
-    }
-
-    const currentSpeed =
-      speed*(boosting?1.65:1);
-
-    // Player steering
-
-    player.position.x +=
-      (Number(held.right)-Number(held.left))*9*dt;
-
-    player.position.x =
-      THREE.MathUtils.clamp(
-        player.position.x,
-        -4.2,
-        4.2
-      );
-
-    player.rotation.z =
-      THREE.MathUtils.lerp(
-        player.rotation.z,
-        (Number(held.left)-Number(held.right))*.16,
-        .15
-      );
-
-    document.getElementById("fill").style.width =
-      nitro+"%";
-
-
-    // Traffic movement
-
-    for(const o of traffic) {
-
-      o.position.z += currentSpeed*dt;
-
-      if(o.position.z>12) {
-
-        o.position.z =
-          -95-Math.random()*30;
-
-        o.position.x =
-          [-3.1,0,3.1][Math.floor(Math.random()*3)];
-
-      }
-
-      // Collision detection
-
-      if(
-        Math.abs(o.position.z-player.position.z)<1.65 &&
-        Math.abs(o.position.x-player.position.x)<1.25
-      ) {
-
-        o.position.z =
-          -100-Math.random()*20;
-
-        lives--;
-
-        document.getElementById("lives").textContent =
-          lives;
-
-        if(lives<=0) {
-
-          endRace(
-            "💥 RACE OVER",
-            "You ran out of lives. Try again and dodge the traffic!"
-          );
-
-          break;
-
-        }
-
-      }
-
-    }
-
-
-    // Coin collection
-
-    for(const c of coins) {
-
-      c.rotation.z += dt*3;
-
-      c.position.z += currentSpeed*dt;
-
-      if(c.position.z>10) {
-
-        c.position.z =
-          -160-Math.random()*30;
-
-        c.position.x =
-          [-3.1,0,3.1][Math.floor(Math.random()*3)];
-
-        c.visible = true;
-
-      }
-
-      if(
-        c.visible &&
-        Math.abs(c.position.z-player.position.z)<1.3 &&
-        Math.abs(c.position.x-player.position.x)<1.1
-      ) {
-
-        c.visible = false;
-
-        score += 10;
-
-        document.getElementById("score").textContent =
-          score;
-
-      }
-
-    }
-
-    speed = Math.min(34,speed+dt*.08);
-
-  }
-
-
-  // Camera
-
-  camera.position.lerp(
-    new THREE.Vector3(
-      player.position.x*.25,
-      6.3,
-      11.5
-    ),
-    .08
-  );
-
-  camera.lookAt(
-    player.position.x*.2,
-    .5,
-    -5
-  );
-
-  renderer.render(scene,camera);
-
-}
-
-requestAnimationFrame(frame);
-
-
-// =====================================
-// SCREEN RESIZE
-// =====================================
-
-addEventListener("resize",() => {
-
-  camera.aspect =
-    innerWidth/innerHeight;
-
-  camera.updateProjectionMatrix();
-
-  renderer.setSize(
-    innerWidth,
-    innerHeight
-  );
-
-});
-
 })();
 </script>
-
 </body>
 </html>
