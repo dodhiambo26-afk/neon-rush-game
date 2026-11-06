@@ -1,25 +1,23 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <meta name="theme-color" content="#10182a">
-<title>NEON RUSH 3D Racing</title>
-
+<title>NEON RUSH Racing</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
 
 <style>
 *{box-sizing:border-box}
-body{margin:0;overflow:hidden;background:#10182a;color:white;font-family:Arial,sans-serif;touch-action:none}
-canvas{display:block}
+body{margin:0;overflow:hidden;background:#071326;color:white;font-family:Arial,sans-serif;touch-action:none}
+canvas{display:block;width:100vw;height:100vh}
 #hud{position:fixed;top:12px;left:10px;right:10px;z-index:3;display:flex;justify-content:space-between;gap:5px;pointer-events:none}
-.stat{background:#101b31dd;border:1px solid #25d9ff66;border-radius:9px;padding:8px;font-size:12px}
+.stat{background:#101b31e8;border:1px solid #25d9ff66;border-radius:9px;padding:8px;font-size:12px}
 #leaderboardToggle{pointer-events:auto;background:#182b49;color:white;border:1px solid #25d9ff;border-radius:9px;padding:8px;font-weight:bold;font-size:11px}
 #status{position:fixed;top:60px;left:10px;right:10px;text-align:center;font-size:12px;color:#8deaff;z-index:3;pointer-events:none}
-#graphicsError{display:none;position:fixed;left:10px;right:10px;top:88px;z-index:10;background:#5b1420;border:1px solid #ff6677;border-radius:10px;padding:12px;color:white;font-size:12px;line-height:1.45;white-space:pre-wrap}
 #controls{position:fixed;bottom:20px;left:0;right:0;display:flex;justify-content:space-between;padding:0 22px;z-index:3;pointer-events:none}
-.control{width:76px;height:66px;border-radius:16px;border:1px solid #2ce5ff;background:#102642cc;color:white;font-size:28px;pointer-events:auto;touch-action:none}
+.control{width:76px;height:66px;border-radius:16px;border:1px solid #2ce5ff;background:#102642dd;color:white;font-size:28px;pointer-events:auto;touch-action:none}
 #overlay{position:fixed;inset:0;background:#07101de8;display:flex;align-items:center;justify-content:center;z-index:5;padding:20px}
 #menu{width:min(420px,100%);background:#101d34;border:1px solid #24dfff;border-radius:20px;padding:23px;text-align:center;box-shadow:0 0 25px #00cfff33}
 #menu h1{margin:0 0 10px;color:#36e6ff;font-size:30px}
@@ -38,6 +36,8 @@ canvas{display:block}
 
 <body>
 
+<canvas id="game"></canvas>
+
 <div id="hud">
  <div class="stat">🏁 Points: <b id="score">0</b></div>
  <div class="stat">❤️ Lives: <b id="lives">3</b></div>
@@ -46,7 +46,6 @@ canvas{display:block}
 </div>
 
 <div id="status">Connecting...</div>
-<div id="graphicsError"></div>
 <div id="hint">Use ◀ ▶ or swipe to steer</div>
 
 <div id="leaderboardPanel">
@@ -76,11 +75,16 @@ canvas{display:block}
 (() => {
 "use strict";
 
+/* SETTINGS */
+
 const BACKEND_URL = "https://neon-rush-game-backend.onrender.com";
 const tg = window.Telegram?.WebApp;
 const initData = tg?.initData || "";
 const gameMode = new URLSearchParams(location.search).get("mode") === "tournament" ? "tournament" : "free";
 const $ = id => document.getElementById(id);
+
+const canvas = $("game");
+const ctx = canvas.getContext("2d",{alpha:false});
 
 const startBtn = $("start");
 const overlay = $("overlay");
@@ -88,21 +92,54 @@ const overlay = $("overlay");
 let verifiedPlayer = null;
 let tournamentAccess = false;
 let authReady = false;
+
 let active = false;
 let gameOver = false;
 let scoreSubmitted = false;
+
 let score = 0;
 let coins = 0;
 let lives = 3;
 let raceStartedAt = 0;
 
-/* GAME LOOP CONTROL */
+/* CANVAS SIZE */
 
-let animationFrameId = 0;
+let W = 0;
+let H = 0;
+let dpr = 1;
+
+function resizeCanvas() {
+ W = window.innerWidth;
+ H = window.innerHeight;
+ dpr = Math.min(window.devicePixelRatio || 1,1.2);
+
+ canvas.width = Math.round(W*dpr);
+ canvas.height = Math.round(H*dpr);
+
+ ctx.setTransform(dpr,0,0,dpr,0,0);
+
+ drawGame();
+}
+
+window.addEventListener("resize",resizeCanvas);
+
+/* GAME STATE */
+
+let lane = 1;
+let traffic = [];
+let pickups = [];
+
+let roadOffset = 0;
+let trafficTimer = 0;
+let coinTimer = 0;
+
+let animationId = 0;
 let animationRunning = false;
-let graphicsLost = false;
-let lastFrame = 0;
-let lastRender = 0;
+let lastTime = 0;
+let swipeStartX = null;
+
+const MAX_TRAFFIC = 3;
+const MAX_COINS = 2;
 
 function setStatus(message) {
  $("status").textContent = message;
@@ -112,14 +149,10 @@ function setAuthMessage(message) {
  $("authStatus").textContent = message;
 }
 
-function showGraphicsError(message) {
- const panel = $("graphicsError");
- panel.textContent = message;
- panel.style.display = "block";
-}
-
-function hideGraphicsError() {
- $("graphicsError").style.display = "none";
+function updateHUD() {
+ $("score").textContent = score;
+ $("lives").textContent = lives;
+ $("coins").textContent = coins;
 }
 
 function playerName() {
@@ -129,26 +162,147 @@ function playerName() {
         "Racer";
 }
 
-function updateHUD() {
- $("score").textContent = score;
- $("lives").textContent = lives;
- $("coins").textContent = coins;
+function laneX(laneNumber) {
+ const roadWidth = Math.min(W*0.84,460);
+ const roadLeft = (W-roadWidth)/2;
+ return roadLeft + roadWidth*(laneNumber+0.5)/3;
+}
+
+function roadDimensions() {
+ const roadWidth = Math.min(W*0.84,460);
+ return {
+  left:(W-roadWidth)/2,
+  width:roadWidth
+ };
+}
+
+/* DRAWING */
+
+function drawCar(x,y,color,playerCar=false) {
+ const width = playerCar ? 42 : 39;
+ const height = playerCar ? 66 : 62;
+
+ ctx.save();
+ ctx.translate(x,y);
+
+ ctx.fillStyle = color;
+ ctx.fillRect(-width/2,-height/2,width,height);
+
+ ctx.fillStyle = "#101b31";
+ ctx.fillRect(-width/2+6,-height/2+9,width-12,18);
+
+ ctx.fillStyle = "#d8f7ff";
+ ctx.fillRect(-width/2+5,-height/2+3,8,5);
+ ctx.fillRect(width/2-13,-height/2+3,8,5);
+
+ ctx.fillStyle = "#080b12";
+ ctx.fillRect(-width/2-4,-height/2+9,5,16);
+ ctx.fillRect(width/2-1,-height/2+9,5,16);
+ ctx.fillRect(-width/2-4,height/2-25,5,16);
+ ctx.fillRect(width/2-1,height/2-25,5,16);
+
+ if(playerCar) {
+  ctx.strokeStyle = "#00eaff";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(-width/2-2,-height/2-2,width+4,height+4);
+ }
+
+ ctx.restore();
+}
+
+function drawCoin(x,y) {
+ ctx.save();
+ ctx.beginPath();
+ ctx.arc(x,y,12,0,Math.PI*2);
+ ctx.fillStyle = "#ffd52a";
+ ctx.fill();
+ ctx.strokeStyle = "#fff3a0";
+ ctx.lineWidth = 3;
+ ctx.stroke();
+
+ ctx.fillStyle = "#9a6200";
+ ctx.font = "bold 14px Arial";
+ ctx.textAlign = "center";
+ ctx.textBaseline = "middle";
+ ctx.fillText("$",x,y+1);
+ ctx.restore();
+}
+
+function drawGame() {
+ if(!ctx || !W || !H) return;
+
+ /* BACKGROUND */
+
+ ctx.fillStyle = "#071326";
+ ctx.fillRect(0,0,W,H);
+
+ /* DISTANT CITY */
+
+ ctx.fillStyle = "#101e36";
+
+ for(let i=0;i<12;i++) {
+  const bw = 25+(i%4)*9;
+  const bh = 50+(i%5)*17;
+  const x = i*(W/11)-10;
+
+  ctx.fillRect(x,H*0.25-bh,bw,bh);
+ }
+
+ /* ROAD */
+
+ const road = roadDimensions();
+
+ ctx.fillStyle = "#171e2d";
+ ctx.fillRect(road.left,0,road.width,H);
+
+ ctx.fillStyle = "#00cfff";
+ ctx.fillRect(road.left,0,3,H);
+ ctx.fillRect(road.left+road.width-3,0,3,H);
+
+ /* ROAD MARKINGS */
+
+ ctx.fillStyle = "#9bb4c7";
+
+ for(let divider=1;divider<=2;divider++) {
+  const x = road.left+road.width*divider/3;
+
+  for(let y=-50+(roadOffset%65);y<H;y+=65) {
+   ctx.fillRect(x-2,y,4,34);
+  }
+ }
+
+ /* PLAYER */
+
+ const playerY = H*0.78;
+ drawCar(laneX(lane),playerY,"#00cfff",true);
+
+ /* TRAFFIC */
+
+ for(const car of traffic) {
+  drawCar(laneX(car.lane),car.y,car.color,false);
+ }
+
+ /* COINS */
+
+ for(const coin of pickups) {
+  drawCoin(laneX(coin.lane),coin.y);
+ }
 }
 
 /* TELEGRAM AUTHENTICATION */
 
 async function authenticateTelegram() {
- if (tg) {
+ if(tg) {
   try {
    tg.ready();
    tg.expand();
   } catch(e) {}
  }
 
- if (!initData) {
+ if(!initData) {
   authReady = true;
 
-  if (gameMode === "tournament") {
+  if(gameMode==="tournament") {
    setAuthMessage("Open through @NeonRushGamingBot and purchase the daily pass.");
    startBtn.textContent = "OPEN THROUGH TELEGRAM";
    startBtn.disabled = true;
@@ -157,6 +311,7 @@ async function authenticateTelegram() {
    startBtn.textContent = "START FREE GAME";
    startBtn.disabled = false;
   }
+
   return;
  }
 
@@ -165,10 +320,10 @@ async function authenticateTelegram() {
  startBtn.textContent = "VERIFYING...";
 
  const controller = new AbortController();
- const timeout = setTimeout(() => controller.abort(),12000);
+ const timeout = setTimeout(()=>controller.abort(),12000);
 
  try {
-  const response = await fetch(BACKEND_URL + "/api/auth/telegram", {
+  const response = await fetch(BACKEND_URL+"/api/auth/telegram",{
    method:"POST",
    headers:{
     "Content-Type":"application/json",
@@ -178,20 +333,24 @@ async function authenticateTelegram() {
    signal:controller.signal
   });
 
-  if (!response.ok) throw new Error("Authentication failed: " + response.status);
+  if(!response.ok) {
+   throw new Error("Authentication failed: "+response.status);
+  }
 
   const result = await response.json();
 
   verifiedPlayer = result.user || null;
   tournamentAccess = result.tournament_access === true;
 
-  if (!verifiedPlayer) throw new Error("Player details missing.");
+  if(!verifiedPlayer) {
+   throw new Error("Player details missing.");
+  }
 
   authReady = true;
 
-  if (gameMode === "tournament") {
-   if (tournamentAccess) {
-    setAuthMessage("Welcome " + playerName() + "! Your tournament pass is active.");
+  if(gameMode==="tournament") {
+   if(tournamentAccess) {
+    setAuthMessage("Welcome "+playerName()+"! Your tournament pass is active.");
     startBtn.textContent = "START TOURNAMENT";
     startBtn.disabled = false;
     loadLeaderboard();
@@ -201,7 +360,7 @@ async function authenticateTelegram() {
     startBtn.disabled = true;
    }
   } else {
-   setAuthMessage("Welcome " + playerName() + "! You can play for free.");
+   setAuthMessage("Welcome "+playerName()+"! You can play for free.");
    startBtn.textContent = "START FREE GAME";
    startBtn.disabled = false;
   }
@@ -210,7 +369,7 @@ async function authenticateTelegram() {
   console.error(error);
   authReady = true;
 
-  if (gameMode === "tournament") {
+  if(gameMode==="tournament") {
    setAuthMessage("Cannot verify tournament access. Reopen through the Telegram bot.");
    startBtn.textContent = "VERIFICATION REQUIRED";
    startBtn.disabled = true;
@@ -228,26 +387,26 @@ async function authenticateTelegram() {
 /* LEADERBOARD */
 
 function renderLeaderboard(data) {
- if (!data) return;
+ if(!data) return;
 
  const rows = data.leaderboard || data.top || [];
  const container = $("leaderboardRows");
 
  container.replaceChildren();
 
- if (!rows.length) {
+ if(!rows.length) {
   container.textContent = "No tournament scores yet.";
  } else {
-  rows.slice(0,10).forEach((item,index) => {
+  rows.slice(0,10).forEach((item,index)=>{
    const row = document.createElement("div");
    row.className = "lbrow";
 
    const name = document.createElement("span");
-   name.textContent = "#" + (item.rank || index + 1) + " " +
+   name.textContent = "#"+(item.rank || index+1)+" "+
     (item.display_name || item.name || item.username || "Racer");
 
    const points = document.createElement("b");
-   points.textContent = Number(item.score ?? item.points ?? 0) + " pts";
+   points.textContent = Number(item.score ?? item.points ?? 0)+" pts";
 
    row.append(name,points);
    container.appendChild(row);
@@ -256,27 +415,27 @@ function renderLeaderboard(data) {
 
  const player = data.player || data.my_rank || data.player_ranking;
 
- if (player) {
-  $("myRank").textContent = "Your position: #" +
-   (player.rank ?? player.position ?? "—") +
-   " | Your best score: " + (player.score ?? player.points ?? 0) + " points";
+ if(player) {
+  $("myRank").textContent = "Your position: #"+
+   (player.rank ?? player.position ?? "—")+
+   " | Your best score: "+(player.score ?? player.points ?? 0)+" points";
  } else {
   $("myRank").textContent = "Your position will appear after your first tournament game.";
  }
 }
 
 async function loadLeaderboard() {
- if (!initData || !verifiedPlayer) {
+ if(!initData || !verifiedPlayer) {
   $("leaderboardRows").textContent = "Open through Telegram to view scores.";
   return;
  }
 
  try {
-  const response = await fetch(BACKEND_URL + "/api/leaderboard", {
+  const response = await fetch(BACKEND_URL+"/api/leaderboard",{
    headers:{"X-Telegram-Init-Data":initData}
   });
 
-  if (!response.ok) throw new Error("Leaderboard unavailable");
+  if(!response.ok) throw new Error("Leaderboard unavailable");
 
   renderLeaderboard(await response.json());
 
@@ -285,37 +444,37 @@ async function loadLeaderboard() {
  }
 }
 
-$("leaderboardToggle").addEventListener("click",() => {
+$("leaderboardToggle").addEventListener("click",()=>{
  const panel = $("leaderboardPanel");
  const opening = panel.style.display !== "block";
 
  panel.style.display = opening ? "block" : "none";
 
- if (opening) loadLeaderboard();
+ if(opening) loadLeaderboard();
 });
 
-$("closeLeaderboard").addEventListener("click",() => {
+$("closeLeaderboard").addEventListener("click",()=>{
  $("leaderboardPanel").style.display = "none";
 });
 
 /* SAVE SCORE */
 
 async function submitScore() {
- if (scoreSubmitted) return;
+ if(scoreSubmitted) return;
 
- if (!verifiedPlayer || !initData) {
+ if(!verifiedPlayer || !initData) {
   setStatus("Guest score cannot be saved to the global leaderboard.");
   return;
  }
 
- if (gameMode === "tournament" && !tournamentAccess) {
+ if(gameMode==="tournament" && !tournamentAccess) {
   setStatus("Tournament access is required.");
   return;
  }
 
- const duration = Math.floor((Date.now() - raceStartedAt) / 1000);
+ const duration = Math.floor((Date.now()-raceStartedAt)/1000);
 
- if (duration < 5) {
+ if(duration<5) {
   setStatus("Race was too short to submit.");
   return;
  }
@@ -324,7 +483,7 @@ async function submitScore() {
  $("retrySave").style.display = "none";
 
  try {
-  const response = await fetch(BACKEND_URL + "/api/scores", {
+  const response = await fetch(BACKEND_URL+"/api/scores",{
    method:"POST",
    headers:{
     "Content-Type":"application/json",
@@ -339,443 +498,200 @@ async function submitScore() {
 
   const result = await response.json();
 
-  if (!response.ok) throw new Error(result.detail || "Score could not be saved.");
+  if(!response.ok) {
+   throw new Error(result.detail || "Score could not be saved.");
+  }
 
   scoreSubmitted = true;
 
-  if (gameMode === "tournament") {
+  if(gameMode==="tournament") {
    renderLeaderboard(result);
    $("leaderboardPanel").style.display = "block";
    setStatus("Score saved! Leaderboard updated.");
   } else {
-   setStatus("Free game completed. Score: " + score);
+   setStatus("Free game completed. Score: "+score);
   }
 
  } catch(error) {
   console.error(error);
-  setStatus("Score not saved: " + error.message);
+  setStatus("Score not saved: "+error.message);
   $("retrySave").style.display = "block";
  }
 }
 
 $("retrySave").addEventListener("click",submitScore);
 
-/* 3D ENGINE */
-
-if (!window.THREE) {
- setAuthMessage("3D engine failed to load. Check your internet connection.");
- startBtn.disabled = true;
- showGraphicsError("The 3D game engine did not load. Check your internet connection and reload.");
- return;
-}
-
-let scene,camera,renderer,player;
-let roadLines = [];
-let traffic = [];
-let pickups = [];
-let scenery = [];
-
-let playerLane = 0;
-let targetX = 0;
-let worldSpeed = 0.55;
-let spawnTimer = 0;
-let coinTimer = 0;
-let swipeStartX = null;
-
-const laneWidth = 3;
-const MAX_TRAFFIC = 3;
-const MAX_COINS = 2;
-
-/* LOW-POWER GRAPHICS */
-
-const carBodyGeometry = new THREE.BoxGeometry(1.65,0.65,3);
-const carCabinGeometry = new THREE.BoxGeometry(1.15,0.65,1.4);
-const wheelGeometry = new THREE.CylinderGeometry(0.35,0.35,0.22,8);
-const wheelMaterial = new THREE.MeshBasicMaterial({color:0x080b12});
-
-const cabinMaterial = new THREE.MeshBasicMaterial({color:0x142b44});
-
-const carMaterials = {};
-
-[0x00cfff,0xff3355,0xffb52e,0x9b59ff,0x36e27b].forEach(color => {
- carMaterials[color] = new THREE.MeshBasicMaterial({color:color});
-});
-
-const coinGeometry = new THREE.TorusGeometry(0.48,0.13,5,10);
-const coinMaterial = new THREE.MeshBasicMaterial({color:0xffd52a});
-
-/* INITIALIZE WORLD */
-
-try {
- scene = new THREE.Scene();
- scene.background = new THREE.Color(0x071326);
-
- camera = new THREE.PerspectiveCamera(65,innerWidth/innerHeight,0.1,160);
- camera.position.set(0,7,12);
- camera.lookAt(0,0,-8);
-
- renderer = new THREE.WebGLRenderer({
-  antialias:false,
-  powerPreference:"low-power",
-  stencil:false,
-  depth:true,
-  alpha:false
- });
-
- renderer.setPixelRatio(0.7);
- renderer.setSize(innerWidth,innerHeight);
- renderer.shadowMap.enabled = false;
-
- document.body.appendChild(renderer.domElement);
-
- const road = new THREE.Mesh(
-  new THREE.PlaneGeometry(12,220),
-  new THREE.MeshBasicMaterial({color:0x151d2d})
- );
-
- road.rotation.x = -Math.PI/2;
- road.position.z = -85;
- scene.add(road);
-
- const ground = new THREE.Mesh(
-  new THREE.PlaneGeometry(200,240),
-  new THREE.MeshBasicMaterial({color:0x07101c})
- );
-
- ground.rotation.x = -Math.PI/2;
- ground.position.y = -0.08;
- ground.position.z = -85;
- scene.add(ground);
-
- const edgeMaterial = new THREE.MeshBasicMaterial({color:0x00cfff});
-
- [-6.1,6.1].forEach(x => {
-  const edge = new THREE.Mesh(
-   new THREE.BoxGeometry(0.12,0.08,220),
-   edgeMaterial
-  );
-
-  edge.position.set(x,0.06,-85);
-  scene.add(edge);
- });
-
- const lineMaterial = new THREE.MeshBasicMaterial({color:0x087eaa});
-
- for (let lane of [-1,1]) {
-  for (let i=0;i<10;i++) {
-   const line = new THREE.Mesh(
-    new THREE.BoxGeometry(0.07,0.04,3),
-    lineMaterial
-   );
-
-   line.position.set(lane*laneWidth/2,0.04,-i*18);
-   scene.add(line);
-   roadLines.push(line);
-  }
- }
-
- /* FEWER BUILDINGS */
-
- const buildingMaterials = [
-  new THREE.MeshBasicMaterial({color:0x142b50}),
-  new THREE.MeshBasicMaterial({color:0x201b48})
- ];
-
- const buildingGeometry = new THREE.BoxGeometry(3,1,5);
-
- for (let i=0;i<10;i++) {
-  for (const side of [-1,1]) {
-   const height = 4+Math.random()*9;
-
-   const building = new THREE.Mesh(
-    buildingGeometry,
-    buildingMaterials[side===-1?0:1]
-   );
-
-   building.scale.y = height;
-   building.position.set(
-    side*(10+Math.random()*5),
-    height/2,
-    -i*25-5
-   );
-
-   scene.add(building);
-   scenery.push(building);
-  }
- }
-
- /* CAR CREATION */
-
- function makeCar(color) {
-  const group = new THREE.Group();
-
-  const body = new THREE.Mesh(
-   carBodyGeometry,
-   carMaterials[color] || carMaterials[0xff3355]
-  );
-
-  body.position.y=0.65;
-  group.add(body);
-
-  const cabin = new THREE.Mesh(carCabinGeometry,cabinMaterial);
-  cabin.position.set(0,1.2,-0.15);
-  group.add(cabin);
-
-  for (const x of [-0.88,0.88]) {
-   for (const z of [-0.95,0.95]) {
-    const wheel = new THREE.Mesh(wheelGeometry,wheelMaterial);
-    wheel.rotation.z=Math.PI/2;
-    wheel.position.set(x,0.38,z);
-    group.add(wheel);
-   }
-  }
-
-  return group;
- }
-
- player = makeCar(0x00cfff);
- player.position.set(0,0,5);
- scene.add(player);
-
- /* SHOW A SINGLE STILL FRAME BEFORE START */
-
- renderer.render(scene,camera);
-
-} catch(error) {
- console.error("3D setup error:",error);
- setAuthMessage("3D setup failed. Reload the game.");
- startBtn.disabled = true;
- showGraphicsError("Graphics setup failed: " + (error.message || "Unknown error"));
- return;
-}
-
-/* OBJECT SPAWNING */
+/* GAME OBJECTS */
 
 function spawnTraffic() {
- if (traffic.length>=MAX_TRAFFIC) return;
+ if(traffic.length>=MAX_TRAFFIC) return;
 
- const lane = Math.floor(Math.random()*3)-1;
- const colors = [0xff3355,0xffb52e,0x9b59ff,0x36e27b];
- const color = colors[Math.floor(Math.random()*colors.length)];
+ const colors = ["#ff3355","#ffb52e","#9b59ff","#36e27b"];
 
- const car = makeCar(color);
- car.position.set(lane*laneWidth,0,-85);
-
- scene.add(car);
- traffic.push(car);
+ traffic.push({
+  lane:Math.floor(Math.random()*3),
+  y:-80,
+  color:colors[Math.floor(Math.random()*colors.length)]
+ });
 }
 
 function spawnCoin() {
- if (pickups.length>=MAX_COINS) return;
+ if(pickups.length>=MAX_COINS) return;
 
- const lane = Math.floor(Math.random()*3)-1;
-
- const coin = new THREE.Mesh(coinGeometry,coinMaterial);
- coin.position.set(lane*laneWidth,1.2,-85);
-
- scene.add(coin);
- pickups.push(coin);
+ pickups.push({
+  lane:Math.floor(Math.random()*3),
+  y:-30
+ });
 }
 
-function removeTraffic(index) {
- scene.remove(traffic[index]);
- traffic.splice(index,1);
-}
-
-function removeCoin(index) {
- scene.remove(pickups[index]);
- pickups.splice(index,1);
-}
-
-function moveLane(direction) {
- if (!active) return;
-
- playerLane = Math.max(-1,Math.min(1,playerLane+direction));
- targetX = playerLane*laneWidth;
-}
-
-/* ANIMATION LOOP: RUN ONLY DURING A RACE */
-
-function stopAnimationLoop() {
- animationRunning = false;
-
- if (animationFrameId) {
-  cancelAnimationFrame(animationFrameId);
-  animationFrameId = 0;
- }
-}
-
-function startAnimationLoop() {
- if (animationRunning || graphicsLost || document.hidden || !active) return;
-
- animationRunning = true;
- lastFrame = 0;
- lastRender = 0;
-
- animationFrameId = requestAnimationFrame(animate);
-}
-
-function animate(time) {
- if (!animationRunning || !active || document.hidden || graphicsLost) {
-  stopAnimationLoop();
-  return;
- }
-
- if (time-lastRender < 50) {
-  animationFrameId = requestAnimationFrame(animate);
-  return;
- }
-
- const delta = Math.min((time-(lastFrame || time))/16.67,2);
-
- lastFrame = time;
- lastRender = time;
-
- try {
-  worldSpeed = Math.min(0.9,worldSpeed+0.00012*delta);
-
-  player.position.x += (targetX-player.position.x)*0.16*delta;
-  player.rotation.z = (targetX-player.position.x)*-0.03;
-
-  /* ROAD MARKINGS */
-
-  for (const line of roadLines) {
-   line.position.z += worldSpeed*2.5*delta;
-
-   if (line.position.z>12) line.position.z -= 180;
-  }
-
-  /* BUILDINGS */
-
-  for (const building of scenery) {
-   building.position.z += worldSpeed*0.8*delta;
-
-   if (building.position.z>15) building.position.z -= 250;
-  }
-
-  /* SPAWN OBJECTS */
-
-  spawnTimer += delta;
-  coinTimer += delta;
-
-  if (spawnTimer > Math.max(45,85-worldSpeed*25)) {
-   spawnTraffic();
-   spawnTimer = 0;
-  }
-
-  if (coinTimer > 55) {
-   spawnCoin();
-   coinTimer = 0;
-  }
-
-  /* TRAFFIC */
-
-  for (let i=traffic.length-1;i>=0;i--) {
-   const car = traffic[i];
-
-   car.position.z += worldSpeed*1.7*delta;
-
-   if (car.position.z>12) {
-    removeTraffic(i);
-    continue;
-   }
-
-   const hitX = Math.abs(car.position.x-player.position.x)<1.45;
-   const hitZ = Math.abs(car.position.z-player.position.z)<2.1;
-
-   if (hitX && hitZ) {
-    removeTraffic(i);
-    lives--;
-    updateHUD();
-
-    setStatus("Collision! Watch out for traffic!");
-
-    if (lives<=0) {
-     finishRace();
-     break;
-    }
-   }
-  }
-
-  /* COINS */
-
-  if (active) {
-   for (let i=pickups.length-1;i>=0;i--) {
-    const coin = pickups[i];
-
-    coin.position.z += worldSpeed*1.7*delta;
-    coin.rotation.y += 0.06*delta;
-
-    if (coin.position.z>12) {
-     removeCoin(i);
-     continue;
-    }
-
-    const hitX = Math.abs(coin.position.x-player.position.x)<1.2;
-    const hitZ = Math.abs(coin.position.z-player.position.z)<1.8;
-
-    if (hitX && hitZ) {
-     removeCoin(i);
-     coins++;
-     score += 10;
-     updateHUD();
-    }
-   }
-  }
-
-  renderer.render(scene,camera);
-
- } catch(error) {
-  console.error("Game loop error:",error);
-  active = false;
-  stopAnimationLoop();
-  showGraphicsError("The game encountered a graphics error. Please reload the game.");
-  setStatus("Game paused because of a graphics error.");
-  return;
- }
-
- if (active && animationRunning && !document.hidden) {
-  animationFrameId = requestAnimationFrame(animate);
- } else {
-  stopAnimationLoop();
- }
-}
-
-/* RESET AND END */
+/* RESET */
 
 function resetGame() {
- stopAnimationLoop();
+ stopGameLoop();
 
  score = 0;
  coins = 0;
  lives = 3;
- playerLane = 0;
- targetX = 0;
- worldSpeed = 0.55;
- spawnTimer = 0;
+ lane = 1;
+
+ traffic = [];
+ pickups = [];
+
+ roadOffset = 0;
+ trafficTimer = 0;
  coinTimer = 0;
+
  scoreSubmitted = false;
  gameOver = false;
  active = false;
 
- while (traffic.length) removeTraffic(traffic.length-1);
- while (pickups.length) removeCoin(pickups.length-1);
-
- player.position.set(0,0,5);
- player.rotation.set(0,0,0);
-
  updateHUD();
- hideGraphicsError();
-
- renderer.render(scene,camera);
+ drawGame();
 }
 
+/* GAME LOOP */
+
+function stopGameLoop() {
+ animationRunning = false;
+
+ if(animationId) {
+  cancelAnimationFrame(animationId);
+  animationId = 0;
+ }
+}
+
+function startGameLoop() {
+ if(animationRunning || !active || document.hidden) return;
+
+ animationRunning = true;
+ lastTime = 0;
+
+ animationId = requestAnimationFrame(gameLoop);
+}
+
+function gameLoop(time) {
+ if(!animationRunning || !active || document.hidden) {
+  stopGameLoop();
+  return;
+ }
+
+ const delta = lastTime ? Math.min((time-lastTime)/16.67,2) : 1;
+ lastTime = time;
+
+ try {
+  updateGame(delta);
+  drawGame();
+ } catch(error) {
+  console.error("Game loop error:",error);
+  active = false;
+  stopGameLoop();
+  setStatus("Game stopped because of an error. Please reload.");
+  return;
+ }
+
+ if(active && animationRunning && !document.hidden) {
+  animationId = requestAnimationFrame(gameLoop);
+ } else {
+  stopGameLoop();
+ }
+}
+
+function updateGame(delta) {
+ const speed = Math.min(7.5,4.5+score/100);
+
+ roadOffset += speed*delta;
+
+ trafficTimer += delta;
+ coinTimer += delta;
+
+ if(trafficTimer>65 && traffic.length<MAX_TRAFFIC) {
+  spawnTraffic();
+  trafficTimer = 0;
+ }
+
+ if(coinTimer>75 && pickups.length<MAX_COINS) {
+  spawnCoin();
+  coinTimer = 0;
+ }
+
+ const playerY = H*0.78;
+ const carHeight = 62;
+
+ for(let i=traffic.length-1;i>=0;i--) {
+  const car = traffic[i];
+  car.y += speed*delta;
+
+  const sameLane = car.lane===lane;
+  const closeY = Math.abs(car.y-playerY)<carHeight*0.75;
+
+  if(sameLane && closeY) {
+   traffic.splice(i,1);
+   lives--;
+   updateHUD();
+   setStatus("Collision! Watch out for traffic!");
+
+   if(lives<=0) {
+    finishRace();
+    return;
+   }
+
+   continue;
+  }
+
+  if(car.y>H+80) {
+   traffic.splice(i,1);
+  }
+ }
+
+ for(let i=pickups.length-1;i>=0;i--) {
+  const coin = pickups[i];
+  coin.y += speed*delta;
+
+  const sameLane = coin.lane===lane;
+  const closeY = Math.abs(coin.y-playerY)<35;
+
+  if(sameLane && closeY) {
+   pickups.splice(i,1);
+   coins++;
+   score += 10;
+   updateHUD();
+   continue;
+  }
+
+  if(coin.y>H+30) {
+   pickups.splice(i,1);
+  }
+ }
+}
+
+/* END RACE */
+
 function finishRace() {
- if (gameOver) return;
+ if(gameOver) return;
 
  active = false;
  gameOver = true;
- stopAnimationLoop();
+ stopGameLoop();
 
  overlay.style.display = "flex";
 
@@ -796,26 +712,21 @@ function finishRace() {
 
 /* START BUTTON */
 
-startBtn.addEventListener("click",event => {
+startBtn.addEventListener("click",event=>{
  event.preventDefault();
 
- if (!authReady) {
+ if(!authReady) {
   setAuthMessage("Please wait while the game connects.");
   return;
  }
 
- if (graphicsLost) {
-  setAuthMessage("Graphics are unavailable. Reload the game.");
-  return;
- }
-
- if (gameMode==="tournament" && (!verifiedPlayer || !tournamentAccess)) {
+ if(gameMode==="tournament" && (!verifiedPlayer || !tournamentAccess)) {
   setAuthMessage("A valid 8-Star daily pass is required.");
   return;
  }
 
- if (gameOver) resetGame();
- if (active) return;
+ if(gameOver) resetGame();
+ if(active) return;
 
  active = true;
  gameOver = false;
@@ -830,10 +741,16 @@ startBtn.addEventListener("click",event => {
   "Free race in progress!"
  );
 
- startAnimationLoop();
+ startGameLoop();
 });
 
-/* CONTROLS */
+/* STEERING */
+
+function moveLane(direction) {
+ if(!active) return;
+
+ lane = Math.max(0,Math.min(2,lane+direction));
+}
 
 $("left").addEventListener("pointerdown",e=>{
  e.preventDefault();
@@ -846,97 +763,42 @@ $("right").addEventListener("pointerdown",e=>{
 });
 
 window.addEventListener("keydown",e=>{
- if (e.key==="ArrowLeft" || e.key.toLowerCase()==="a") moveLane(-1);
- if (e.key==="ArrowRight" || e.key.toLowerCase()==="d") moveLane(1);
+ if(e.key==="ArrowLeft" || e.key.toLowerCase()==="a") moveLane(-1);
+ if(e.key==="ArrowRight" || e.key.toLowerCase()==="d") moveLane(1);
 });
 
-/* SWIPE STEERING */
+/* SWIPE ON GAME AREA */
 
-function handleTouchStart(e) {
- if (e.touches.length) swipeStartX = e.touches[0].clientX;
-}
+canvas.addEventListener("touchstart",e=>{
+ if(e.touches.length) swipeStartX = e.touches[0].clientX;
+},{passive:true});
 
-function handleTouchEnd(e) {
- if (swipeStartX===null || !e.changedTouches.length) return;
+canvas.addEventListener("touchend",e=>{
+ if(swipeStartX===null || !e.changedTouches.length) return;
 
  const difference = e.changedTouches[0].clientX-swipeStartX;
 
- if (Math.abs(difference)>25) {
+ if(Math.abs(difference)>25) {
   moveLane(difference>0?1:-1);
  }
 
  swipeStartX = null;
-}
+},{passive:true});
 
-window.addEventListener("touchstart",handleTouchStart,{passive:true});
-window.addEventListener("touchend",handleTouchEnd,{passive:true});
-
-/* RESIZE */
-
-window.addEventListener("resize",()=>{
- if (!camera || !renderer) return;
-
- camera.aspect = innerWidth/innerHeight;
- camera.updateProjectionMatrix();
- renderer.setSize(innerWidth,innerHeight);
-
- if (!active && !graphicsLost) {
-  try {
-   renderer.render(scene,camera);
-  } catch(e) {}
- }
-});
-
-/* WEBGL ERROR AND RECOVERY */
-
-renderer.domElement.addEventListener("webglcontextlost",event=>{
- event.preventDefault();
-
- graphicsLost = true;
- active = false;
- stopAnimationLoop();
-
- setStatus("Graphics paused.");
- showGraphicsError("Your phone's graphics system stopped responding. Reload the game to try again.");
-});
-
-renderer.domElement.addEventListener("webglcontextrestored",()=>{
- graphicsLost = false;
- hideGraphicsError();
-
- setStatus("Graphics restored. Press Start to play.");
-});
-
-/* PAUSE WHEN APP OR TAB IS HIDDEN */
+/* PAUSE WHEN HIDDEN */
 
 document.addEventListener("visibilitychange",()=>{
- if (document.hidden) {
-  stopAnimationLoop();
- } else {
-  lastFrame = 0;
-  lastRender = 0;
-
-  if (active && !graphicsLost) {
-   startAnimationLoop();
-  }
+ if(document.hidden) {
+  stopGameLoop();
+ } else if(active) {
+  startGameLoop();
  }
 });
 
-/* CATCH UNEXPECTED JAVASCRIPT ERRORS */
+/* INITIALIZE */
 
-window.addEventListener("error",event=>{
- console.error("Game error:",event.error || event.message);
-
- if (active) {
-  active = false;
-  stopAnimationLoop();
-  setStatus("Game stopped because of an error.");
-  showGraphicsError("A game error occurred. Please reload the game.");
- }
-});
-
-/* START AUTHENTICATION */
-
+resizeCanvas();
+drawGame();
 authenticateTelegram();
 
 })();
