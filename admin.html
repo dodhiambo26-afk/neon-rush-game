@@ -2,10 +2,11 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
 <meta name="theme-color" content="#080f20">
 <title>NEON RUSH Admin</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
+
 <style>
 *{box-sizing:border-box}
 body{margin:0;background:#080f20;color:#eef5ff;font-family:Arial,sans-serif}
@@ -35,8 +36,11 @@ input,select{width:100%;padding:12px;background:#09152a;color:white;border:1px s
 pre{white-space:pre-wrap;overflow-wrap:anywhere;color:#bfeaff;font-size:12px}
 #message{padding:12px;border-radius:8px;background:#142641;margin:10px 0;display:none;font-size:13px}
 footer{text-align:center;color:#6f88a8;font-size:11px;padding:25px}
+.history-label{color:#91a9c9;font-size:12px}
+.history-detail{background:#09152a;border:1px solid #29496c;border-radius:9px;padding:12px;margin-top:10px}
 </style>
 </head>
+
 <body>
 <header>
 <h1>NEON RUSH</h1>
@@ -97,7 +101,7 @@ footer{text-align:center;color:#6f88a8;font-size:11px;padding:25px}
 
 <section id="grant">
 <h2>Grant complimentary access</h2>
-<div class="notice">Grant a registered player access to the current 6 AM–6 AM tournament session without charging Stars.</div>
+<div class="notice">Grant a registered player access to the current tournament session without charging Stars.</div>
 <label>Player Telegram ID</label>
 <input id="grantId" type="number" placeholder="Enter Telegram user ID">
 <button class="action" onclick="grantPlayer()">Grant tournament access</button>
@@ -137,15 +141,46 @@ footer{text-align:center;color:#6f88a8;font-size:11px;padding:25px}
 </section>
 
 <section id="history">
-<h2>Game history</h2>
+<h2>Game and tournament history</h2>
+
+<div class="notice">
+View archived weekly and monthly tournament periods, historical statistics, leaderboard records, winners, and prize information.
+</div>
+
+<h3>Tournament history statistics</h3>
+<button class="action" onclick="loadHistorySummary()">Refresh history statistics</button>
+<div id="historySummary" class="panel">Loading tournament history summary...</div>
+
+<h3>Archived tournament periods</h3>
+
+<label class="history-label">Tournament type</label>
+<select id="historyType">
+<option value="weekly">Weekly tournaments</option>
+<option value="monthly">Monthly tournaments</option>
+</select>
+
+<button class="action" onclick="loadHistoryPeriods()">Load archived periods</button>
+
+<label class="history-label">Select tournament period</label>
+<select id="historyPeriod">
+<option value="">Load periods first</option>
+</select>
+
+<button class="action" onclick="loadHistoryDetail()">View selected tournament</button>
+
+<div id="historyDetail" class="panel">
+Select a tournament period to view its archived details.
+</div>
+
+<h3>Individual game history</h3>
 <button class="action" onclick="loadHistory()">Refresh game history</button>
-<div id="historyList" class="panel">Loading...</div>
+<div id="historyList" class="panel">Loading game records...</div>
 </section>
 
 <section id="activity">
 <h2>Administrator activity log</h2>
 <button class="action" onclick="loadActivity()">Refresh activity</button>
-<div id="activityList" class="panel">Loading...</div>
+<div id="activityList" class="panel">Loading activity...</div>
 </section>
 
 <section id="settings">
@@ -159,7 +194,7 @@ footer{text-align:center;color:#6f88a8;font-size:11px;padding:25px}
 <h2>Administrator support</h2>
 <div class="panel">
 <h3>NEON RUSH administration guide</h3>
-<p>• Tournament access lasts for the current daily session.</p>
+<p>• Tournament access is controlled by the backend.</p>
 <p>• Standard paid access costs 8 Telegram Stars.</p>
 <p>• Complimentary access can be granted to registered players.</p>
 <p>• Check payment records before handling payment disputes.</p>
@@ -174,7 +209,11 @@ footer{text-align:center;color:#6f88a8;font-size:11px;padding:25px}
 <script>
 const API="https://neon-rush-game-backend.onrender.com";
 const tg=window.Telegram?.WebApp;
-if(tg){tg.ready();tg.expand();}
+
+if(tg){
+ tg.ready();
+ tg.expand();
+}
 
 let initData=tg?.initData||"";
 let authorized=false;
@@ -184,137 +223,548 @@ function showMessage(text){
  el.style.display="block";
  el.textContent=text;
 }
+
 function escapeHTML(value){
- return String(value??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+ return String(value??"").replace(/[&<>"']/g,c=>({
+  "&":"&amp;",
+  "<":"&lt;",
+  ">":"&gt;",
+  '"':"&quot;",
+  "'":"&#39;"
+ }[c]));
 }
+
 async function api(path,method="GET",body=null){
- if(!authorized && path!=="/api/admin/check") throw new Error("Admin access not verified.");
- const options={method,headers:{"X-Telegram-Init-Data":initData}};
- if(body!==null){options.headers["Content-Type"]="application/json";options.body=JSON.stringify(body);}
+ if(!authorized && path!=="/api/admin/check"){
+  throw new Error("Admin access not verified.");
+ }
+
+ const options={
+  method,
+  headers:{
+   "X-Telegram-Init-Data":initData
+  }
+ };
+
+ if(body!==null){
+  options.headers["Content-Type"]="application/json";
+  options.body=JSON.stringify(body);
+ }
+
  const response=await fetch(API+path,options);
  const data=await response.json().catch(()=>({}));
- if(!response.ok)throw new Error(data.detail||data.message||"Request failed ("+response.status+")");
+
+ if(!response.ok){
+  throw new Error(data.detail||data.message||"Request failed ("+response.status+")");
+ }
+
  return data;
 }
+
 async function checkAdmin(){
  const status=document.getElementById("status");
+
  if(!initData){
   status.textContent="Open this page inside the NEON RUSH Telegram bot.";
   showMessage("Telegram authentication data is missing. Open the admin page from Telegram, not directly in Chrome.");
   return;
  }
+
  try{
-  const response=await fetch(API+"/api/admin/check",{headers:{"X-Telegram-Init-Data":initData}});
+  const response=await fetch(API+"/api/admin/check",{
+   headers:{
+    "X-Telegram-Init-Data":initData
+   }
+  });
+
   const data=await response.json();
-  if(!response.ok)throw new Error(data.detail||"Administrator access denied.");
+
+  if(!response.ok){
+   throw new Error(data.detail||"Administrator access denied.");
+  }
+
   authorized=true;
   status.textContent="SECURE ADMIN ACCESS VERIFIED";
   status.style.color="#51f5a7";
+
   showMessage("Welcome, administrator. Your access has been verified.");
+
   loadOverview();
+
  }catch(e){
   status.textContent="ACCESS DENIED";
   showMessage(e.message);
  }
 }
+
 document.querySelectorAll("nav button").forEach(button=>{
  button.addEventListener("click",()=>{
   document.querySelectorAll("nav button").forEach(b=>b.classList.remove("active"));
   document.querySelectorAll("section").forEach(s=>s.classList.remove("active"));
+
   button.classList.add("active");
   document.getElementById(button.dataset.page).classList.add("active");
+
   const loaders={
-   overview:loadOverview,players:loadPlayers,entries:loadEntries,
-   payments:loadPayments,performance:loadPerformance,banned:loadBanned,
-   tournament:loadTournament,history:loadHistory,activity:loadActivity,
+   overview:loadOverview,
+   players:loadPlayers,
+   entries:loadEntries,
+   payments:loadPayments,
+   performance:loadPerformance,
+   banned:loadBanned,
+   tournament:loadTournament,
+   history:loadHistoryDashboard,
+   activity:loadActivity,
    settings:loadSettings
   };
-  if(authorized&&loaders[button.dataset.page])loaders[button.dataset.page]();
+
+  if(authorized&&loaders[button.dataset.page]){
+   loaders[button.dataset.page]();
+  }
  });
 });
+
 function renderList(id,items,fields){
  const el=document.getElementById(id);
- if(!Array.isArray(items)||!items.length){el.textContent="No records found.";return;}
- el.innerHTML=items.map(item=>'<div class="item">'+fields.map(f=>'<div><span class="muted">'+escapeHTML(f[1])+': </span>'+escapeHTML(item[f[0]])+'</div>').join("")+'</div>').join("");
+
+ if(!Array.isArray(items)||!items.length){
+  el.textContent="No records found.";
+  return;
+ }
+
+ el.innerHTML=items.map(item=>
+  '<div class="item">'+
+  fields.map(f=>
+   '<div><span class="muted">'+escapeHTML(f[1])+': </span>'+
+   escapeHTML(item[f[0]])+'</div>'
+  ).join("")+
+  '</div>'
+ ).join("");
 }
+
+function renderJSON(id,data){
+ document.getElementById(id).innerHTML=
+  "<pre>"+escapeHTML(JSON.stringify(data,null,2))+"</pre>";
+}
+
 async function loadOverview(){
  try{
   const d=await api("/api/admin/overview");
   const s=d.stats||d;
+
   document.getElementById("playersCount").textContent=s.players??"—";
   document.getElementById("entriesCount").textContent=s.tournament_entries??"—";
   document.getElementById("starsCount").textContent=s.stars??"—";
   document.getElementById("paymentsCount").textContent=s.payments??"—";
-  document.getElementById("systemInfo").textContent="Backend connected • Admin authentication active";
- }catch(e){showMessage(e.message);}
+
+  document.getElementById("systemInfo").textContent=
+   "Backend connected • Admin authentication active";
+
+ }catch(e){
+  showMessage(e.message);
+ }
 }
+
 async function loadPlayers(){
  try{
   const q=document.getElementById("playerSearch").value;
   const d=await api("/api/admin/players?q="+encodeURIComponent(q));
-  renderList("playersList",d.players||d.results,[["telegram_id","Telegram ID"],["username","Username"],["first_name","First name"],["banned","Banned"],["created_at","Registered"]]);
- }catch(e){showMessage(e.message);}
+
+  renderList("playersList",d.players||d.results,[
+   ["telegram_id","Telegram ID"],
+   ["username","Username"],
+   ["first_name","First name"],
+   ["banned","Banned"],
+   ["created_at","Registered"]
+  ]);
+
+ }catch(e){
+  showMessage(e.message);
+ }
 }
+
 async function loadEntries(){
- try{const d=await api("/api/admin/entries");renderList("entriesList",d.entries,[["telegram_id","Telegram ID"],["username","Username"],["session_key","Session"],["payment_id","Payment ID"],["created_at","Created"]]);}
- catch(e){showMessage(e.message);}
+ try{
+  const d=await api("/api/admin/entries");
+
+  renderList("entriesList",d.entries,[
+   ["telegram_id","Telegram ID"],
+   ["username","Username"],
+   ["session_key","Session"],
+   ["payment_id","Payment ID"],
+   ["created_at","Created"]
+  ]);
+
+ }catch(e){
+  showMessage(e.message);
+ }
 }
+
 async function loadPayments(){
- try{const d=await api("/api/admin/payments");renderList("paymentsList",d.payments,[["id","Payment ID"],["telegram_id","Telegram ID"],["amount","Stars"],["currency","Currency"],["created_at","Date"]]);}
- catch(e){showMessage(e.message);}
+ try{
+  const d=await api("/api/admin/payments");
+
+  renderList("paymentsList",d.payments,[
+   ["id","Payment ID"],
+   ["telegram_id","Telegram ID"],
+   ["amount","Stars"],
+   ["currency","Currency"],
+   ["created_at","Date"]
+  ]);
+
+ }catch(e){
+  showMessage(e.message);
+ }
 }
+
 async function loadPerformance(){
- try{const d=await api("/api/admin/performance");renderList("performanceList",d.players||d.scores,[["rank","Rank"],["telegram_id","Telegram ID"],["display_name","Player"],["best_score","Best score"]]);}
- catch(e){showMessage(e.message);}
+ try{
+  const d=await api("/api/admin/performance");
+
+  renderList("performanceList",d.players||d.scores,[
+   ["rank","Rank"],
+   ["telegram_id","Telegram ID"],
+   ["display_name","Player"],
+   ["best_score","Best score"]
+  ]);
+
+ }catch(e){
+  showMessage(e.message);
+ }
 }
+
 async function loadBanned(){
- try{const d=await api("/api/admin/banned");renderList("bannedList",d.players,[["telegram_id","Telegram ID"],["username","Username"],["first_name","Name"],["banned","Banned"]]);}
- catch(e){showMessage(e.message);}
+ try{
+  const d=await api("/api/admin/banned");
+
+  renderList("bannedList",d.players,[
+   ["telegram_id","Telegram ID"],
+   ["username","Username"],
+   ["first_name","Name"],
+   ["banned","Banned"]
+  ]);
+
+ }catch(e){
+  showMessage(e.message);
+ }
 }
+
 async function loadTournament(){
- try{const d=await api("/api/admin/tournament");document.getElementById("tournamentInfo").innerHTML="<pre>"+escapeHTML(JSON.stringify(d,null,2))+"</pre>";}
- catch(e){showMessage(e.message);}
+ try{
+  const d=await api("/api/admin/tournament");
+  renderJSON("tournamentInfo",d);
+
+ }catch(e){
+  showMessage(e.message);
+ }
 }
+
+/* =========================================
+   TOURNAMENT HISTORY
+========================================= */
+
+async function loadHistoryDashboard(){
+ await Promise.allSettled([
+  loadHistorySummary(),
+  loadHistoryPeriods(),
+  loadHistory()
+ ]);
+}
+
+async function loadHistorySummary(){
+ const el=document.getElementById("historySummary");
+ el.textContent="Loading history statistics...";
+
+ try{
+  const d=await api("/api/admin/history/summary");
+  renderJSON("historySummary",d);
+
+ }catch(e){
+  el.textContent="Unable to load history summary: "+e.message;
+ }
+}
+
+function extractPeriods(data){
+ if(Array.isArray(data)){
+  return data;
+ }
+
+ if(Array.isArray(data.periods)){
+  return data.periods;
+ }
+
+ if(Array.isArray(data.results)){
+  return data.results;
+ }
+
+ if(Array.isArray(data.history)){
+  return data.history;
+ }
+
+ return [];
+}
+
+function getPeriodKey(item){
+ return item.period_key||
+        item.key||
+        item.period||
+        item.id||
+        "";
+}
+
+function getPeriodLabel(item){
+ const key=getPeriodKey(item);
+
+ const start=item.start_date||
+             item.start_at||
+             item.started_at||
+             item.period_start||
+             "";
+
+ const end=item.end_date||
+           item.end_at||
+           item.ended_at||
+           item.period_end||
+           "";
+
+ const label=item.label||
+             item.title||
+             item.name||
+             "";
+
+ if(label){
+  return String(label)+(key?" ("+key+")":"");
+ }
+
+ if(start&&end){
+  return String(key)+" • "+String(start)+" to "+String(end);
+ }
+
+ return String(key||JSON.stringify(item));
+}
+
+async function loadHistoryPeriods(){
+ const type=document.getElementById("historyType").value;
+ const select=document.getElementById("historyPeriod");
+
+ select.innerHTML='<option value="">Loading archived periods...</option>';
+
+ try{
+  const d=await api(
+   "/api/admin/history/periods?period_type="+encodeURIComponent(type)
+  );
+
+  const periods=extractPeriods(d);
+
+  select.innerHTML="";
+
+  if(!periods.length){
+   select.innerHTML='<option value="">No archived periods found</option>';
+   document.getElementById("historyDetail").textContent=
+    "No archived "+type+" tournament periods were returned.";
+   return;
+  }
+
+  periods.forEach(item=>{
+   const key=getPeriodKey(item);
+
+   if(!key){
+    return;
+   }
+
+   const option=document.createElement("option");
+   option.value=String(key);
+   option.textContent=getPeriodLabel(item);
+   select.appendChild(option);
+  });
+
+  if(!select.options.length){
+   select.innerHTML='<option value="">No valid period keys found</option>';
+  }
+
+ }catch(e){
+  select.innerHTML='<option value="">Failed to load periods</option>';
+  showMessage("Could not load tournament periods: "+e.message);
+ }
+}
+
+async function loadHistoryDetail(){
+ const type=document.getElementById("historyType").value;
+ const key=document.getElementById("historyPeriod").value;
+ const el=document.getElementById("historyDetail");
+
+ if(!key){
+  el.textContent="Please load and select a tournament period first.";
+  return;
+ }
+
+ el.textContent="Loading archived tournament details...";
+
+ try{
+  const path="/api/admin/history/"+
+   encodeURIComponent(type)+"/"+
+   encodeURIComponent(key);
+
+  const d=await api(path);
+
+  renderJSON("historyDetail",d);
+
+ }catch(e){
+  el.textContent="Unable to load tournament details: "+e.message;
+ }
+}
+
+document.getElementById("historyType").addEventListener("change",()=>{
+ if(authorized){
+  loadHistoryPeriods();
+ }
+});
+
+/* =========================================
+   INDIVIDUAL GAME HISTORY
+========================================= */
+
 async function loadHistory(){
- try{const d=await api("/api/admin/history");renderList("historyList",d.games||d.history,[["telegram_id","Telegram ID"],["display_name","Player"],["score","Score"],["mode","Mode"],["created_at","Date"]]);}
- catch(e){showMessage(e.message);}
+ try{
+  const d=await api("/api/admin/history");
+
+  renderList("historyList",d.games||d.history,[
+   ["telegram_id","Telegram ID"],
+   ["display_name","Player"],
+   ["score","Score"],
+   ["mode","Mode"],
+   ["created_at","Date"]
+  ]);
+
+ }catch(e){
+  showMessage(e.message);
+ }
 }
+
 async function loadActivity(){
- try{const d=await api("/api/admin/activity");renderList("activityList",d.activity,[["admin_id","Admin"],["action","Action"],["target_id","Target"],["created_at","Date"]]);}
- catch(e){showMessage(e.message);}
+ try{
+  const d=await api("/api/admin/activity");
+
+  renderList("activityList",d.activity,[
+   ["admin_id","Admin"],
+   ["action","Action"],
+   ["target_id","Target"],
+   ["created_at","Date"]
+  ]);
+
+ }catch(e){
+  showMessage(e.message);
+ }
 }
+
 async function loadSettings(){
- try{const d=await api("/api/admin/settings");document.getElementById("settingsList").innerHTML="<pre>"+escapeHTML(JSON.stringify(d,null,2))+"</pre>";}
- catch(e){showMessage(e.message);}
+ try{
+  const d=await api("/api/admin/settings");
+  renderJSON("settingsList",d);
+
+ }catch(e){
+  showMessage(e.message);
+ }
 }
+
+/* =========================================
+   PLAYER ACTIONS
+========================================= */
+
 async function grantPlayer(){
  const id=Number(document.getElementById("grantId").value);
- if(!id)return showMessage("Enter a valid Telegram ID.");
- if(!confirm("Grant complimentary tournament access to player "+id+" for this session?"))return;
- try{const d=await api("/api/admin/grant","POST",{telegram_id:id});showMessage(d.message||"Access granted.");}
- catch(e){showMessage(e.message);}
+
+ if(!id){
+  return showMessage("Enter a valid Telegram ID.");
+ }
+
+ if(!confirm("Grant complimentary tournament access to player "+id+"?")){
+  return;
+ }
+
+ try{
+  const d=await api("/api/admin/grant","POST",{
+   telegram_id:id
+  });
+
+  showMessage(d.message||"Access granted.");
+
+ }catch(e){
+  showMessage(e.message);
+ }
 }
+
 async function revokePlayer(){
  const id=Number(document.getElementById("revokeId").value);
- if(!id)return showMessage("Enter a valid Telegram ID.");
- if(!confirm("Revoke this player's current tournament entry? Check payment status first."))return;
- try{const d=await api("/api/admin/revoke","POST",{telegram_id:id});showMessage(d.message||"Entry revoked.");}
- catch(e){showMessage(e.message);}
+
+ if(!id){
+  return showMessage("Enter a valid Telegram ID.");
+ }
+
+ if(!confirm("Revoke this player's current tournament entry? Check payment status first.")){
+  return;
+ }
+
+ try{
+  const d=await api("/api/admin/revoke","POST",{
+   telegram_id:id
+  });
+
+  showMessage(d.message||"Entry revoked.");
+
+ }catch(e){
+  showMessage(e.message);
+ }
 }
+
 async function banPlayer(){
  const id=Number(document.getElementById("banId").value);
- if(!id)return showMessage("Enter a valid Telegram ID.");
- if(!confirm("Ban player "+id+"?"))return;
- try{const d=await api("/api/admin/ban","POST",{telegram_id:id});showMessage(d.message||"Player banned.");loadBanned();}
- catch(e){showMessage(e.message);}
+
+ if(!id){
+  return showMessage("Enter a valid Telegram ID.");
+ }
+
+ if(!confirm("Ban player "+id+"?")){
+  return;
+ }
+
+ try{
+  const d=await api("/api/admin/ban","POST",{
+   telegram_id:id
+  });
+
+  showMessage(d.message||"Player banned.");
+  loadBanned();
+
+ }catch(e){
+  showMessage(e.message);
+ }
 }
+
 async function unbanPlayer(){
  const id=Number(document.getElementById("unbanId").value);
- if(!id)return showMessage("Enter a valid Telegram ID.");
- if(!confirm("Unban player "+id+"?"))return;
- try{const d=await api("/api/admin/unban","POST",{telegram_id:id});showMessage(d.message||"Player unbanned.");loadBanned();}
- catch(e){showMessage(e.message);}
+
+ if(!id){
+  return showMessage("Enter a valid Telegram ID.");
+ }
+
+ if(!confirm("Unban player "+id+"?")){
+  return;
+ }
+
+ try{
+  const d=await api("/api/admin/unban","POST",{
+   telegram_id:id
+  });
+
+  showMessage(d.message||"Player unbanned.");
+  loadBanned();
+
+ }catch(e){
+  showMessage(e.message);
+ }
 }
+
 checkAdmin();
 </script>
 </body>
