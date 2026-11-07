@@ -84,6 +84,115 @@ canvas{display:block;width:100vw;height:100vh}
 #gameRank{display:none;padding:10px;margin-top:9px;background:rgba(0,229,255,.1);border:1px solid rgba(0,229,255,.35);border-radius:10px;font-weight:bold;color:#9EF3FF}
 #contact{font-size:11px!important;color:#8EA9C5!important;margin:14px 0 0!important;overflow-wrap:anywhere}
 @media(max-height:620px){#menu{padding:15px}#menu h1{font-size:26px}#menu p{font-size:12px;margin:8px 0}.action{padding:11px;margin-top:7px}.control{height:58px}}
+ #cinematicIntro{
+  position:fixed;
+  inset:0;
+  z-index:99999;
+  overflow:hidden;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  background:radial-gradient(ellipse at center,#17234b 0%,#080b1c 65%,#02030a 100%);
+  animation:introExit 1s ease 4.5s forwards;
+}
+
+.intro-content{
+  position:relative;
+  z-index:3;
+  text-align:center;
+  animation:introZoom 4.5s ease-in-out forwards;
+}
+
+.intro-title{
+  color:#fff;
+  font-size:clamp(30px,9vw,48px);
+  font-weight:1000;
+  letter-spacing:5px;
+  text-shadow:0 0 15px #00e5ff,0 0 35px #00e5ff;
+}
+
+.intro-subtitle{
+  color:#d000ff;
+  font-size:clamp(24px,7vw,38px);
+  font-weight:900;
+  letter-spacing:12px;
+  text-shadow:0 0 20px #d000ff;
+}
+
+.intro-car{
+  font-size:75px;
+  margin:25px 0;
+  filter:drop-shadow(0 0 15px #00e5ff);
+  animation:carRush 2s ease-in-out infinite;
+}
+
+.intro-start{
+  color:#00e5ff;
+  font-weight:900;
+  letter-spacing:5px;
+  animation:startFlash .7s infinite alternate;
+}
+
+.intro-tagline{
+  color:#aaa;
+  font-size:11px;
+  letter-spacing:3px;
+  margin-top:20px;
+}
+
+.intro-track{
+  position:absolute;
+  width:150%;
+  height:120px;
+  top:65%;
+  left:-25%;
+  transform:perspective(180px) rotateX(45deg);
+  background:repeating-linear-gradient(90deg,transparent 0 45px,#00e5ff 46px 49px,transparent 50px 90px);
+  opacity:.35;
+  animation:trackMove .4s linear infinite;
+}
+
+.intro-lights{
+  position:absolute;
+  inset:0;
+  background:linear-gradient(90deg,transparent,#00e5ff22,transparent,#d000ff22,transparent);
+  animation:lightSweep 2s linear infinite;
+}
+
+@keyframes carRush{
+  0%,100%{transform:translateX(-8px) scale(1)}
+  50%{transform:translateX(8px) scale(1.12)}
+}
+
+@keyframes trackMove{
+  to{background-position:90px 0}
+}
+
+@keyframes lightSweep{
+  0%{transform:translateX(-100%)}
+  100%{transform:translateX(100%)}
+}
+
+@keyframes startFlash{
+  from{opacity:.45;text-shadow:0 0 5px #00e5ff}
+  to{opacity:1;text-shadow:0 0 25px #00e5ff}
+}
+
+@keyframes introZoom{
+  0%{transform:scale(.7);opacity:0}
+  15%{transform:scale(1);opacity:1}
+  85%{transform:scale(1.08);opacity:1}
+  100%{transform:scale(1.15);opacity:0}
+}
+
+@keyframes introExit{
+  to{opacity:0;visibility:hidden;pointer-events:none}
+}
+
+@media(prefers-reduced-motion:reduce){
+  #cinematicIntro{animation:introExit .5s ease 1s forwards}
+  .intro-content,.intro-car,.intro-track,.intro-lights,.intro-start{animation:none}
+}
 </style>
 </head>
 <body>
@@ -113,6 +222,17 @@ canvas{display:block;width:100vw;height:100vh}
  <button class="control" id="right">▶</button>
 </div>
 
+ <div id="cinematicIntro">
+  <div class="intro-track"></div>
+  <div class="intro-lights"></div>
+  <div class="intro-content">
+    <div class="intro-title">NEON RUSH</div>
+    <div class="intro-subtitle">ARENA</div>
+    <div class="intro-car">🏎️</div>
+    <div class="intro-start">RACE START</div>
+    <div class="intro-tagline">RACE • COMPETE • CONQUER</div>
+  </div>
+ </div>
 <div id="overlay">
  <div id="menu">
   <img class="brand-logo" src="nra_logo.png" alt="NEON RUSH ARENA logo" width="156" height="156" fetchpriority="high">
