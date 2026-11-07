@@ -1,1 +1,1221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta name="theme-color" content="#080F20">
+<meta name="description" content="NEON RUSH ARENA — Race, compete and conquer the neon highway.">
+<title>NEON RUSH ARENA</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+:root{
+ --bg:#080F20;
+ --panel:#101D34;
+ --panel2:#142541;
+ --cyan:#00E5FF;
+ --purple:#A100FF;
+ --pink:#FF22D4;
+ --white:#F4F8FF;
+ --muted:#9CB4D0;
+ --line:rgba(0,229,255,.35);
+}
+*{box-sizing:border-box}
+html,body{width:100%;height:100%;margin:0}
+body{overflow:hidden;background:var(--bg);color:var(--white);font-family:Arial,Helvetica,sans-serif;touch-action:none}
+canvas{display:block;width:100vw;height:100vh}
+#hud{position:fixed;top:12px;left:8px;right:8px;z-index:3;display:flex;justify-content:center;align-items:center;flex-wrap:wrap;gap:6px;pointer-events:none}
+.stat{background:rgba(16,29,52,.94);border:1px solid var(--line);border-radius:10px;padding:8px 10px;font-size:11px;box-shadow:0 0 12px rgba(0,229,255,.08)}
+#leaderboardToggle,#soundToggle{pointer-events:auto;background:linear-gradient(135deg,#142541,#21163d);color:var(--white);border:1px solid var(--cyan);border-radius:10px;padding:9px 10px;font-weight:800;font-size:10px;letter-spacing:.35px;box-shadow:0 0 12px rgba(0,229,255,.12)}
+#soundToggle{border-color:var(--pink)}
+#status{position:fixed;top:66px;left:10px;right:10px;text-align:center;font-size:12px;color:#8DF5FF;z-index:3;pointer-events:none;text-shadow:0 0 8px rgba(0,229,255,.45)}
+#controls{position:fixed;bottom:20px;left:0;right:0;display:flex;justify-content:space-between;padding:0 22px;z-index:3;pointer-events:none}
+.control{width:76px;height:66px;border-radius:17px;border:1px solid var(--cyan);background:linear-gradient(145deg,rgba(16,37,65,.94),rgba(31,19,57,.92));color:white;font-size:28px;pointer-events:auto;touch-action:none;box-shadow:0 0 18px rgba(0,229,255,.16),inset 0 0 12px rgba(0,229,255,.08)}
+.control:active{transform:scale(.96);background:#07516a}
+#overlay{position:fixed;inset:0;background:radial-gradient(ellipse at 50% 25%,rgba(32,23,68,.76),rgba(8,15,32,.97) 65%);display:flex;align-items:center;justify-content:center;z-index:5;padding:16px;overflow:auto}
+#menu{width:min(420px,100%);max-height:94vh;overflow:auto;background:linear-gradient(160deg,rgba(20,37,65,.98),rgba(12,21,42,.99));border:1px solid var(--cyan);border-radius:22px;padding:22px;text-align:center;box-shadow:0 0 12px rgba(0,229,255,.22),0 0 38px rgba(161,0,255,.15),inset 0 0 25px rgba(0,229,255,.035)}
+#menu h1{margin:0 0 5px;color:var(--white);font-size:clamp(27px,8vw,34px);font-weight:900;letter-spacing:1.3px;text-shadow:0 0 13px rgba(0,229,255,.35)}
+#menu h1 span{color:var(--cyan);text-shadow:0 0 14px rgba(0,229,255,.7)}
+.brand-tagline{margin:0 0 15px!important;color:var(--pink)!important;font-size:10px!important;font-weight:900;letter-spacing:3px}
+#menu p{font-size:14px;line-height:1.55;color:#C6D8EC}
+#authStatus{padding:10px 11px;background:rgba(8,15,32,.55);border:1px solid rgba(0,229,255,.16);border-radius:10px}
+.action{width:100%;padding:14px;margin-top:10px;border:1px solid rgba(255,255,255,.12);border-radius:12px;background:linear-gradient(100deg,var(--cyan),var(--purple) 72%,var(--pink));color:#071326;font-weight:900;font-size:15px;letter-spacing:.6px;box-shadow:0 5px 20px rgba(0,229,255,.16)}
+.action:disabled{opacity:.45;filter:grayscale(.5)}
+.action:active{transform:scale(.985)}
+.secondary{background:linear-gradient(100deg,#263d60,#34204f);color:var(--white);border-color:rgba(0,229,255,.3);box-shadow:none}
+.difficulty{display:flex;gap:7px;margin:10px 0}
+.difficulty button{flex:1;padding:11px 5px;border-radius:10px;border:1px solid #3c6384;background:#172b48;color:#d8efff;font-weight:bold}
+.difficulty button.selected{background:linear-gradient(110deg,#075c76,#38205e);border-color:var(--cyan);color:white;box-shadow:0 0 12px rgba(0,229,255,.18)}
+#difficultyWrap{margin-top:12px}
+#difficultyWrap small{color:var(--muted);font-size:10px;letter-spacing:1px;font-weight:bold}
+#leaderboardPanel{display:none;position:fixed;top:108px;right:10px;width:min(320px,calc(100vw - 20px));max-height:60vh;overflow:auto;z-index:4;background:rgba(16,29,52,.98);border:1px solid var(--cyan);border-radius:15px;padding:14px;box-shadow:0 0 24px rgba(0,229,255,.15)}
+#leaderboardPanel h3{margin:0 0 10px;color:var(--cyan)}
+.lbrow{display:flex;justify-content:space-between;padding:8px 5px;border-bottom:1px solid #ffffff18;font-size:13px;gap:10px}
+#myRank{margin-top:12px;padding:10px;background:rgba(0,229,255,.1);border:1px solid rgba(0,229,255,.25);border-radius:9px;font-size:13px}
+#closeLeaderboard{float:right;background:none;border:0;color:white;font-size:20px}
+#hint{position:fixed;bottom:100px;left:0;right:0;text-align:center;color:#B8D9EF;font-size:12px;pointer-events:none;text-shadow:0 1px 6px #080F20}
+#gameRank{display:none;padding:10px;margin-top:9px;background:rgba(0,229,255,.1);border:1px solid rgba(0,229,255,.35);border-radius:10px;font-weight:bold;color:#9EF3FF}
+#contact{font-size:11px!important;color:#8EA9C5!important;margin:14px 0 0!important;overflow-wrap:anywhere}
+@media(max-height:620px){#menu{padding:15px}#menu h1{font-size:26px}#menu p{font-size:12px;margin:8px 0}.action{padding:11px;margin-top:7px}.control{height:58px}}
+</style>
+</head>
+<body>
 
+<canvas id="game"></canvas>
+
+<div id="hud">
+ <div class="stat">🏁 Points: <b id="score">0</b></div>
+ <div class="stat">❤️ Lives: <b id="lives">3</b></div>
+ <div class="stat">🪙 Coins: <b id="coins">0</b></div>
+ <button id="soundToggle">🔊 SOUND ON</button>
+ <button id="leaderboardToggle" style="display:none">🏆 LEADERBOARD</button>
+</div>
+
+<div id="status">Connecting...</div>
+<div id="hint">Use ◀ ▶ or swipe to steer</div>
+
+<div id="leaderboardPanel">
+ <button id="closeLeaderboard">×</button>
+ <h3 id="leaderboardTitle">🏆 Tournament Leaderboard</h3>
+ <div id="leaderboardRows">Open the leaderboard to load scores.</div>
+ <div id="myRank">Your position: Not available</div>
+</div>
+
+<div id="controls">
+ <button class="control" id="left">◀</button>
+ <button class="control" id="right">▶</button>
+</div>
+
+<div id="overlay">
+ <div id="menu">
+  <h1>NEON RUSH <span>ARENA</span></h1>
+  <p class="brand-tagline">RACE • COMPETE • CONQUER</p>
+  <p id="introText">Race through the neon highway. Avoid traffic, collect coins, diamonds and hearts, and beat your best score!</p>
+  <p id="authStatus">Connecting to Telegram...</p>
+
+  <div id="difficultyWrap">
+   <small>FREE MODE — CHOOSE YOUR DIFFICULTY</small>
+   <div class="difficulty">
+    <button data-level="easy" class="selected">EASY</button>
+    <button data-level="normal">NORMAL</button>
+    <button data-level="hard">HARD</button>
+   </div>
+  </div>
+
+  <button class="action" id="start" disabled>CONNECTING...</button>
+  <div id="gameRank"></div>
+  <button class="action secondary" id="exit" style="display:none">EXIT</button>
+  <button class="action secondary" id="retrySave" style="display:none">SAVE SCORE AGAIN</button>
+
+  <p id="contact">WhatsApp: +254183375330<br>Email: amimod94@yahoo.com</p>
+ </div>
+</div>
+
+<script>
+(() => {
+"use strict";
+
+const BACKEND_URL="https://neon-rush-game-backend.onrender.com";
+const tg=window.Telegram?.WebApp;
+const initData=tg?.initData||"";
+const requestedMode=new URLSearchParams(location.search).get("mode")||"free";
+const gameMode=["weekly","monthly"].includes(requestedMode)?requestedMode:"free";
+
+const $=id=>document.getElementById(id);
+const canvas=$("game");
+const ctx=canvas.getContext("2d",{alpha:false});
+const startBtn=$("start");
+const overlay=$("overlay");
+const soundBtn=$("soundToggle");
+
+let verifiedPlayer=null;
+let weeklyAccess=false;
+let monthlyAccess=false;
+let authReady=false;
+
+let active=false;
+let gameOver=false;
+let scoreSubmitted=false;
+
+let score=0;
+let coins=0;
+let lives=3;
+let raceStartedAt=0;
+
+let difficulty="easy";
+let leaderboardLoaded=false;
+
+/* SOUND SYSTEM */
+
+let soundEnabled=true;
+let audioContext=null;
+let engineOscillator=null;
+let engineHarmonic=null;
+let engineGain=null;
+let engineFilter=null;
+
+function getAudio(){
+ if(!soundEnabled)return null;
+
+ try{
+  const C=window.AudioContext||window.webkitAudioContext;
+  if(!C)return null;
+
+  if(!audioContext)audioContext=new C();
+  if(audioContext.state==="suspended")audioContext.resume();
+
+  return audioContext;
+ }catch(e){
+  return null;
+ }
+}
+
+function makeTone(freq,endFreq,duration,type,volume,delay=0){
+ const a=getAudio();
+ if(!a)return;
+
+ try{
+  const t=a.currentTime+delay;
+  const o=a.createOscillator();
+  const g=a.createGain();
+
+  o.type=type;
+  o.frequency.setValueAtTime(freq,t);
+  o.frequency.exponentialRampToValueAtTime(Math.max(1,endFreq),t+duration);
+
+  g.gain.setValueAtTime(.0001,t);
+  g.gain.exponentialRampToValueAtTime(volume,t+.018);
+  g.gain.exponentialRampToValueAtTime(.0001,t+duration);
+
+  o.connect(g);
+  g.connect(a.destination);
+  o.start(t);
+  o.stop(t+duration+.03);
+ }catch(e){}
+}
+
+function playStartSound(){
+ makeTone(75,390,.55,"sawtooth",.045);
+ makeTone(150,620,.48,"triangle",.035,.08);
+ makeTone(520,1040,.2,"sine",.025,.42);
+}
+
+function playCoinSound(){
+ makeTone(784,1175,.12,"sine",.045);
+ makeTone(1175,1568,.16,"sine",.04,.09);
+ makeTone(1568,2093,.18,"triangle",.025,.19);
+}
+
+function playBonusSound(kind){
+ if(kind==="diamond"){
+  makeTone(880,1320,.13,"sine",.05);
+  makeTone(1320,1760,.18,"sine",.045,.1);
+  makeTone(1760,2200,.22,"triangle",.035,.2);
+ }else{
+  makeTone(523,784,.16,"sine",.045);
+  makeTone(659,988,.18,"sine",.04,.12);
+ }
+}
+
+function playCrashSound(){
+ const a=getAudio();
+ if(!a)return;
+
+ try{
+  const n=Math.floor(a.sampleRate*.28);
+  const b=a.createBuffer(1,n,a.sampleRate);
+  const d=b.getChannelData(0);
+
+  for(let i=0;i<n;i++){
+   const f=1-i/n;
+   d[i]=(Math.random()*2-1)*f*f;
+  }
+
+  const noise=a.createBufferSource();
+  const filter=a.createBiquadFilter();
+  const gain=a.createGain();
+
+  noise.buffer=b;
+  filter.type="lowpass";
+  filter.frequency.setValueAtTime(700,a.currentTime);
+  filter.frequency.exponentialRampToValueAtTime(90,a.currentTime+.25);
+
+  gain.gain.setValueAtTime(.16,a.currentTime);
+  gain.gain.exponentialRampToValueAtTime(.001,a.currentTime+.27);
+
+  noise.connect(filter);
+  filter.connect(gain);
+  gain.connect(a.destination);
+
+  noise.start();
+  noise.stop(a.currentTime+.29);
+ }catch(e){}
+
+ makeTone(125,42,.24,"triangle",.07);
+}
+
+function startEngineSound(){
+ const a=getAudio();
+ if(!a||engineOscillator)return;
+
+ try{
+  engineOscillator=a.createOscillator();
+  engineHarmonic=a.createOscillator();
+  engineGain=a.createGain();
+  engineFilter=a.createBiquadFilter();
+
+  engineOscillator.type="sawtooth";
+  engineHarmonic.type="triangle";
+
+  engineOscillator.frequency.value=72;
+  engineHarmonic.frequency.value=144;
+
+  engineFilter.type="lowpass";
+  engineFilter.frequency.value=300;
+
+  engineGain.gain.value=.0001;
+
+  engineOscillator.connect(engineFilter);
+  engineHarmonic.connect(engineFilter);
+  engineFilter.connect(engineGain);
+  engineGain.connect(a.destination);
+
+  engineGain.gain.setTargetAtTime(.018,a.currentTime,.35);
+
+  engineOscillator.start();
+  engineHarmonic.start();
+ }catch(e){
+  stopEngineSound();
+ }
+}
+
+function updateEngineSound(speed){
+ if(!engineOscillator||!audioContext)return;
+
+ const a=audioContext;
+ const p=66+Math.min(85,speed*7.5);
+
+ engineOscillator.frequency.setTargetAtTime(p,a.currentTime,.12);
+ engineHarmonic.frequency.setTargetAtTime(p*2,a.currentTime,.12);
+ engineFilter.frequency.setTargetAtTime(260+speed*48,a.currentTime,.16);
+}
+
+function stopEngineSound(){
+ try{
+  if(engineGain&&audioContext){
+   engineGain.gain.setTargetAtTime(.0001,audioContext.currentTime,.04);
+  }
+
+  if(engineOscillator)engineOscillator.stop();
+  if(engineHarmonic)engineHarmonic.stop();
+ }catch(e){}
+
+ engineOscillator=null;
+ engineHarmonic=null;
+ engineGain=null;
+ engineFilter=null;
+}
+
+soundBtn.addEventListener("click",()=>{
+ soundEnabled=!soundEnabled;
+ soundBtn.textContent=soundEnabled?"🔊 SOUND ON":"🔇 SOUND OFF";
+
+ if(!soundEnabled){
+  stopEngineSound();
+ }else{
+  if(active)startEngineSound();
+  makeTone(660,990,.13,"sine",.035);
+ }
+});
+
+/* CANVAS */
+
+let W=0;
+let H=0;
+let dpr=1;
+
+function resizeCanvas(){
+ W=window.innerWidth;
+ H=window.innerHeight;
+ dpr=Math.min(window.devicePixelRatio||1,1.2);
+
+ canvas.width=Math.round(W*dpr);
+ canvas.height=Math.round(H*dpr);
+
+ ctx.setTransform(dpr,0,0,dpr,0,0);
+ drawGame();
+}
+
+window.addEventListener("resize",resizeCanvas);
+
+/* GAME STATE */
+
+let lane=1;
+let traffic=[];
+let pickups=[];
+
+let roadOffset=0;
+let trafficTimer=0;
+let coinTimer=0;
+let distanceTimer=0;
+
+let animationId=0;
+let animationRunning=false;
+let lastTime=0;
+let swipeStartX=null;
+
+const MAX_TRAFFIC=4;
+const MAX_PICKUPS=4;
+
+function setStatus(m){
+ $("status").textContent=m;
+}
+
+function setAuthMessage(m){
+ $("authStatus").textContent=m;
+}
+
+function updateHUD(){
+ $("score").textContent=score;
+ $("lives").textContent=lives;
+ $("coins").textContent=coins;
+}
+
+function playerName(){
+ return verifiedPlayer?.display_name||
+        verifiedPlayer?.username||
+        verifiedPlayer?.first_name||
+        "Racer";
+}
+
+function laneX(n){
+ const rw=Math.min(W*.84,460);
+ const left=(W-rw)/2;
+ return left+rw*(n+.5)/3;
+}
+
+function roadDimensions(){
+ const rw=Math.min(W*.84,460);
+
+ return{
+  left:(W-rw)/2,
+  width:rw
+ };
+}
+
+/* DRAWING */
+
+function drawCar(x,y,color,playerCar=false){
+ const w=playerCar?42:39;
+ const h=playerCar?66:62;
+
+ ctx.save();
+ ctx.translate(x,y);
+
+ ctx.fillStyle=color;
+ ctx.fillRect(-w/2,-h/2,w,h);
+
+ ctx.fillStyle="#101b31";
+ ctx.fillRect(-w/2+6,-h/2+9,w-12,18);
+
+ ctx.fillStyle="#d8f7ff";
+ ctx.fillRect(-w/2+5,-h/2+3,8,5);
+ ctx.fillRect(w/2-13,-h/2+3,8,5);
+
+ ctx.fillStyle="#080b12";
+ ctx.fillRect(-w/2-4,-h/2+9,5,16);
+ ctx.fillRect(w/2-1,-h/2+9,5,16);
+ ctx.fillRect(-w/2-4,h/2-25,5,16);
+ ctx.fillRect(w/2-1,h/2-25,5,16);
+
+ if(playerCar){
+  ctx.strokeStyle="#00eaff";
+  ctx.lineWidth=2;
+  ctx.strokeRect(-w/2-2,-h/2-2,w+4,h+4);
+ }
+
+ ctx.restore();
+}
+
+function drawCoin(x,y){
+ ctx.save();
+
+ ctx.beginPath();
+ ctx.arc(x,y,12,0,Math.PI*2);
+ ctx.fillStyle="#ffd52a";
+ ctx.fill();
+
+ ctx.strokeStyle="#fff3a0";
+ ctx.lineWidth=3;
+ ctx.stroke();
+
+ ctx.fillStyle="#9a6200";
+ ctx.font="bold 14px Arial";
+ ctx.textAlign="center";
+ ctx.textBaseline="middle";
+ ctx.fillText("$",x,y+1);
+
+ ctx.restore();
+}
+
+function drawDiamond(x,y){
+ ctx.save();
+ ctx.translate(x,y);
+ ctx.shadowColor="#54f5ff";
+ ctx.shadowBlur=17;
+
+ ctx.beginPath();
+ ctx.moveTo(0,-17);
+ ctx.lineTo(14,-5);
+ ctx.lineTo(0,17);
+ ctx.lineTo(-14,-5);
+ ctx.closePath();
+
+ ctx.fillStyle="#36eaff";
+ ctx.fill();
+
+ ctx.strokeStyle="#d9ffff";
+ ctx.lineWidth=2;
+ ctx.stroke();
+
+ ctx.beginPath();
+ ctx.moveTo(0,-17);
+ ctx.lineTo(0,17);
+ ctx.moveTo(-14,-5);
+ ctx.lineTo(14,-5);
+
+ ctx.strokeStyle="#fff";
+ ctx.lineWidth=1;
+ ctx.stroke();
+
+ ctx.restore();
+}
+
+function drawHeart(x,y){
+ ctx.save();
+ ctx.translate(x,y);
+ ctx.shadowColor="#ff4c85";
+ ctx.shadowBlur=17;
+
+ ctx.beginPath();
+ ctx.moveTo(0,14);
+ ctx.bezierCurveTo(-25,-2,-14,-20,0,-9);
+ ctx.bezierCurveTo(14,-20,25,-2,0,14);
+ ctx.closePath();
+
+ ctx.fillStyle="#ff3978";
+ ctx.fill();
+
+ ctx.strokeStyle="#ffd3e2";
+ ctx.lineWidth=2;
+ ctx.stroke();
+
+ ctx.restore();
+}
+
+function drawGame(){
+ if(!ctx||!W||!H)return;
+
+ ctx.fillStyle="#080F20";
+ ctx.fillRect(0,0,W,H);
+
+ ctx.fillStyle="#101e36";
+
+ for(let i=0;i<12;i++){
+  const bw=25+(i%4)*9;
+  const bh=50+(i%5)*17;
+  const x=i*(W/11)-10;
+
+  ctx.fillRect(x,H*.25-bh,bw,bh);
+ }
+
+ const road=roadDimensions();
+
+ ctx.fillStyle="#171e2d";
+ ctx.fillRect(road.left,0,road.width,H);
+
+ ctx.fillStyle="#00E5FF";
+ ctx.fillRect(road.left,0,3,H);
+ ctx.fillRect(road.left+road.width-3,0,3,H);
+
+ ctx.fillStyle="#9bb4c7";
+
+ for(let d=1;d<=2;d++){
+  const x=road.left+road.width*d/3;
+
+  for(let y=-50+(roadOffset%65);y<H;y+=65){
+   ctx.fillRect(x-2,y,4,34);
+  }
+ }
+
+ const py=H*.78;
+
+ drawCar(laneX(lane),py,"#FF22D4",true);
+
+ for(const c of traffic){
+  drawCar(laneX(c.lane),c.y,c.color);
+ }
+
+ for(const p of pickups){
+  const x=laneX(p.lane);
+
+  if(p.type==="diamond")drawDiamond(x,p.y);
+  else if(p.type==="heart")drawHeart(x,p.y);
+  else drawCoin(x,p.y);
+ }
+}
+
+/* TELEGRAM AUTHENTICATION */
+
+async function authenticateTelegram(){
+ if(tg){
+  try{
+   tg.ready();
+   tg.expand();
+  }catch(e){}
+ }
+
+ if(gameMode==="free"){
+  authReady=true;
+
+  if(!initData){
+   setAuthMessage("Guest mode: free scores are never saved.");
+   startBtn.textContent="START FREE GAME";
+   startBtn.disabled=false;
+   return;
+  }
+ }
+
+ if(!initData){
+  authReady=true;
+  setAuthMessage("Open this tournament from @NeonRushGamingBot in Telegram.");
+  startBtn.textContent="OPEN THROUGH TELEGRAM";
+  startBtn.disabled=true;
+  return;
+ }
+
+ setAuthMessage("Verifying your Telegram account...");
+ startBtn.disabled=true;
+ startBtn.textContent="VERIFYING...";
+
+ const controller=new AbortController();
+ const timeout=setTimeout(()=>controller.abort(),12000);
+
+ try{
+  const r=await fetch(BACKEND_URL+"/api/auth/telegram",{
+   method:"POST",
+   headers:{
+    "Content-Type":"application/json",
+    "X-Telegram-Init-Data":initData
+   },
+   body:JSON.stringify({}),
+   signal:controller.signal
+  });
+
+  if(!r.ok){
+   throw new Error("Authentication failed: "+r.status);
+  }
+
+  const data=await r.json();
+
+  verifiedPlayer=data.user||null;
+
+  if(!verifiedPlayer){
+   throw new Error("Player details missing.");
+  }
+
+  weeklyAccess=data.weekly_access===true;
+  monthlyAccess=data.monthly_access===true;
+  authReady=true;
+
+  if(gameMode==="weekly"){
+   if(weeklyAccess){
+    setAuthMessage("Welcome "+playerName()+"! You are admitted to this week's tournament.");
+    startBtn.textContent="START WEEKLY RACE";
+    startBtn.disabled=false;
+   }else{
+    setAuthMessage(data.weekly_locked?
+     "Weekly tournament is locked. Ask the admin for admission.":
+     "You have not been admitted to this week's tournament."
+    );
+
+    startBtn.textContent="WEEKLY ACCESS REQUIRED";
+    startBtn.disabled=true;
+   }
+  }else if(gameMode==="monthly"){
+   if(monthlyAccess){
+    setAuthMessage("Welcome "+playerName()+"! Your monthly membership is active.");
+    startBtn.textContent="START MONTHLY RACE";
+    startBtn.disabled=false;
+   }else{
+    setAuthMessage("An active monthly membership (300 Telegram Stars) is required. Open the bot to subscribe.");
+    startBtn.textContent="MONTHLY MEMBERSHIP REQUIRED";
+    startBtn.disabled=true;
+   }
+  }else{
+   setAuthMessage("Welcome "+playerName()+"! Free racing is ready.");
+   startBtn.textContent="START FREE GAME";
+   startBtn.disabled=false;
+  }
+
+ }catch(e){
+  console.error(e);
+  authReady=true;
+
+  if(gameMode==="free"){
+   setAuthMessage("Server unavailable. You can still play free as a guest.");
+   startBtn.textContent="START FREE GAME";
+   startBtn.disabled=false;
+  }else{
+   setAuthMessage("Cannot verify tournament access. Reopen the game through the Telegram bot.");
+   startBtn.textContent="VERIFICATION REQUIRED";
+   startBtn.disabled=true;
+  }
+
+ }finally{
+  clearTimeout(timeout);
+ }
+}
+
+/* LEADERBOARD */
+
+function renderLeaderboard(data){
+ if(!data)return;
+
+ const rows=data.leaderboard||data.top||[];
+ const box=$("leaderboardRows");
+
+ box.replaceChildren();
+
+ if(!rows.length){
+  box.textContent="No scores recorded for this tournament yet.";
+ }else{
+  rows.slice(0,10).forEach((item,i)=>{
+   const row=document.createElement("div");
+   row.className="lbrow";
+
+   const n=document.createElement("span");
+   n.textContent="#"+(item.rank||item.position||i+1)+" "+
+    (item.display_name||item.name||item.username||"Racer");
+
+   const p=document.createElement("b");
+   p.textContent=Number(item.score??item.points??0)+" pts";
+
+   row.append(n,p);
+   box.append(row);
+  });
+ }
+
+ const player=data.player||data.my_rank||data.player_ranking;
+
+ $("myRank").textContent=player?
+  "Your position: #"+(player.rank??player.position??"—")+
+  " | Best score: "+(player.score??player.points??0):
+  "Your position appears after your first tournament score.";
+}
+
+async function loadLeaderboard(){
+ if(gameMode==="free")return;
+
+ if(!initData||!verifiedPlayer){
+  $("leaderboardRows").textContent="Open through Telegram to view the tournament leaderboard.";
+  return;
+ }
+
+ try{
+  const r=await fetch(
+   BACKEND_URL+"/api/leaderboard?mode="+encodeURIComponent(gameMode),
+   {headers:{"X-Telegram-Init-Data":initData}}
+  );
+
+  if(!r.ok)throw new Error("Leaderboard unavailable");
+
+  renderLeaderboard(await r.json());
+  leaderboardLoaded=true;
+
+ }catch(e){
+  $("leaderboardRows").textContent="Could not load leaderboard. Try again.";
+ }
+}
+
+$("leaderboardToggle").addEventListener("click",()=>{
+ const p=$("leaderboardPanel");
+ const open=p.style.display!=="block";
+
+ p.style.display=open?"block":"none";
+
+ if(open)loadLeaderboard();
+});
+
+$("closeLeaderboard").addEventListener("click",()=>{
+ $("leaderboardPanel").style.display="none";
+});
+
+/* SAVE TOURNAMENT SCORE */
+
+async function submitScore(){
+ if(scoreSubmitted||gameMode==="free")return;
+
+ if(!verifiedPlayer||!initData){
+  setStatus("Tournament score cannot be saved without Telegram verification.");
+  return;
+ }
+
+ const duration=Math.floor((Date.now()-raceStartedAt)/1000);
+
+ if(duration<5){
+  setStatus("Race was too short to submit.");
+  return;
+ }
+
+ setStatus("Saving your tournament score...");
+ $("retrySave").style.display="none";
+
+ try{
+  const r=await fetch(BACKEND_URL+"/api/scores",{
+   method:"POST",
+   headers:{
+    "Content-Type":"application/json",
+    "X-Telegram-Init-Data":initData
+   },
+   body:JSON.stringify({
+    score:score,
+    mode:gameMode,
+    duration:duration
+   })
+  });
+
+  const data=await r.json();
+
+  if(!r.ok){
+   throw new Error(data.detail||"Score could not be saved.");
+  }
+
+  scoreSubmitted=true;
+  renderLeaderboard(data);
+
+  const rank=data.player||data.my_rank||data.player_ranking;
+
+  $("gameRank").textContent=rank?
+   "Your "+gameMode+" tournament position: #"+
+   (rank.rank??rank.position??"—"):
+   "Your score has been submitted. Open the leaderboard to see your position.";
+
+  $("gameRank").style.display="block";
+  $("leaderboardPanel").style.display="block";
+
+  setStatus("Tournament score saved successfully.");
+
+ }catch(e){
+  console.error(e);
+  setStatus("Score not saved: "+e.message);
+  $("retrySave").style.display="block";
+ }
+}
+
+$("retrySave").addEventListener("click",submitScore);
+
+/* GAME OBJECTS */
+
+function spawnTraffic(){
+ if(traffic.length>=MAX_TRAFFIC)return;
+
+ const colors=["#ff3355","#ffb52e","#9b59ff","#36e27b"];
+
+ traffic.push({
+  lane:Math.floor(Math.random()*3),
+  y:-80,
+  color:colors[Math.floor(Math.random()*colors.length)]
+ });
+}
+
+function spawnPickup(){
+ if(pickups.length>=MAX_PICKUPS)return;
+
+ const roll=Math.random();
+ let type="coin";
+
+ if(roll<.12)type="heart";
+ else if(roll<.30)type="diamond";
+
+ pickups.push({
+  type:type,
+  lane:Math.floor(Math.random()*3),
+  y:-35
+ });
+}
+
+/* RESET */
+
+function resetGame(){
+ stopGameLoop();
+ stopEngineSound();
+
+ score=0;
+ coins=0;
+ lives=3;
+ lane=1;
+
+ traffic=[];
+ pickups=[];
+
+ roadOffset=0;
+ trafficTimer=0;
+ coinTimer=0;
+ distanceTimer=0;
+
+ scoreSubmitted=false;
+ gameOver=false;
+ active=false;
+
+ $("gameRank").style.display="none";
+ $("retrySave").style.display="none";
+ $("exit").style.display="none";
+
+ updateHUD();
+ drawGame();
+}
+
+/* GAME LOOP */
+
+function stopGameLoop(){
+ animationRunning=false;
+
+ if(animationId){
+  cancelAnimationFrame(animationId);
+  animationId=0;
+ }
+}
+
+function startGameLoop(){
+ if(animationRunning||!active||document.hidden)return;
+
+ animationRunning=true;
+ lastTime=0;
+
+ animationId=requestAnimationFrame(gameLoop);
+}
+
+function gameLoop(time){
+ if(!animationRunning||!active||document.hidden){
+  stopGameLoop();
+  return;
+ }
+
+ const delta=lastTime?
+  Math.min((time-lastTime)/16.67,2):1;
+
+ lastTime=time;
+
+ try{
+  updateGame(delta);
+  drawGame();
+ }catch(e){
+  console.error("Game loop error:",e);
+  active=false;
+  stopGameLoop();
+  stopEngineSound();
+  setStatus("Game stopped because of an error. Please reload.");
+  return;
+ }
+
+ if(active&&animationRunning&&!document.hidden){
+  animationId=requestAnimationFrame(gameLoop);
+ }else{
+  stopGameLoop();
+ }
+}
+
+/* RACING LOGIC */
+
+function updateGame(delta){
+ const factor={
+  easy:.82,
+  normal:1,
+  hard:1.22
+ }[difficulty]||1;
+
+ const speed=Math.min(10,(4.2+score/180)*factor);
+
+ roadOffset+=speed*delta;
+ updateEngineSound(speed);
+
+ trafficTimer+=delta;
+ coinTimer+=delta;
+ distanceTimer+=delta;
+
+ if(distanceTimer>=30){
+  score++;
+  distanceTimer=0;
+  updateHUD();
+ }
+
+ const trafficInterval=Math.max(30,(68-score/35)/factor);
+
+ if(trafficTimer>trafficInterval&&traffic.length<MAX_TRAFFIC){
+  spawnTraffic();
+  trafficTimer=0;
+ }
+
+ const coinInterval=Math.max(20,42-score/80);
+
+ if(coinTimer>coinInterval&&pickups.length<MAX_PICKUPS){
+  spawnPickup();
+  coinTimer=0;
+ }
+
+ const py=H*.78;
+ const carHeight=62;
+
+ for(let i=traffic.length-1;i>=0;i--){
+  const c=traffic[i];
+  c.y+=speed*delta;
+
+  if(c.lane===lane&&Math.abs(c.y-py)<carHeight*.75){
+   traffic.splice(i,1);
+   lives--;
+
+   playCrashSound();
+   updateHUD();
+
+   setStatus("Collision! Watch out for traffic!");
+
+   if(lives<=0){
+    finishRace();
+    return;
+   }
+
+   continue;
+  }
+
+  if(c.y>H+80){
+   traffic.splice(i,1);
+  }
+ }
+
+ /* COLLECT PICKUPS */
+
+ for(let i=pickups.length-1;i>=0;i--){
+  const p=pickups[i];
+  p.y+=speed*delta;
+
+  if(p.lane===lane&&Math.abs(p.y-py)<38){
+   pickups.splice(i,1);
+
+   if(p.type==="diamond"){
+    score+=100;
+    playBonusSound("diamond");
+    setStatus("💎 DIAMOND! +100 BONUS POINTS!");
+   }else if(p.type==="heart"){
+    score+=50;
+    lives=Math.min(3,lives+1);
+    playBonusSound("heart");
+    setStatus("❤️ HEART! +50 POINTS + 1 LIFE!");
+   }else{
+    coins++;
+    score+=10;
+    playCoinSound();
+    setStatus("🪙 Coin collected! +10 points");
+   }
+
+   updateHUD();
+   continue;
+  }
+
+  if(p.y>H+35){
+   pickups.splice(i,1);
+  }
+ }
+}
+
+/* GAME OVER */
+
+function finishRace(){
+ if(gameOver)return;
+
+ active=false;
+ gameOver=true;
+
+ stopGameLoop();
+ stopEngineSound();
+
+ overlay.style.display="flex";
+
+ $("introText").textContent=
+  "Race completed! You scored "+score+
+  " points and collected "+coins+" coins.";
+
+ startBtn.textContent="RESTART";
+ startBtn.disabled=false;
+
+ $("exit").style.display="block";
+ $("retrySave").style.display="none";
+
+ $("gameRank").style.display=
+  gameMode==="free"?"none":"block";
+
+ if(gameMode==="free"){
+  setAuthMessage("Free race complete! Your score was not saved to a leaderboard.");
+ }else{
+  $("gameRank").textContent="Submitting your tournament score...";
+  setAuthMessage("Submitting your "+gameMode+" tournament score...");
+  submitScore();
+ }
+}
+
+/* START BUTTON */
+
+startBtn.addEventListener("click",e=>{
+ e.preventDefault();
+
+ if(!authReady){
+  setAuthMessage("Please wait while the game connects.");
+  return;
+ }
+
+ if(gameMode==="weekly"&&(!verifiedPlayer||!weeklyAccess)){
+  setAuthMessage("Weekly tournament admission is required.");
+  return;
+ }
+
+ if(gameMode==="monthly"&&(!verifiedPlayer||!monthlyAccess)){
+  setAuthMessage("An active monthly membership is required.");
+  return;
+ }
+
+ if(gameOver)resetGame();
+ if(active)return;
+
+ active=true;
+ gameOver=false;
+ scoreSubmitted=false;
+ raceStartedAt=Date.now();
+
+ startEngineSound();
+ playStartSound();
+
+ overlay.style.display="none";
+
+ $("retrySave").style.display="none";
+ $("exit").style.display="none";
+
+ setStatus(
+  gameMode==="free"?
+  "Free "+difficulty+" race in progress!":
+  gameMode.toUpperCase()+" tournament race in progress!"
+ );
+
+ startGameLoop();
+});
+
+/* EXIT */
+
+$("exit").addEventListener("click",()=>{
+ stopGameLoop();
+ stopEngineSound();
+ active=false;
+
+ if(tg&&typeof tg.close==="function"){
+  try{
+   tg.close();
+   return;
+  }catch(e){}
+ }
+
+ location.href="https://t.me/NeonRushGamingBot";
+});
+
+/* FREE MODE DIFFICULTY */
+
+document.querySelectorAll(".difficulty button").forEach(b=>{
+ b.addEventListener("click",()=>{
+  if(gameMode!=="free"||active)return;
+
+  difficulty=b.dataset.level;
+
+  document.querySelectorAll(".difficulty button").forEach(x=>{
+   x.classList.toggle("selected",x===b);
+  });
+
+  setStatus("Free mode difficulty: "+difficulty.toUpperCase());
+ });
+});
+
+if(gameMode!=="free"){
+ $("difficultyWrap").style.display="none";
+ $("leaderboardToggle").style.display="inline-block";
+
+ $("leaderboardTitle").textContent=
+  gameMode==="weekly"?
+  "🏆 Weekly Leaderboard":
+  "🏆 Monthly Premium Leaderboard";
+}
+
+/* STEERING */
+
+function moveLane(dir){
+ if(!active)return;
+ lane=Math.max(0,Math.min(2,lane+dir));
+}
+
+$("left").addEventListener("pointerdown",e=>{
+ e.preventDefault();
+ moveLane(-1);
+});
+
+$("right").addEventListener("pointerdown",e=>{
+ e.preventDefault();
+ moveLane(1);
+});
+
+window.addEventListener("keydown",e=>{
+ if(e.key==="ArrowLeft"||e.key.toLowerCase()==="a"){
+  moveLane(-1);
+ }
+
+ if(e.key==="ArrowRight"||e.key.toLowerCase()==="d"){
+  moveLane(1);
+ }
+});
+
+/* SWIPE CONTROLS */
+
+canvas.addEventListener("touchstart",e=>{
+ if(e.touches.length){
+  swipeStartX=e.touches[0].clientX;
+ }
+},{passive:true});
+
+canvas.addEventListener("touchend",e=>{
+ if(swipeStartX===null||!e.changedTouches.length)return;
+
+ const d=e.changedTouches[0].clientX-swipeStartX;
+
+ if(Math.abs(d)>25){
+  moveLane(d>0?1:-1);
+ }
+
+ swipeStartX=null;
+},{passive:true});
+
+/* PAUSE WHEN HIDDEN */
+
+document.addEventListener("visibilitychange",()=>{
+ if(document.hidden){
+  stopGameLoop();
+  stopEngineSound();
+ }else if(active){
+  startEngineSound();
+  startGameLoop();
+ }
+});
+
+/* INITIALIZE */
+
+resizeCanvas();
+drawGame();
+authenticateTelegram();
+
+})();
+</script>
+</body>
+</html>
