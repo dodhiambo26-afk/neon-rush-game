@@ -554,32 +554,113 @@ function roadDimensions(){
 /* DRAWING */
 
 function drawCar(x,y,color,playerCar=false){
- const w=playerCar?42:39;
- const h=playerCar?66:62;
+ const w=playerCar?46:42;
+ const h=playerCar?72:66;
 
  ctx.save();
  ctx.translate(x,y);
 
- ctx.fillStyle=color;
- ctx.fillRect(-w/2,-h/2,w,h);
+ // Neon underglow
+ if(playerCar){
+  ctx.shadowColor="#00eaff";
+  ctx.shadowBlur=22;
+  ctx.fillStyle="rgba(0,229,255,.28)";
+  ctx.fillRect(-w/2-5,-h/2+5,w+10,h-10);
+ }
 
- ctx.fillStyle="#101b31";
- ctx.fillRect(-w/2+6,-h/2+9,w-12,18);
+ // Wheels
+ ctx.shadowBlur=0;
+ ctx.fillStyle="#050812";
+ ctx.fillRect(-w/2-5,-h/2+12,7,19);
+ ctx.fillRect(w/2-2,-h/2+12,7,19);
+ ctx.fillRect(-w/2-5,h/2-29,7,19);
+ ctx.fillRect(w/2-2,h/2-29,7,19);
 
- ctx.fillStyle="#d8f7ff";
- ctx.fillRect(-w/2+5,-h/2+3,8,5);
- ctx.fillRect(w/2-13,-h/2+3,8,5);
+ // 3D body gradient
+ const body=ctx.createLinearGradient(-w/2,0,w/2,0);
+ body.addColorStop(0,"#111827");
+ body.addColorStop(.22,color);
+ body.addColorStop(.72,color);
+ body.addColorStop(1,"#111827");
 
- ctx.fillStyle="#080b12";
- ctx.fillRect(-w/2-4,-h/2+9,5,16);
- ctx.fillRect(w/2-1,-h/2+9,5,16);
- ctx.fillRect(-w/2-4,h/2-25,5,16);
- ctx.fillRect(w/2-1,h/2-25,5,16);
+ ctx.fillStyle=body;
+ ctx.shadowColor=playerCar?"#00eaff":color;
+ ctx.shadowBlur=playerCar?12:5;
+
+ ctx.beginPath();
+ ctx.moveTo(-w*.38,-h/2);
+ ctx.lineTo(w*.38,-h/2);
+ ctx.lineTo(w/2,h*.28);
+ ctx.lineTo(w*.38,h/2);
+ ctx.lineTo(-w*.38,h/2);
+ ctx.lineTo(-w/2,h*.28);
+ ctx.closePath();
+ ctx.fill();
+
+ ctx.shadowBlur=0;
+
+ // Windshield
+ ctx.fillStyle="#102b45";
+ ctx.beginPath();
+ ctx.moveTo(-w*.31,-h*.25);
+ ctx.lineTo(w*.31,-h*.25);
+ ctx.lineTo(w*.25,h*.02);
+ ctx.lineTo(-w*.25,h*.02);
+ ctx.closePath();
+ ctx.fill();
+
+ // Windshield reflection
+ ctx.strokeStyle="rgba(255,255,255,.45)";
+ ctx.lineWidth=2;
+ ctx.beginPath();
+ ctx.moveTo(-w*.22,-h*.2);
+ ctx.lineTo(-w*.08,-h*.03);
+ ctx.stroke();
+
+ // Hood detail
+ ctx.fillStyle="rgba(255,255,255,.25)";
+ ctx.fillRect(-2,h*.12,4,h*.2);
+
+ // Headlights
+ ctx.shadowColor="#00eaff";
+ ctx.shadowBlur=14;
+ ctx.fillStyle="#dfffff";
+ ctx.fillRect(-w*.37,-h*.46,9,6);
+ ctx.fillRect(w*.16,-h*.46,9,6);
+
+ // Rear lights
+ ctx.shadowColor="#ff174f";
+ ctx.fillStyle="#ff174f";
+ ctx.fillRect(-w*.36,h*.39,10,5);
+ ctx.fillRect(w*.14,h*.39,10,5);
 
  if(playerCar){
+  // Racing stripe
+  ctx.shadowColor="#ffffff";
+  ctx.shadowBlur=7;
+  ctx.fillStyle="#ffffff";
+  ctx.fillRect(-2,-h*.42,4,h*.65);
+
+  // Neon outline
+  ctx.shadowColor="#00eaff";
+  ctx.shadowBlur=15;
   ctx.strokeStyle="#00eaff";
   ctx.lineWidth=2;
-  ctx.strokeRect(-w/2-2,-h/2-2,w+4,h+4);
+  ctx.stroke();
+
+  // Headlight beams
+  ctx.shadowBlur=0;
+  const beam=ctx.createLinearGradient(0,-h/2,0,-h*1.9);
+  beam.addColorStop(0,"rgba(0,229,255,.22)");
+  beam.addColorStop(1,"rgba(0,229,255,0)");
+  ctx.fillStyle=beam;
+  ctx.beginPath();
+  ctx.moveTo(-w*.35,-h/2);
+  ctx.lineTo(-w*.8,-h*1.9);
+  ctx.lineTo(w*.8,-h*1.9);
+  ctx.lineTo(w*.35,-h/2);
+  ctx.closePath();
+  ctx.fill();
  }
 
  ctx.restore();
