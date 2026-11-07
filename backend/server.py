@@ -298,7 +298,6 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -410,6 +409,7 @@ def public_contact():
 
 # ============================================================
 # TELEGRAM PLAYER AUTHENTICATION
+# UPDATED: RETURNS FLAT AND NESTED ACCESS FIELDS
 # ============================================================
 
 @app.post("/api/auth/telegram")
@@ -435,6 +435,8 @@ def telegram_auth(
         monthly["key"]
     )
 
+    weekly_locked = db.is_weekly_locked()
+
     return {
         "authenticated": True,
 
@@ -446,10 +448,20 @@ def telegram_auth(
             "display_name": display_name(user)
         },
 
+        # Flat fields required by the current game
+        "weekly_access": weekly_access,
+        "weekly_locked": weekly_locked,
+        "weekly_session": weekly,
+
+        "monthly_access": monthly_access,
+        "monthly_session": monthly,
+        "monthly_expiry": monthly["end"],
+
+        # Nested fields retained for compatibility
         "weekly": {
             "session": weekly,
             "has_access": weekly_access,
-            "locked": db.is_weekly_locked(),
+            "locked": weekly_locked,
             "entry_price": 0
         },
 
@@ -493,8 +505,6 @@ def submit_score(
     mode = submission.mode.lower().strip()
 
     if mode == "free":
-        # Free scores remain local to the game.
-        # They are not saved to global leaderboards.
         return {
             "saved": False,
             "score": submission.score,
@@ -1314,6 +1324,7 @@ def admin_performance(
 
     if mode == "weekly":
         session = db.weekly_session()
+
         has_access_sql = """
             EXISTS (
                 SELECT 1 FROM weekly_entries e
@@ -1324,6 +1335,7 @@ def admin_performance(
 
     elif mode == "monthly":
         session = db.monthly_session()
+
         has_access_sql = """
             EXISTS (
                 SELECT 1 FROM monthly_memberships m
@@ -1651,10 +1663,12 @@ def admin_settings(
         "monthly_price_stars": MONTHLY_STARS,
         "monthly_prize_percentage": MONTHLY_PRIZE_PERCENTAGE,
         "monthly_retained_percentage": MONTHLY_RETAINED_PERCENTAGE,
+
         "whatsapp": db.get_setting(
             "support_whatsapp",
             SUPPORT_WHATSAPP
         ),
+
         "email": db.get_setting(
             "support_email",
             SUPPORT_EMAIL
