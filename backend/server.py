@@ -448,7 +448,6 @@ def telegram_auth(
             "display_name": display_name(user)
         },
 
-        # Flat fields required by the current game
         "weekly_access": weekly_access,
         "weekly_locked": weekly_locked,
         "weekly_session": weekly,
@@ -457,7 +456,6 @@ def telegram_auth(
         "monthly_session": monthly,
         "monthly_expiry": monthly["end"],
 
-        # Nested fields retained for compatibility
         "weekly": {
             "session": weekly,
             "has_access": weekly_access,
@@ -1032,7 +1030,8 @@ def admin_monthly_grant(
             ON CONFLICT(telegram_id, month_key)
             DO UPDATE SET
                 starts_at=excluded.starts_at,
-                expires_at=excluded.expires_at
+                expires_at=excluded.expires_at,
+                revoked=0
         """, (
             uid,
             session["key"],
@@ -1439,6 +1438,124 @@ def admin_history(
             LIMIT ?
         """, (limit,))
     }
+
+
+# ============================================================
+# ADMIN TOURNAMENT HISTORY
+# ============================================================
+
+def history_json_safe(value):
+    """
+    Convert SQLite rows and nested results into JSON-safe data.
+    """
+    if value is None:
+        return None
+
+    if isinstance(value, dict):
+        return {
+            str(key): history_json_safe(item)
+            for key, item in value.items()
+        }
+
+    if isinstance(value, (list, tuple)):
+        return [
+            history_json_safe(item)
+            for item in value
+        ]
+
+    if hasattr(value, "keys") and not isinstance(value, (str, bytes)):
+        try:
+            return {
+                str(key): history_json_safe(value[key])
+                for key in value.keys()
+            }
+        except (TypeError, KeyError, IndexError):
+            pass
+
+    return value
+
+
+def validate_history_period_type(period_type):
+    period_type = period_type.lower().strip()
+
+    if period_type not in ("weekly", "monthly"):
+        raise HTTPException(
+            status_code=400,
+            detail="Period type must be weekly or monthly."
+        )
+
+    return period_type
+
+
+@app.get("/api/admin/history/summary")
+def admin_tournament_history_summary(
+    x_telegram_init_data: str = Header(
+        default="",
+        alias="X-Telegram-Init-Data"
+    )
+):
+    require_admin(x_telegram_init_data)
+
+    summary = db.get_tournament_history_summary()
+
+    return history_json_safe(summary)
+
+
+@app.get("/api/admin/history/periods")
+def admin_tournament_history_periods(
+    period_type: str = Query(default="weekly"),
+    limit: int = Query(default=100, ge=1, le=500),
+    x_telegram_init_data: str = Header(
+        default="",
+        alias="X-Telegram-Init-Data"
+    )
+):
+    require_admin(x_telegram_init_data)
+
+    period_type = validate_history_period_type(period_type)
+
+    periods = db.list_tournament_periods(
+        period_type,
+        limit
+    )
+
+    return {
+        "period_type": period_type,
+        "periods": history_json_safe(periods)
+    }
+
+
+@app.get("/api/admin/history/{period_type}/{period_key}")
+def admin_tournament_history_detail(
+    period_type: str,
+    period_key: str,
+    x_telegram_init_data: str = Header(
+        default="",
+        alias="X-Telegram-Init-Data"
+    )
+):
+    require_admin(x_telegram_init_data)
+
+    period_type = validate_history_period_type(period_type)
+
+    if not period_key or len(period_key) > 20:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid tournament period key."
+        )
+
+    history = db.get_tournament_history(
+        period_type,
+        period_key
+    )
+
+    if not history:
+        raise HTTPException(
+            status_code=404,
+            detail="Tournament history was not found."
+        )
+
+    return history_json_safe(history)
 
 
 # ============================================================
