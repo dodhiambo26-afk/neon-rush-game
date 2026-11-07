@@ -508,6 +508,9 @@ let coinTimer=0;
 let distanceTimer=0;
 
 let animationId=0;
+ let crashEffectTimer=0;
+let crashEffectX=0;
+let crashEffectY=0;
 let animationRunning=false;
 let lastTime=0;
 let swipeStartX=null;
@@ -743,6 +746,47 @@ function drawHeart(x,y){
 }
 
 function drawGame(){
+ function drawCrashEffect(){
+ if(crashEffectTimer<=0)return;
+
+ const progress=crashEffectTimer/18;
+ const radius=(1-progress)*65;
+
+ ctx.save();
+
+ // Impact flash
+ ctx.fillStyle="rgba(255,40,100,"+(progress*.22)+")";
+ ctx.fillRect(0,0,W,H);
+
+ // Neon impact ring
+ ctx.beginPath();
+ ctx.arc(crashEffectX,crashEffectY,radius,0,Math.PI*2);
+ ctx.strokeStyle="rgba(0,229,255,"+progress+")";
+ ctx.lineWidth=4;
+ ctx.shadowColor="#00e5ff";
+ ctx.shadowBlur=22;
+ ctx.stroke();
+
+ // Flying sparks
+ for(let i=0;i<12;i++){
+  const angle=(Math.PI*2*i)/12;
+  const distance=(1-progress)*55;
+
+  ctx.beginPath();
+  ctx.moveTo(crashEffectX,crashEffectY);
+  ctx.lineTo(
+   crashEffectX+Math.cos(angle)*distance,
+   crashEffectY+Math.sin(angle)*distance
+  );
+
+  ctx.strokeStyle=i%2?"#ff22d4":"#00e5ff";
+  ctx.lineWidth=3;
+  ctx.stroke();
+ }
+
+ ctx.restore();
+ crashEffectTimer--;
+ }
  if(!ctx||!W||!H)return;
 
  ctx.fillStyle="#080F20";
@@ -792,6 +836,7 @@ function drawGame(){
   else if(p.type==="heart")drawHeart(x,p.y);
   else drawCoin(x,p.y);
  }
+ drawCrashEffect();
 }
 
 /* TELEGRAM AUTHENTICATION */
