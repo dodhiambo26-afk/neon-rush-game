@@ -264,7 +264,7 @@ def init_db():
                 "monthly_prize_percentage": "30",
                 "monthly_retained_percentage": "70",
                 "support_whatsapp": "+254183375330",
-                "support_email": "amimod94@yahoo.com"
+                "support_email": "neonrusharena@gmail.com"
             }
 
             for key, value in defaults.items():
