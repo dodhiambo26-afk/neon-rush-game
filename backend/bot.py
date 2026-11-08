@@ -216,7 +216,7 @@ def tournament_keyboard(uid, mode):
 
 def main_text():
     return (
-        "⚡ NEON RUSH ⚡\n\n"
+        "⚡ NEON RUSH ARENA ⚡\n\n"
         "Welcome to the racing arena!\n\n"
 
         "🏎 FREE GAME\n"
