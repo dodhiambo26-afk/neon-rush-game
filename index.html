@@ -193,6 +193,32 @@ canvas{display:block;width:100vw;height:100vh}
   #cinematicIntro{animation:introExit .5s ease 1s forwards}
   .intro-content,.intro-car,.intro-track,.intro-lights,.intro-start{animation:none}
 }
+ /* TOURNAMENT COUNTDOWNS */
+.countdown-wrap{
+ display:grid;
+ grid-template-columns:1fr 1fr;
+ gap:8px;
+ margin:12px 0;
+}
+.countdown-card{
+ background:#09152a;
+ border:1px solid rgba(0,229,255,.4);
+ border-radius:11px;
+ padding:10px 6px;
+}
+.countdown-card strong{
+ display:block;
+ color:#00e5ff;
+ font-size:10px;
+ margin-bottom:6px;
+}
+.countdown-time{
+ color:#fff;
+ font-size:12px;
+ font-weight:900;
+ line-height:1.5;
+ font-variant-numeric:tabular-nums;
+}
 </style>
 </head>
 <body>
@@ -213,6 +239,16 @@ canvas{display:block;width:100vw;height:100vh}
 <div id="leaderboardPanel">
  <button id="closeLeaderboard">×</button>
  <h3 id="leaderboardTitle">🏆 Tournament Leaderboard</h3>
+ <div class="countdown-wrap" aria-label="Tournament reset countdowns">
+ <div class="countdown-card">
+  <strong>🏁 WEEKLY RESET</strong>
+  <div class="countdown-time" id="weeklyLeaderboardCountdown">Calculating...</div>
+ </div>
+ <div class="countdown-card">
+  <strong>👑 MONTHLY RESET</strong>
+  <div class="countdown-time" id="monthlyLeaderboardCountdown">Calculating...</div>
+ </div>
+ </div>
  <div id="leaderboardRows">Open the leaderboard to load scores.</div>
  <div id="myRank">Your position: Not available</div>
 </div>
@@ -240,6 +276,16 @@ canvas{display:block;width:100vw;height:100vh}
   <p class="brand-tagline">RACE • COMPETE • CONQUER</p>
   <p id="introText">Race through the neon highway. Avoid traffic, collect coins, diamonds and hearts, and beat your best score!</p>
   <p id="authStatus">Connecting to Telegram...</p>
+  <div class="countdown-wrap" aria-label="Tournament reset countdowns">
+ <div class="countdown-card">
+  <strong>🏁 WEEKLY RESET</strong>
+  <div class="countdown-time" id="weeklyCountdown">Calculating...</div>
+ </div>
+ <div class="countdown-card">
+  <strong>👑 MONTHLY RESET</strong>
+  <div class="countdown-time" id="monthlyCountdown">Calculating...</div>
+ </div>
+  </div>
 
   <div id="difficultyWrap">
    <small>FREE MODE — CHOOSE YOUR DIFFICULTY</small>
@@ -270,6 +316,94 @@ const requestedMode=new URLSearchParams(location.search).get("mode")||"free";
 const gameMode=["weekly","monthly"].includes(requestedMode)?requestedMode:"free";
 
 const $=id=>document.getElementById(id);
+ /* =========================================
+   NEON RUSH TOURNAMENT COUNTDOWNS
+   Weekly: Sunday 6:00 PM Nairobi time
+   Monthly: First day, 12:00 AM Nairobi time
+========================================= */
+
+function nairobiParts(){
+ const parts=new Intl.DateTimeFormat("en-GB",{
+  timeZone:"Africa/Nairobi",
+  year:"numeric",
+  month:"2-digit",
+  day:"2-digit",
+  weekday:"short"
+ }).formatToParts(new Date());
+
+ const result={};
+ parts.forEach(p=>result[p.type]=p.value);
+
+ return {
+  year:Number(result.year),
+  month:Number(result.month),
+  day:Number(result.day),
+  weekday:result.weekday
+ };
+}
+
+function getWeeklyReset(){
+ const n=nairobiParts();
+ const weekdays={
+  Sun:0,Mon:1,Tue:2,Wed:3,Thu:4,Fri:5,Sat:6
+ };
+
+ const today=weekdays[n.weekday];
+ const daysUntilSunday=(7-today)%7;
+
+ let target=Date.UTC(
+  n.year,n.month-1,n.day+daysUntilSunday,15,0,0
+ );
+
+ if(target<=Date.now()){
+  target+=7*24*60*60*1000;
+ }
+
+ return target;
+}
+
+function getMonthlyReset(){
+ const n=nairobiParts();
+
+ return Date.UTC(
+  n.year,n.month,1,-3,0,0
+ );
+}
+
+function formatCountdown(target){
+ const remaining=Math.max(0,target-Date.now());
+
+ const days=Math.floor(remaining/86400000);
+ const hours=Math.floor((remaining%86400000)/3600000);
+ const minutes=Math.floor((remaining%3600000)/60000);
+ const seconds=Math.floor((remaining%60000)/1000);
+
+ return `${days}d ${hours}h ${minutes}m ${seconds}s`;
+}
+
+function updateTournamentCountdowns(){
+ const weekly=formatCountdown(getWeeklyReset());
+ const monthly=formatCountdown(getMonthlyReset());
+
+ [
+  "weeklyCountdown",
+  "weeklyLeaderboardCountdown"
+ ].forEach(id=>{
+  const el=$(id);
+  if(el)el.textContent=weekly;
+ });
+
+ [
+  "monthlyCountdown",
+  "monthlyLeaderboardCountdown"
+ ].forEach(id=>{
+  const el=$(id);
+  if(el)el.textContent=monthly;
+ });
+}
+
+updateTournamentCountdowns();
+setInterval(updateTournamentCountdowns,1000);
 const canvas=$("game");
 const ctx=canvas.getContext("2d",{alpha:false});
 const startBtn=$("start");
