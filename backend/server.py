@@ -838,6 +838,79 @@ def admin_entries(
         ]
     }
 
+# ============================================================
+# ADMIN WEEKLY DATABASE DIAGNOSTIC
+# READ-ONLY: DOES NOT MODIFY OR DELETE DATA
+# ============================================================
+
+@app.get("/api/admin/weekly-diagnostic")
+def admin_weekly_diagnostic(
+    x_telegram_init_data: str = Header(
+        default="",
+        alias="X-Telegram-Init-Data"
+    )
+):
+    require_admin(x_telegram_init_data)
+
+    session = db.weekly_session()
+    con = db.connect()
+
+    try:
+        weekly_total = con.execute("""
+            SELECT COUNT(*) FROM weekly_entries
+        """).fetchone()[0]
+
+        weekly_current = con.execute("""
+            SELECT COUNT(*)
+            FROM weekly_entries
+            WHERE session_key=?
+        """, (session["key"],)).fetchone()[0]
+
+        legacy_total = con.execute("""
+            SELECT COUNT(*) FROM tournament_entries
+        """).fetchone()[0]
+
+        legacy_current = con.execute("""
+            SELECT COUNT(*)
+            FROM tournament_entries
+            WHERE session_key=?
+        """, (session["key"],)).fetchone()[0]
+
+        weekly_keys = [
+            dict(row)
+            for row in con.execute("""
+                SELECT session_key, COUNT(*) AS members
+                FROM weekly_entries
+                GROUP BY session_key
+                ORDER BY session_key DESC
+                LIMIT 10
+            """).fetchall()
+        ]
+
+        legacy_keys = [
+            dict(row)
+            for row in con.execute("""
+                SELECT session_key, COUNT(*) AS members
+                FROM tournament_entries
+                GROUP BY session_key
+                ORDER BY session_key DESC
+                LIMIT 10
+            """).fetchall()
+        ]
+
+        return {
+            "current_session": session,
+            "weekly_entries_total": weekly_total,
+            "weekly_entries_current": weekly_current,
+            "legacy_entries_total": legacy_total,
+            "legacy_entries_current": legacy_current,
+            "weekly_session_records": weekly_keys,
+            "legacy_session_records": legacy_keys
+        }
+
+    finally:
+        con.close()
+
 
 # ============================================================
 # ADMIN WEEKLY GRANT
