@@ -45,7 +45,7 @@ ADMIN_DASHBOARD_URL = os.getenv(
 MONTHLY_PRICE = 300
 
 SUPPORT_WHATSAPP = "+254183375330"
-SUPPORT_EMAIL = "amimod94@yahoo.com"
+SUPPORT_EMAIL = "neonrusharena.com"
 
 
 ADMIN_IDS = set()
