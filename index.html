@@ -1124,6 +1124,7 @@ function spawnPickup(){
 function resetGame(){
  stopGameLoop();
  stopEngineSound();
+  crashEffectTimer=0;
 
  score=0;
  coins=0;
@@ -1250,6 +1251,9 @@ function updateGame(delta){
    lives--;
 
    playCrashSound();
+   crashEffectTimer=18;
+crashEffectX=laneX(lane);
+crashEffectY=H*.78;
    updateHUD();
 
    setStatus("Collision! Watch out for traffic!");
