@@ -91,7 +91,9 @@ footer{text-align:center;color:#6f88a8;font-size:11px;padding:25px}
 <h2>Dashboard overview</h2>
 <div class="grid">
 <div class="stat"><small>Registered players</small><strong id="playersCount">—</strong></div>
-<div class="stat"><small>Tournament entries</small><strong id="entriesCount">—</strong></div>
+<div class="stat"><small>Weekly members</small><strong id="weeklyCount">—</strong></div>
+<div class="stat"><small>Active monthly members</small><strong id="monthlyCount">—</strong></div>
+<div class="stat"><small>Total active memberships</small><strong id="totalMembershipsCount">—</strong></div>
 <div class="stat"><small>Stars collected</small><strong id="starsCount">—</strong></div>
 <div class="stat"><small>Payments</small><strong id="paymentsCount">—</strong></div>
 </div>
@@ -424,10 +426,26 @@ async function loadOverview(){
   const d=await api("/api/admin/overview");
   const s=d.stats||d;
 
-  document.getElementById("playersCount").textContent=s.players??"—";
-  document.getElementById("entriesCount").textContent=s.tournament_entries??"—";
-  document.getElementById("starsCount").textContent=s.stars??"—";
-  document.getElementById("paymentsCount").textContent=s.payments??"—";
+  const weekly=Number(s.weekly_entries||0);
+  const monthly=Number(s.monthly_members||0);
+
+  document.getElementById("playersCount").textContent=
+   s.players??"—";
+
+  document.getElementById("weeklyCount").textContent=
+   weekly;
+
+  document.getElementById("monthlyCount").textContent=
+   monthly;
+
+  document.getElementById("totalMembershipsCount").textContent=
+   weekly+monthly;
+
+  document.getElementById("starsCount").textContent=
+   s.stars??"—";
+
+  document.getElementById("paymentsCount").textContent=
+   s.payments??"—";
 
   document.getElementById("systemInfo").textContent=
    "Backend connected • Admin authentication active";
