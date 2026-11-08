@@ -9,6 +9,16 @@
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 
 <style>
+ .admin-logo{
+ display:block;
+ width:110px;
+ height:110px;
+ object-fit:contain;
+ margin:0 auto 12px;
+}
+header{
+ text-align:center;
+}
 *{box-sizing:border-box}
 body{margin:0;background:#080f20;color:#eef5ff;font-family:Arial,sans-serif}
 header{padding:18px;background:#101c35;border-bottom:1px solid #203858;position:sticky;top:0;z-index:5}
@@ -44,8 +54,13 @@ footer{text-align:center;color:#6f88a8;font-size:11px;padding:25px}
 </head>
 
 <body>
-<header>
-<h1>NEON RUSH</h1>
+ <header>
+<img
+ src="https://dodhiambo26-afk.github.io/neon-rush-game/nra_logo.png"
+ alt="NEON RUSH ARENA Logo"
+ class="admin-logo"
+>
+<h1>NEON RUSH ARENA</h1>
 <p>ADMINISTRATION CONTROL PANEL</p>
 <div class="status" id="status">Connecting to secure admin service...</div>
 </header>
