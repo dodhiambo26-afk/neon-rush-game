@@ -1810,7 +1810,7 @@ def admin_tournament(
     return {
         "weekly": {
             "name": "NEON RUSH Weekly Tournament",
-            "entry_price_stars": 0,
+            "entry_price_KES": 25,
             "timezone": "Africa/Nairobi",
             "schedule": "Sunday 6:00 PM to Sunday 6:00 PM",
             "session": weekly_session(),
