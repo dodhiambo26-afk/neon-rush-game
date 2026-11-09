@@ -961,15 +961,37 @@ def admin_entries(
     require_admin(x_telegram_init_data)
 
     session = weekly_session()
+    entries = db.list_weekly_entries(session["key"])
+
+    result = []
+
+    for entry in entries:
+        uid = entry.get("telegram_id")
+        player = db.get_user(uid) or {}
+
+        result.append({
+            **entry,
+            "telegram_id": uid,
+            "username": player.get("username") or "",
+            "first_name": player.get("first_name") or "",
+            "last_name": player.get("last_name") or "",
+            "display_name": (
+                " ".join(filter(None, [
+                    player.get("first_name"),
+                    player.get("last_name")
+                ]))
+                or player.get("username")
+                or str(uid)
+            ),
+            "admitted_by": entry.get("granted_by") or "",
+            "created_at": entry.get("granted_at") or "",
+        })
 
     return {
         "session": session,
         "locked": db.is_weekly_locked(),
-        "entries": json_safe(
-            db.list_weekly_entries(session["key"])
-        ),
+        "entries": json_safe(result),
     }
-
 
 # ============================================================
 # ADMIN WEEKLY DIAGNOSTIC
