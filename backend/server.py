@@ -791,6 +791,7 @@ def leaderboard(
 # PUBLIC TOURNAMENT STATUS
 # ============================================================
 
+
 @app.get("/api/tournament/status")
 def tournament_status(
     x_telegram_init_data: str = Header(
@@ -804,6 +805,28 @@ def tournament_status(
     weekly = weekly_session()
     monthly = monthly_session()
 
+    # Get participants in the current tournament sessions.
+    weekly_entries = db.list_weekly_entries(weekly["key"])
+    monthly_members = db.list_monthly_members(monthly["key"])
+
+    # Count unique participants who are not banned.
+    def count_active_players(records):
+        player_ids = set()
+
+        for record in records:
+            try:
+                player_id = int(record.get("telegram_id"))
+            except (TypeError, ValueError):
+                continue
+
+            if player_id > 0 and not db.is_banned(player_id):
+                player_ids.add(player_id)
+
+        return len(player_ids)
+
+    weekly_count = count_active_players(weekly_entries)
+    monthly_count = count_active_players(monthly_members)
+
     return {
         "weekly": {
             "session": weekly,
@@ -813,6 +836,7 @@ def tournament_status(
             ),
             "locked": db.is_weekly_locked(),
             "entry_price": 0,
+            "active_players": weekly_count,
         },
 
         "monthly": {
@@ -822,8 +846,10 @@ def tournament_status(
                 monthly["key"],
             ),
             "entry_price": MONTHLY_STARS,
+            "active_players": monthly_count,
         },
     }
+
 
 
 # ============================================================
