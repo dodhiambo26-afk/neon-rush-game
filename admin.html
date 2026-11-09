@@ -190,6 +190,13 @@ These actions do not charge Telegram Stars.
 
 <section id="performance">
 <h2>Top scores and performance</h2>
+
+<label for="performanceMode">Tournament type</label>
+<select id="performanceMode" onchange="loadPerformance()">
+<option value="weekly">Weekly tournament</option>
+<option value="monthly">Monthly tournament</option>
+</select>
+
 <button class="action" onclick="loadPerformance()">Refresh performance</button>
 <div id="performanceList" class="panel">Loading scores...</div>
 </section>
@@ -585,18 +592,20 @@ async function loadPayments(){
 
 async function loadPerformance(){
  const el=document.getElementById("performanceList");
- el.textContent="Loading performance records...";
+ const mode=document.getElementById("performanceMode").value;
+
+ el.textContent="Loading "+mode+" performance...";
 
  try{
-  const d=await api("/api/admin/performance");
-  const scores=d.top_scores||d.top_five||[];
+  const d=await api("/api/admin/performance?mode="+mode);
+  const scores=d.top_scores||[];
 
   const players=scores.map((item,index)=>({
    rank:index+1,
    telegram_id:item.telegram_id,
    player_name:item.username||item.display_name||item.name||("Player "+item.telegram_id),
    best_score:item.score,
-   mode:item.mode||d.mode||"",
+   mode:item.mode||d.mode||mode,
    session:item.session_key||d.session?.key||"",
    created_at:item.created_at||""
   }));
@@ -612,7 +621,7 @@ async function loadPerformance(){
   ]);
 
  }catch(e){
-  el.textContent="Could not load performance records: "+e.message;
+  el.textContent="Could not load performance: "+e.message;
   showMessage(e.message);
  }
 }
