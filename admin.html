@@ -76,6 +76,7 @@ footer{text-align:center;color:#6f88a8;font-size:11px;padding:25px}
 <button data-page="entries">Tournament entries</button>
 <button data-page="weeklyMembers">Weekly members</button>
 <button data-page="monthlyMembers">Monthly members</button>
+<button data-page="leaderboard">Leaderboard</button>
 <button data-page="grant">Add player</button>
 <button data-page="payments">Stars payments</button>
 <button data-page="performance">Performance</button>
@@ -148,6 +149,37 @@ View players with monthly tournament memberships, including their month, expiry 
 <button class="action" onclick="loadMonthlyMembers()">Refresh monthly members</button>
 <div id="monthlyMembersList" class="panel">Loading monthly members...</div>
 </section>
+
+<!-- NEW LEADERBOARD SECTION -->
+<section id="leaderboard">
+<h2>Tournament leaderboard</h2>
+
+<div class="notice">
+View the total number of players admitted to the current weekly and monthly tournaments.
+</div>
+
+<button class="action" onclick="loadLeaderboard()">Refresh leaderboard</button>
+
+<div class="grid">
+ <div class="stat">
+  <small>Weekly tournament players</small>
+  <strong id="leaderboardWeeklyCount">—</strong>
+  <small id="leaderboardWeeklySession" class="muted">Loading session...</small>
+ </div>
+
+ <div class="stat">
+  <small>Monthly tournament players</small>
+  <strong id="leaderboardMonthlyCount">—</strong>
+  <small id="leaderboardMonthlySession" class="muted">Loading month...</small>
+ </div>
+</div>
+
+<div class="panel">
+ <h3>Participation summary</h3>
+ <div id="leaderboardStatus" class="muted">Loading tournament participation...</div>
+</div>
+</section>
+<!-- END LEADERBOARD SECTION -->
 
 <section id="grant">
 <h2>Manage tournament access</h2>
@@ -296,8 +328,8 @@ Select a tournament period to view its archived details.
 
 <p>• Email: neonrusharena@gmail.com</p>
 
- <p>• WhatsApp: +254183375330</p>
- 
+<p>• WhatsApp: +254183375330</p>
+
 </div>
 </section>
 
@@ -409,6 +441,7 @@ document.querySelectorAll("nav button").forEach(button=>{
    entries:loadEntries,
    weeklyMembers:loadWeeklyMembers,
    monthlyMembers:loadMonthlyMembers,
+   leaderboard:loadLeaderboard,
    payments:loadPayments,
    performance:loadPerformance,
    banned:loadBanned,
@@ -517,9 +550,7 @@ async function loadEntries(){
  }
 }
 
-/* =========================================
-   WEEKLY MEMBERS
-========================================= */
+/* WEEKLY MEMBERS */
 
 async function loadWeeklyMembers(){
  const el=document.getElementById("weeklyMembersList");
@@ -542,10 +573,7 @@ async function loadWeeklyMembers(){
  }
 }
 
-/* =========================================
-   WEEKLY DATABASE DIAGNOSTIC
-   READ-ONLY: DOES NOT MODIFY OR DELETE DATA
-========================================= */
+/* WEEKLY DATABASE DIAGNOSTIC */
 
 async function checkWeeklyDatabase(){
  const el=document.getElementById("weeklyDiagnosticList");
@@ -611,7 +639,53 @@ async function loadPayments(){
  }catch(e){
   showMessage(e.message);
  }
-   }
+}
+
+/* NEW LEADERBOARD FUNCTION */
+
+async function loadLeaderboard(){
+ const status=document.getElementById("leaderboardStatus");
+ status.textContent="Loading tournament player totals...";
+
+ try{
+  const [weekly,monthly]=await Promise.all([
+   api("/api/admin/entries"),
+   api("/api/admin/monthly/members")
+  ]);
+
+  const weeklyPlayers=weekly.entries||[];
+
+  const monthlyPlayers=
+   monthly.members||
+   monthly.monthly_members||
+   monthly.players||
+   monthly.results||
+   [];
+
+  document.getElementById("leaderboardWeeklyCount").textContent=
+   weeklyPlayers.length;
+
+  document.getElementById("leaderboardMonthlyCount").textContent=
+   monthlyPlayers.length;
+
+  document.getElementById("leaderboardWeeklySession").textContent=
+   "Session: "+(weekly.session?.key||weekly.session_key||"Current weekly session");
+
+  document.getElementById("leaderboardMonthlySession").textContent=
+   "Month: "+(monthly.session?.key||monthly.month_key||"Current month");
+
+  status.textContent=
+   "Current participation — Weekly: "+weeklyPlayers.length+
+   " players | Monthly: "+monthlyPlayers.length+" players.";
+
+ }catch(e){
+  status.textContent="Could not load leaderboard: "+e.message;
+  showMessage(e.message);
+ }
+}
+
+/* PERFORMANCE */
+
 async function loadPerformance(){
  const el=document.getElementById("performanceList");
  const mode=document.getElementById("performanceMode").value;
@@ -648,6 +722,24 @@ async function loadPerformance(){
  }
 }
 
+/* MODERATION */
+
+async function loadBanned(){
+ try{
+  const d=await api("/api/admin/banned");
+
+  renderList("bannedList",d.players,[
+   ["telegram_id","Telegram ID"],
+   ["username","Username"],
+   ["first_name","First name"],
+   ["banned_at","Banned date"]
+  ]);
+
+ }catch(e){
+  showMessage("Could not load banned players: "+e.message);
+ }
+}
+
 async function loadTournament(){
  try{
   const d=await api("/api/admin/tournament");
@@ -658,9 +750,7 @@ async function loadTournament(){
  }
 }
 
-/* =========================================
-   TOURNAMENT HISTORY
-========================================= */
+/* TOURNAMENT HISTORY */
 
 async function loadHistoryDashboard(){
  await Promise.allSettled([
@@ -819,9 +909,7 @@ document.getElementById("historyType").addEventListener("change",()=>{
  }
 });
 
-/* =========================================
-   INDIVIDUAL GAME HISTORY
-========================================= */
+/* INDIVIDUAL GAME HISTORY */
 
 async function loadHistory(){
  try{
@@ -866,9 +954,7 @@ async function loadSettings(){
  }
 }
 
-/* =========================================
-   WEEKLY AND MONTHLY PLAYER ACTIONS
-========================================= */
+/* WEEKLY AND MONTHLY PLAYER ACTIONS */
 
 async function grantPlayer(){
  const id=Number(document.getElementById("grantId").value);
@@ -980,9 +1066,7 @@ async function revokeMonthlyPlayer(){
  }
 }
 
-/* =========================================
-   ACCOUNT MODERATION
-========================================= */
+/* ACCOUNT MODERATION */
 
 async function banPlayer(){
  const id=Number(document.getElementById("banId").value);
