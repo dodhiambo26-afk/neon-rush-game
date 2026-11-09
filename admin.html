@@ -598,8 +598,11 @@ async function loadPayments(){
   const d=await api("/api/admin/payments");
 
   renderList("paymentsList",d.payments,[
-   ["id","Payment ID"],
+   ["payment_id","Payment ID"],
    ["telegram_id","Telegram ID"],
+   ["username","Username"],
+   ["payment_type","Payment type"],
+   ["month_key","Month"],
    ["amount","Stars"],
    ["currency","Currency"],
    ["created_at","Date"]
@@ -608,8 +611,7 @@ async function loadPayments(){
  }catch(e){
   showMessage(e.message);
  }
-}
-
+   }
 async function loadPerformance(){
  const el=document.getElementById("performanceList");
  const mode=document.getElementById("performanceMode").value;
