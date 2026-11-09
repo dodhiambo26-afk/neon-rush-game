@@ -1165,14 +1165,37 @@ def admin_monthly_members(
     require_admin(x_telegram_init_data)
 
     session = monthly_session()
+    members = db.list_monthly_members(session["key"])
+
+    result = []
+
+    for member in members:
+        uid = member.get("telegram_id")
+        player = db.get_user(uid) or {}
+
+        result.append({
+            **member,
+            "telegram_id": uid,
+            "username": player.get("username") or "",
+            "first_name": player.get("first_name") or "",
+            "last_name": player.get("last_name") or "",
+            "display_name": (
+                " ".join(filter(None, [
+                    player.get("first_name"),
+                    player.get("last_name")
+                ]))
+                or player.get("username")
+                or str(uid)
+            ),
+            "starts_at": member.get("granted_at") or "",
+            "payment_id": member.get("payment_id") or "",
+            "granted_by": member.get("granted_by") or "",
+        })
 
     return {
         "session": session,
-        "members": json_safe(
-            db.list_monthly_members(session["key"])
-        ),
-    }
-
+        "members": json_safe(result),
+        }
 
 # ============================================================
 # ADMIN GRANT MONTHLY ACCESS
