@@ -584,33 +584,35 @@ async function loadPayments(){
 }
 
 async function loadPerformance(){
+ const el=document.getElementById("performanceList");
+ el.textContent="Loading performance records...";
+
  try{
   const d=await api("/api/admin/performance");
+  const scores=d.top_scores||d.top_five||[];
 
-  renderList("performanceList",d.players||d.scores,[
+  const players=scores.map((item,index)=>({
+   rank:index+1,
+   telegram_id:item.telegram_id,
+   player_name:item.username||item.display_name||item.name||("Player "+item.telegram_id),
+   best_score:item.score,
+   mode:item.mode||d.mode||"",
+   session:item.session_key||d.session?.key||"",
+   created_at:item.created_at||""
+  }));
+
+  renderList("performanceList",players,[
    ["rank","Rank"],
    ["telegram_id","Telegram ID"],
-   ["display_name","Player"],
-   ["best_score","Best score"]
+   ["player_name","Player"],
+   ["best_score","Best score"],
+   ["mode","Mode"],
+   ["session","Tournament session"],
+   ["created_at","Date"]
   ]);
 
  }catch(e){
-  showMessage(e.message);
- }
-}
-
-async function loadBanned(){
- try{
-  const d=await api("/api/admin/banned");
-
-  renderList("bannedList",d.players,[
-   ["telegram_id","Telegram ID"],
-   ["username","Username"],
-   ["first_name","Name"],
-   ["banned","Banned"]
-  ]);
-
- }catch(e){
+  el.textContent="Could not load performance records: "+e.message;
   showMessage(e.message);
  }
 }
