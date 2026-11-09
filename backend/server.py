@@ -377,6 +377,8 @@ def player_rank_data(uid, mode, session_key):
 
 
 # ============================================================
+
+# ============================================================
 # APPLICATION STARTUP
 # ============================================================
 
@@ -387,11 +389,15 @@ async def lifespan(app: FastAPI):
     bot_application = build_application()
 
     await bot_application.initialize()
-    await bot_application.start()
+
+    if bot_application.post_init:
+        await bot_application.post_init(bot_application)
 
     await bot_application.updater.start_polling(
         allowed_updates=Update.ALL_TYPES
     )
+
+    await bot_application.start()
 
     print("NEON RUSH ARENA Telegram bot started successfully.")
 
@@ -401,10 +407,19 @@ async def lifespan(app: FastAPI):
     finally:
         print("Stopping NEON RUSH ARENA Telegram bot...")
 
-        await bot_application.updater.stop()
-        await bot_application.stop()
+        if bot_application.updater.running:
+            await bot_application.updater.stop()
+
+        if bot_application.running:
+            await bot_application.stop()
+
         await bot_application.shutdown()
-        
+
+
+# ============================================================
+# FASTAPI APPLICATION
+# ============================================================
+
 app = FastAPI(
     title="NEON RUSH Game Backend",
     version="3.0",
@@ -423,6 +438,7 @@ app.add_middleware(
         "X-Telegram-Init-Data",
     ],
 )
+
 
 # ============================================================
 # REQUEST MODELS
