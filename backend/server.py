@@ -5,9 +5,10 @@ import json
 import hashlib
 import asyncio
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from urllib.parse import parse_qsl
 from contextlib import asynccontextmanager
+from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI, HTTPException, Header, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -29,7 +30,70 @@ MONTHLY_PRIZE_PERCENTAGE = 30
 MONTHLY_RETAINED_PERCENTAGE = 70
 
 SUPPORT_WHATSAPP = "+254183375330"
-SUPPORT_EMAIL = "amimod94@yahoo.com"
+SUPPORT_EMAIL = "neonrusharena@yahoo.com"
+
+KENYA = ZoneInfo("Africa/Nairobi")
+
+
+# ============================================================
+# DATE / SESSION HELPERS
+# ============================================================
+
+def utc_now():
+    return datetime.now(timezone.utc)
+
+
+def weekly_session():
+    key = db.current_weekly_session()
+
+    start = datetime.strptime(
+        key, "%Y-%m-%dT%H:%M"
+    ).replace(tzinfo=KENYA)
+
+    end = start + timedelta(days=7)
+
+    return {
+        "key": key,
+        "start": start.isoformat(),
+        "end": end.isoformat(),
+        "timezone": "Africa/Nairobi",
+    }
+
+
+def monthly_session():
+    key = db.current_month_key()
+
+    year, month = map(int, key.split("-"))
+
+    start = datetime(year, month, 1, tzinfo=KENYA)
+
+    if month == 12:
+        end = datetime(year + 1, 1, 1, tzinfo=KENYA)
+    else:
+        end = datetime(year, month + 1, 1, tzinfo=KENYA)
+
+    return {
+        "key": key,
+        "start": start.isoformat(),
+        "end": end.isoformat(),
+        "timezone": "Africa/Nairobi",
+    }
+
+
+def json_safe(value):
+    if isinstance(value, datetime):
+        return value.isoformat()
+
+    if isinstance(value, dict):
+        return {
+            str(key): json_safe(item)
+            for key, item in value.items()
+        }
+
+    if isinstance(value, (list, tuple)):
+        return [json_safe(item) for item in value]
+
+    return value
 
 
 # ============================================================
@@ -49,7 +113,7 @@ def verify_telegram_data(init_data):
             return None
 
         auth_date = int(data.get("auth_date", "0"))
-        now = int(datetime.now(timezone.utc).timestamp())
+        now = int(utc_now().timestamp())
 
         if auth_date > now + 60:
             return None
@@ -65,18 +129,18 @@ def verify_telegram_data(init_data):
         secret_key = hmac.new(
             b"WebAppData",
             BOT_TOKEN.encode(),
-            hashlib.sha256
+            hashlib.sha256,
         ).digest()
 
         calculated_hash = hmac.new(
             secret_key,
             data_check_string.encode(),
-            hashlib.sha256
+            hashlib.sha256,
         ).hexdigest()
 
         if not hmac.compare_digest(
             calculated_hash,
-            received_hash
+            received_hash,
         ):
             return None
 
@@ -97,7 +161,10 @@ def authenticate(init_data):
     if not user:
         raise HTTPException(
             status_code=401,
-            detail="Telegram authentication failed. Open the game through Telegram."
+            detail=(
+                "Telegram authentication failed. "
+                "Open the game through Telegram."
+            ),
         )
 
     uid = int(user["id"])
@@ -106,13 +173,13 @@ def authenticate(init_data):
         uid,
         user.get("username"),
         user.get("first_name"),
-        user.get("last_name")
+        user.get("last_name"),
     )
 
     if db.is_banned(uid):
         raise HTTPException(
             status_code=403,
-            detail="Your account has been blocked."
+            detail="Your account has been blocked.",
         )
 
     return user
@@ -122,7 +189,7 @@ def display_name(user):
     name = " ".join(
         part for part in [
             user.get("first_name"),
-            user.get("last_name")
+            user.get("last_name"),
         ] if part
     )
 
@@ -142,7 +209,7 @@ def display_name(user):
 def get_admin_ids():
     raw = ",".join([
         os.getenv("ADMIN_ID", ""),
-        os.getenv("ADMIN_IDS", "")
+        os.getenv("ADMIN_IDS", ""),
     ])
 
     return {
@@ -158,7 +225,10 @@ def require_admin(init_data):
     if not user:
         raise HTTPException(
             status_code=401,
-            detail="Telegram verification failed. Open this page through your Telegram bot."
+            detail=(
+                "Telegram verification failed. "
+                "Open this page through your Telegram bot."
+            ),
         )
 
     uid = int(user["id"])
@@ -166,99 +236,46 @@ def require_admin(init_data):
     if uid not in get_admin_ids():
         raise HTTPException(
             status_code=403,
-            detail="Access denied. This Telegram account is not an administrator."
+            detail=(
+                "Access denied. This Telegram account "
+                "is not an administrator."
+            ),
         )
 
     return user
 
 
 # ============================================================
-# DATABASE HELPERS
+# FIRESTORE ADMIN HELPERS
 # ============================================================
-
-def admin_connection():
-    return db.connect()
-
-
-def admin_rows(sql, params=()):
-    con = admin_connection()
-
-    try:
-        return [
-            dict(row)
-            for row in con.execute(sql, params).fetchall()
-        ]
-
-    finally:
-        con.close()
-
-
-def admin_one(sql, params=()):
-    con = admin_connection()
-
-    try:
-        row = con.execute(sql, params).fetchone()
-        return dict(row) if row else None
-
-    finally:
-        con.close()
-
 
 def record_admin_action(
     admin_id,
     action,
     target_id=None,
-    details=""
+    details="",
 ):
-    con = admin_connection()
-
-    try:
-        con.execute("""
-            INSERT INTO admin_activity
-            (admin_id, action, target_id, details, created_at)
-            VALUES (?, ?, ?, ?, ?)
-        """, (
-            int(admin_id),
-            action,
-            target_id,
-            details,
-            datetime.now(timezone.utc).isoformat()
-        ))
-
-        con.commit()
-
-    finally:
-        con.close()
+    return db.record_admin_activity(
+        admin_id,
+        action,
+        target_id,
+        {"details": str(details)},
+    )
 
 
 def get_monthly_financial_summary():
-    session = db.monthly_session()
+    session = monthly_session()
+    finances = db.monthly_financials(session["key"])
 
-    start = datetime.fromisoformat(
-        session["start"]
-    ).astimezone(timezone.utc).isoformat()
+    collected = int(finances.get("total_stars", 0))
 
-    end = datetime.fromisoformat(
-        session["end"]
-    ).astimezone(timezone.utc).isoformat()
+    prize_pool = (
+        collected * MONTHLY_PRIZE_PERCENTAGE / 100
+    )
 
-    payment = admin_one("""
-        SELECT COALESCE(SUM(amount), 0) AS total
-        FROM payments
-        WHERE currency='XTR'
-        AND amount=?
-        AND created_at>=?
-        AND created_at<?
-    """, (
-        MONTHLY_STARS,
-        start,
-        end
-    ))
-
-    collected = int(payment["total"] or 0)
-
-    prize_pool = collected * MONTHLY_PRIZE_PERCENTAGE / 100
-    retained = collected * MONTHLY_RETAINED_PERCENTAGE / 100
+    retained = (
+        collected * MONTHLY_RETAINED_PERCENTAGE / 100
+    )
 
     return {
         "month": session["key"],
@@ -266,7 +283,96 @@ def get_monthly_financial_summary():
         "prize_percentage": MONTHLY_PRIZE_PERCENTAGE,
         "retained_percentage": MONTHLY_RETAINED_PERCENTAGE,
         "prize_pool_stars": prize_pool,
-        "retained_stars": retained
+        "retained_stars": retained,
+    }
+
+
+def user_name_from_record(user):
+    name = " ".join(
+        part for part in [
+            user.get("first_name"),
+            user.get("last_name"),
+        ] if part
+    )
+
+    if name:
+        return name
+
+    if user.get("username"):
+        return "@" + user["username"]
+
+    return "Player " + str(user.get("telegram_id", ""))
+
+
+def get_player_best_score(uid):
+    best = 0
+
+    for mode in ("weekly", "monthly"):
+        periods = db.list_tournament_periods(mode, 500)
+
+        for period in periods:
+            key = period.get("period_key")
+
+            scores = db.list_tournament_scores(
+                mode,
+                key,
+                500,
+            )
+
+            for score in scores:
+                if str(score.get("telegram_id")) == str(uid):
+                    best = max(
+                        best,
+                        int(score.get("score", 0)),
+                    )
+
+    return best
+
+
+def build_leaderboard(mode, session_key, limit=10):
+    rows = db.list_tournament_scores(
+        mode,
+        session_key,
+        limit,
+    )
+
+    output = []
+
+    for index, row in enumerate(rows, start=1):
+        output.append({
+            "position": index,
+            "telegram_id": int(row.get("telegram_id", 0)),
+            "name": row.get("username") or row.get("display_name")
+                   or str(row.get("telegram_id", "Player")),
+            "score": int(row.get("score", 0)),
+        })
+
+    return output
+
+
+def player_rank_data(uid, mode, session_key):
+    rows = db.list_tournament_scores(
+        mode,
+        session_key,
+        10000,
+    )
+
+    for index, row in enumerate(rows, start=1):
+        if str(row.get("telegram_id")) == str(uid):
+            return {
+                "position": index,
+                "score": int(row.get("score", 0)),
+                "display_name": (
+                    row.get("username")
+                    or row.get("display_name")
+                    or str(uid)
+                ),
+            }
+
+    return {
+        "position": None,
+        "score": 0,
+        "display_name": None,
     }
 
 
@@ -278,7 +384,9 @@ def get_monthly_financial_summary():
 async def lifespan(app: FastAPI):
     db.init_db()
 
-    bot_task = asyncio.create_task(run_bot())
+    bot_task = asyncio.create_task(
+        asyncio.to_thread(run_bot)
+    )
 
     try:
         yield
@@ -290,25 +398,27 @@ async def lifespan(app: FastAPI):
             await bot_task
         except asyncio.CancelledError:
             pass
+        except Exception:
+            pass
 
 
 app = FastAPI(
     title="NEON RUSH Game Backend",
-    version="2.0",
-    lifespan=lifespan
+    version="3.0",
+    lifespan=lifespan,
 )
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "https://dodhiambo26-afk.github.io"
+        "https://dodhiambo26-afk.github.io",
     ],
     allow_credentials=False,
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=[
         "Content-Type",
-        "X-Telegram-Init-Data"
-    ]
+        "X-Telegram-Init-Data",
+    ],
 )
 
 
@@ -333,9 +443,18 @@ class WeeklyLockAction(BaseModel):
 class WeeklyFundingAction(BaseModel):
     amount: float = Field(gt=0, le=1000000000)
     currency: str = Field(default="KES", max_length=10)
-    funding_source: str = Field(default="Administrator", max_length=100)
-    reference: str | None = Field(default=None, max_length=200)
-    notes: str | None = Field(default=None, max_length=1000)
+    funding_source: str = Field(
+        default="Administrator",
+        max_length=100,
+    )
+    reference: str | None = Field(
+        default=None,
+        max_length=200,
+    )
+    notes: str | None = Field(
+        default=None,
+        max_length=1000,
+    )
 
 
 class PrizeAwardAction(BaseModel):
@@ -345,15 +464,21 @@ class PrizeAwardAction(BaseModel):
     telegram_id: int = Field(gt=0)
     amount: float = Field(ge=0)
     currency: str = Field(default="KES", max_length=10)
-    notes: str | None = Field(default=None, max_length=1000)
+    notes: str | None = Field(
+        default=None,
+        max_length=1000,
+    )
 
 
 class PrizePaidAction(BaseModel):
     payment_reference: str | None = Field(
         default=None,
-        max_length=200
+        max_length=200,
     )
-    notes: str | None = Field(default=None, max_length=1000)
+    notes: str | None = Field(
+        default=None,
+        max_length=1000,
+    )
 
 
 class MonthlyGrantAction(BaseModel):
@@ -371,20 +496,25 @@ class ContactSettingsAction(BaseModel):
 
 @app.get("/")
 def home():
+    weekly = weekly_session()
+    monthly = monthly_session()
+
     return {
         "status": "online",
-        "game": "NEON RUSH",
-        "version": "2.0",
+        "game": "NEON RUSH ARENA",
+        "version": "3.0",
         "weekly_tournament": {
             "schedule": "Sunday 6:00 PM to Sunday 6:00 PM",
             "timezone": "Africa/Nairobi",
             "entry_price": 0,
-            "locked": db.is_weekly_locked()
+            "locked": db.is_weekly_locked(),
+            "session": weekly,
         },
         "monthly_tournament": {
             "price_stars": MONTHLY_STARS,
-            "expiry": "End of calendar month"
-        }
+            "expiry": "End of calendar month",
+            "session": monthly,
+        },
     }
 
 
@@ -398,44 +528,54 @@ def public_contact():
     return {
         "whatsapp": db.get_setting(
             "support_whatsapp",
-            SUPPORT_WHATSAPP
+            SUPPORT_WHATSAPP,
         ),
         "email": db.get_setting(
             "support_email",
-            SUPPORT_EMAIL
-        )
+            SUPPORT_EMAIL,
+        ),
     }
 
 
 # ============================================================
 # TELEGRAM PLAYER AUTHENTICATION
-# UPDATED: RETURNS FLAT AND NESTED ACCESS FIELDS
 # ============================================================
 
 @app.post("/api/auth/telegram")
 def telegram_auth(
     x_telegram_init_data: str = Header(
         default="",
-        alias="X-Telegram-Init-Data"
-    )
+        alias="X-Telegram-Init-Data",
+    ),
 ):
     user = authenticate(x_telegram_init_data)
     uid = int(user["id"])
 
-    weekly = db.weekly_session()
-    monthly = db.monthly_session()
+    weekly = weekly_session()
+    monthly = monthly_session()
 
     weekly_access = db.has_weekly_entry(
         uid,
-        weekly["key"]
+        weekly["key"],
     )
 
     monthly_access = db.has_monthly_access(
         uid,
-        monthly["key"]
+        monthly["key"],
     )
 
     weekly_locked = db.is_weekly_locked()
+
+    contact = {
+        "whatsapp": db.get_setting(
+            "support_whatsapp",
+            SUPPORT_WHATSAPP,
+        ),
+        "email": db.get_setting(
+            "support_email",
+            SUPPORT_EMAIL,
+        ),
+    }
 
     return {
         "authenticated": True,
@@ -445,7 +585,7 @@ def telegram_auth(
             "username": user.get("username"),
             "first_name": user.get("first_name"),
             "last_name": user.get("last_name"),
-            "display_name": display_name(user)
+            "display_name": display_name(user),
         },
 
         "weekly_access": weekly_access,
@@ -460,28 +600,18 @@ def telegram_auth(
             "session": weekly,
             "has_access": weekly_access,
             "locked": weekly_locked,
-            "entry_price": 0
+            "entry_price": 0,
         },
 
         "monthly": {
             "session": monthly,
             "has_access": monthly_access,
             "entry_price": MONTHLY_STARS,
-            "expires_at": monthly["end"]
+            "expires_at": monthly["end"],
         },
 
         "premium": monthly_access,
-
-        "contact": {
-            "whatsapp": db.get_setting(
-                "support_whatsapp",
-                SUPPORT_WHATSAPP
-            ),
-            "email": db.get_setting(
-                "support_email",
-                SUPPORT_EMAIL
-            )
-        }
+        "contact": contact,
     }
 
 
@@ -494,8 +624,8 @@ def submit_score(
     submission: ScoreSubmission,
     x_telegram_init_data: str = Header(
         default="",
-        alias="X-Telegram-Init-Data"
-    )
+        alias="X-Telegram-Init-Data",
+    ),
 ):
     user = authenticate(x_telegram_init_data)
     uid = int(user["id"])
@@ -508,61 +638,63 @@ def submit_score(
             "score": submission.score,
             "mode": "free",
             "leaderboard": None,
-            "player": None
+            "player": None,
         }
 
     if mode not in ("weekly", "monthly"):
         raise HTTPException(
             status_code=400,
-            detail="Invalid game mode. Use free, weekly or monthly."
+            detail="Invalid game mode. Use free, weekly or monthly.",
         )
 
     if mode == "weekly":
-        session = db.weekly_session()
+        session = weekly_session()
 
         if not db.has_weekly_entry(uid, session["key"]):
             raise HTTPException(
                 status_code=403,
-                detail="You have not been admitted to this week's tournament."
+                detail=(
+                    "You have not been admitted to "
+                    "this week's tournament."
+                ),
             )
 
     else:
-        session = db.monthly_session()
+        session = monthly_session()
 
         if not db.has_monthly_access(uid, session["key"]):
             raise HTTPException(
                 status_code=403,
-                detail="Your monthly membership is not active. Purchase monthly access through the Telegram bot."
+                detail=(
+                    "Your monthly membership is not active. "
+                    "Purchase monthly access through the Telegram bot."
+                ),
             )
 
-    db.save_score(
-        uid,
-        display_name(user),
-        submission.score,
-        mode,
-        submission.duration
-    )
-
-    top_rows = db.list_tournament_scores(
+    saved = db.save_score(
+        uid=uid,
+        score=submission.score,
         mode=mode,
         session_key=session["key"],
-        limit=10
+        username=display_name(user),
     )
 
-    leaderboard_data = [
-        {
-            "position": index + 1,
-            "telegram_id": int(row["telegram_id"]),
-            "name": row["display_name"],
-            "score": int(row["score"])
-        }
-        for index, row in enumerate(top_rows)
-    ]
+    if not saved:
+        raise HTTPException(
+            status_code=403,
+            detail="Score could not be saved. Check your tournament access.",
+        )
 
-    player = db.get_tournament_ranking(
+    leaderboard_data = build_leaderboard(
+        mode,
+        session["key"],
+        10,
+    )
+
+    player = player_rank_data(
         uid,
         mode,
-        session["key"]
+        session["key"],
     )
 
     return {
@@ -571,12 +703,12 @@ def submit_score(
         "mode": mode,
         "leaderboard": leaderboard_data,
         "player": player,
-        "tournament": session
+        "tournament": session,
     }
 
 
 # ============================================================
-# PUBLIC WEEKLY AND MONTHLY LEADERBOARDS
+# PUBLIC LEADERBOARD
 # ============================================================
 
 @app.get("/api/leaderboard")
@@ -584,8 +716,8 @@ def leaderboard(
     mode: str = Query(default="weekly"),
     x_telegram_init_data: str = Header(
         default="",
-        alias="X-Telegram-Init-Data"
-    )
+        alias="X-Telegram-Init-Data",
+    ),
 ):
     user = authenticate(x_telegram_init_data)
     uid = int(user["id"])
@@ -593,50 +725,47 @@ def leaderboard(
     mode = mode.lower().strip()
 
     if mode == "weekly":
-        session = db.weekly_session()
-        has_access = db.has_weekly_entry(uid, session["key"])
+        session = weekly_session()
+        has_access = db.has_weekly_entry(
+            uid,
+            session["key"],
+        )
 
     elif mode == "monthly":
-        session = db.monthly_session()
-        has_access = db.has_monthly_access(uid, session["key"])
+        session = monthly_session()
+        has_access = db.has_monthly_access(
+            uid,
+            session["key"],
+        )
 
     else:
         raise HTTPException(
             status_code=400,
-            detail="Leaderboard mode must be weekly or monthly."
+            detail="Leaderboard mode must be weekly or monthly.",
         )
 
-    rows = db.list_tournament_scores(
+    data = build_leaderboard(
         mode,
         session["key"],
-        10
+        10,
     )
 
-    data = [
-        {
-            "position": index + 1,
-            "name": row["display_name"],
-            "score": int(row["score"])
+    player = (
+        player_rank_data(uid, mode, session["key"])
+        if has_access
+        else {
+            "position": None,
+            "score": 0,
+            "display_name": None,
         }
-        for index, row in enumerate(rows)
-    ]
-
-    player = db.get_tournament_ranking(
-        uid,
-        mode,
-        session["key"]
-    ) if has_access else {
-        "position": None,
-        "score": 0,
-        "display_name": None
-    }
+    )
 
     return {
         "mode": mode,
         "leaderboard": data,
         "player": player,
         "has_access": has_access,
-        "tournament": session
+        "tournament": session,
     }
 
 
@@ -648,34 +777,34 @@ def leaderboard(
 def tournament_status(
     x_telegram_init_data: str = Header(
         default="",
-        alias="X-Telegram-Init-Data"
-    )
+        alias="X-Telegram-Init-Data",
+    ),
 ):
     user = authenticate(x_telegram_init_data)
     uid = int(user["id"])
 
-    weekly = db.weekly_session()
-    monthly = db.monthly_session()
+    weekly = weekly_session()
+    monthly = monthly_session()
 
     return {
         "weekly": {
             "session": weekly,
             "has_access": db.has_weekly_entry(
                 uid,
-                weekly["key"]
+                weekly["key"],
             ),
             "locked": db.is_weekly_locked(),
-            "entry_price": 0
+            "entry_price": 0,
         },
 
         "monthly": {
             "session": monthly,
             "has_access": db.has_monthly_access(
                 uid,
-                monthly["key"]
+                monthly["key"],
             ),
-            "entry_price": MONTHLY_STARS
-        }
+            "entry_price": MONTHLY_STARS,
+        },
     }
 
 
@@ -687,8 +816,8 @@ def tournament_status(
 def admin_check(
     x_telegram_init_data: str = Header(
         default="",
-        alias="X-Telegram-Init-Data"
-    )
+        alias="X-Telegram-Init-Data",
+    ),
 ):
     user = require_admin(x_telegram_init_data)
 
@@ -696,8 +825,8 @@ def admin_check(
         "authorized": True,
         "admin": {
             "id": int(user["id"]),
-            "name": display_name(user)
-        }
+            "name": display_name(user),
+        },
     }
 
 
@@ -709,62 +838,57 @@ def admin_check(
 def admin_overview(
     x_telegram_init_data: str = Header(
         default="",
-        alias="X-Telegram-Init-Data"
-    )
+        alias="X-Telegram-Init-Data",
+    ),
 ):
     admin = require_admin(x_telegram_init_data)
 
     stats = db.get_stats()
-    weekly = db.weekly_session()
-    monthly = db.monthly_session()
+    weekly = weekly_session()
+    monthly = monthly_session()
 
     monthly_finances = get_monthly_financial_summary()
 
-    weekly_funding = admin_one("""
-        SELECT COALESCE(SUM(amount), 0) AS total
-        FROM weekly_prize_funding
-        WHERE session_key=?
-        AND currency='KES'
-    """, (weekly["key"],))
+    funding_rows = db.list_weekly_funding(weekly["key"])
+    prize_rows = db.list_prize_awards("weekly", weekly["key"])
 
-    weekly_prizes = admin_one("""
-        SELECT COALESCE(SUM(amount), 0) AS total
-        FROM prize_awards
-        WHERE period_type='weekly'
-        AND period_key=?
-        AND currency='KES'
-    """, (weekly["key"],))
+    funding_total = sum(
+        float(row.get("amount", 0))
+        for row in funding_rows
+        if row.get("currency") == "KES"
+    )
+
+    prizes_total = sum(
+        float(row.get("amount", 0))
+        for row in prize_rows
+        if row.get("currency") == "KES"
+    )
 
     return {
         "stats": stats,
-
-        "players": stats["players"],
-        "stars_collected": stats["stars"],
+        "players": stats.get("players", 0),
+        "stars_collected": stats.get("stars", 0),
 
         "weekly": {
             "session": weekly,
             "locked": db.is_weekly_locked(),
-            "entries": stats["weekly_entries"],
-            "funding_kes": float(
-                weekly_funding["total"] or 0
-            ),
-            "prizes_kes": float(
-                weekly_prizes["total"] or 0
-            )
+            "entries": len(db.list_weekly_entries(weekly["key"])),
+            "funding_kes": funding_total,
+            "prizes_kes": prizes_total,
         },
 
         "monthly": {
             "session": monthly,
-            "members": stats["monthly_members"],
-            "financials": monthly_finances
+            "members": len(db.list_monthly_members(monthly["key"])),
+            "financials": monthly_finances,
         },
 
-        "admin_id": int(admin["id"])
+        "admin_id": int(admin["id"]),
     }
 
 
 # ============================================================
-# ADMIN PLAYER LIST AND SEARCH
+# ADMIN PLAYERS
 # ============================================================
 
 @app.get("/api/admin/players")
@@ -773,45 +897,36 @@ def admin_players(
     limit: int = Query(default=100, ge=1, le=500),
     x_telegram_init_data: str = Header(
         default="",
-        alias="X-Telegram-Init-Data"
-    )
+        alias="X-Telegram-Init-Data",
+    ),
 ):
     require_admin(x_telegram_init_data)
 
-    search = "%" + q.strip() + "%"
+    players = db.search_players(q)
 
-    return {
-        "players": admin_rows("""
-            SELECT
-                u.telegram_id,
-                u.username,
-                u.first_name,
-                u.last_name,
-                u.banned,
-                u.created_at,
-                (
-                    SELECT MAX(s.score)
-                    FROM scores s
-                    WHERE s.telegram_id=u.telegram_id
-                ) AS best_score
-            FROM users u
-            WHERE
-                (? = '')
-                OR CAST(u.telegram_id AS TEXT) LIKE ?
-                OR COALESCE(u.username, '') LIKE ?
-                OR COALESCE(u.first_name, '') LIKE ?
-                OR COALESCE(u.last_name, '') LIKE ?
-            ORDER BY u.created_at DESC
-            LIMIT ?
-        """, (
-            q.strip(),
-            search,
-            search,
-            search,
-            search,
-            limit
-        ))
-    }
+    players.sort(
+        key=lambda player: str(
+            player.get("created_at", "")
+        ),
+        reverse=True,
+    )
+
+    result = []
+
+    for player in players[:limit]:
+        uid = player.get("telegram_id")
+
+        result.append({
+            "telegram_id": int(uid),
+            "username": player.get("username"),
+            "first_name": player.get("first_name"),
+            "last_name": player.get("last_name"),
+            "banned": bool(player.get("banned", False)),
+            "created_at": player.get("created_at"),
+            "best_score": get_player_best_score(uid),
+        })
+
+    return {"players": json_safe(result)}
 
 
 # ============================================================
@@ -822,98 +937,57 @@ def admin_players(
 def admin_entries(
     x_telegram_init_data: str = Header(
         default="",
-        alias="X-Telegram-Init-Data"
-    )
+        alias="X-Telegram-Init-Data",
+    ),
 ):
     require_admin(x_telegram_init_data)
 
-    session = db.weekly_session()
+    session = weekly_session()
 
     return {
         "session": session,
         "locked": db.is_weekly_locked(),
-        "entries": [
-            dict(row)
-            for row in db.list_weekly_entries(session["key"])
-        ]
+        "entries": json_safe(
+            db.list_weekly_entries(session["key"])
+        ),
     }
 
+
 # ============================================================
-# ADMIN WEEKLY DATABASE DIAGNOSTIC
-# READ-ONLY: DOES NOT MODIFY OR DELETE DATA
+# ADMIN WEEKLY DIAGNOSTIC
 # ============================================================
 
 @app.get("/api/admin/weekly-diagnostic")
 def admin_weekly_diagnostic(
     x_telegram_init_data: str = Header(
         default="",
-        alias="X-Telegram-Init-Data"
-    )
+        alias="X-Telegram-Init-Data",
+    ),
 ):
     require_admin(x_telegram_init_data)
 
-    session = db.weekly_session()
-    con = db.connect()
+    diagnostic = db.weekly_entries_diagnostic()
 
-    try:
-        weekly_total = con.execute("""
-            SELECT COUNT(*) FROM weekly_entries
-        """).fetchone()[0]
-
-        weekly_current = con.execute("""
-            SELECT COUNT(*)
-            FROM weekly_entries
-            WHERE session_key=?
-        """, (session["key"],)).fetchone()[0]
-
-        legacy_total = con.execute("""
-            SELECT COUNT(*) FROM tournament_entries
-        """).fetchone()[0]
-
-        legacy_current = con.execute("""
-            SELECT COUNT(*)
-            FROM tournament_entries
-            WHERE session_key=?
-        """, (session["key"],)).fetchone()[0]
-
-        weekly_keys = [
-            dict(row)
-            for row in con.execute("""
-                SELECT session_key, COUNT(*) AS members
-                FROM weekly_entries
-                GROUP BY session_key
-                ORDER BY session_key DESC
-                LIMIT 10
-            """).fetchall()
-        ]
-
-        legacy_keys = [
-            dict(row)
-            for row in con.execute("""
-                SELECT session_key, COUNT(*) AS members
-                FROM tournament_entries
-                GROUP BY session_key
-                ORDER BY session_key DESC
-                LIMIT 10
-            """).fetchall()
-        ]
-
-        return {
-            "current_session": session,
-            "weekly_entries_total": weekly_total,
-            "weekly_entries_current": weekly_current,
-            "legacy_entries_total": legacy_total,
-            "legacy_entries_current": legacy_current,
-            "weekly_session_records": weekly_keys,
-            "legacy_session_records": legacy_keys
-        }
-
-    finally:
-        con.close()
+    return {
+        "current_session": weekly_session(),
+        "weekly_entries_total": diagnostic.get(
+            "weekly_entries_total", 0
+        ),
+        "weekly_entries_current": diagnostic.get(
+            "weekly_entries_current", 0
+        ),
+        "legacy_entries_total": 0,
+        "legacy_entries_current": 0,
+        "weekly_session_records": diagnostic.get(
+            "weekly_session_records", []
+        ),
+        "legacy_session_records": [],
+        "note": "Legacy paid daily tournament has been removed.",
+    }
 
 
 # ============================================================
-# ADMIN WEEKLY GRANT
+# ADMIN GRANT WEEKLY ENTRY
 # ============================================================
 
 @app.post("/api/admin/grant")
@@ -921,54 +995,51 @@ def admin_grant(
     action: AdminPlayerAction,
     x_telegram_init_data: str = Header(
         default="",
-        alias="X-Telegram-Init-Data"
-    )
+        alias="X-Telegram-Init-Data",
+    ),
 ):
     admin = require_admin(x_telegram_init_data)
     uid = int(action.telegram_id)
 
-    player = admin_one(
-        "SELECT telegram_id FROM users WHERE telegram_id=?",
-        (uid,)
-    )
+    player = db.get_user(uid)
 
     if not player:
         raise HTTPException(
             status_code=404,
-            detail="Player not found. Ask the player to open the game first."
+            detail="Player not found. Ask the player to open the game first.",
         )
 
-    session = db.weekly_session()
+    session = weekly_session()
 
     if db.has_weekly_entry(uid, session["key"]):
         raise HTTPException(
             status_code=409,
-            detail="This player already has weekly tournament access."
+            detail="This player already has weekly tournament access.",
         )
 
     db.grant_weekly_entry(
         uid,
         session["key"],
-        int(admin["id"])
+        int(admin["id"]),
     )
 
     record_admin_action(
         admin["id"],
         "GRANT_WEEKLY_ENTRY",
         uid,
-        "Weekly tournament " + session["key"]
+        "Weekly tournament " + session["key"],
     )
 
     return {
         "success": True,
         "message": "Weekly tournament access granted.",
         "telegram_id": uid,
-        "session": session["key"]
+        "session": session["key"],
     }
 
 
 # ============================================================
-# ADMIN WEEKLY REVOKE
+# ADMIN REVOKE WEEKLY ENTRY
 # ============================================================
 
 @app.post("/api/admin/revoke")
@@ -976,35 +1047,35 @@ def admin_revoke(
     action: AdminPlayerAction,
     x_telegram_init_data: str = Header(
         default="",
-        alias="X-Telegram-Init-Data"
-    )
+        alias="X-Telegram-Init-Data",
+    ),
 ):
     admin = require_admin(x_telegram_init_data)
     uid = int(action.telegram_id)
 
-    session = db.weekly_session()
+    session = weekly_session()
 
     removed = db.revoke_weekly_entry(
         uid,
-        session["key"]
+        session["key"],
     )
 
     if not removed:
         raise HTTPException(
             status_code=404,
-            detail="No weekly tournament entry was found."
+            detail="No weekly tournament entry was found.",
         )
 
     record_admin_action(
         admin["id"],
         "REVOKE_WEEKLY_ENTRY",
         uid,
-        "Weekly tournament " + session["key"]
+        "Weekly tournament " + session["key"],
     )
 
     return {
         "success": True,
-        "message": "Weekly tournament access revoked."
+        "message": "Weekly tournament access revoked.",
     }
 
 
@@ -1017,23 +1088,26 @@ def admin_weekly_lock(
     action: WeeklyLockAction,
     x_telegram_init_data: str = Header(
         default="",
-        alias="X-Telegram-Init-Data"
-    )
+        alias="X-Telegram-Init-Data",
+    ),
 ):
     admin = require_admin(x_telegram_init_data)
 
-    db.set_weekly_locked(action.locked)
+    db.set_weekly_locked(
+        action.locked,
+        admin["id"],
+    )
 
     record_admin_action(
         admin["id"],
         "SET_WEEKLY_LOCK",
         None,
-        "Weekly locked: " + str(action.locked)
+        "Weekly locked: " + str(action.locked),
     )
 
     return {
         "success": True,
-        "locked": action.locked
+        "locked": action.locked,
     }
 
 
@@ -1045,24 +1119,23 @@ def admin_weekly_lock(
 def admin_monthly_members(
     x_telegram_init_data: str = Header(
         default="",
-        alias="X-Telegram-Init-Data"
-    )
+        alias="X-Telegram-Init-Data",
+    ),
 ):
     require_admin(x_telegram_init_data)
 
-    session = db.monthly_session()
+    session = monthly_session()
 
     return {
         "session": session,
-        "members": [
-            dict(row)
-            for row in db.list_monthly_members(session["key"])
-        ]
+        "members": json_safe(
+            db.list_monthly_members(session["key"])
+        ),
     }
 
 
 # ============================================================
-# ADMIN MANUAL MONTHLY ACCESS
+# ADMIN GRANT MONTHLY ACCESS
 # ============================================================
 
 @app.post("/api/admin/monthly/grant")
@@ -1070,71 +1143,38 @@ def admin_monthly_grant(
     action: MonthlyGrantAction,
     x_telegram_init_data: str = Header(
         default="",
-        alias="X-Telegram-Init-Data"
-    )
+        alias="X-Telegram-Init-Data",
+    ),
 ):
     admin = require_admin(x_telegram_init_data)
 
     uid = int(action.telegram_id)
-    user = db.get_user(uid)
 
-    if not user:
+    if not db.get_user(uid):
         raise HTTPException(
             status_code=404,
-            detail="Player not found."
+            detail="Player not found.",
         )
 
-    session = db.monthly_session()
+    session = monthly_session()
 
-    con = db.connect()
-
-    try:
-        con.execute("""
-            INSERT INTO monthly_memberships
-            (
-                telegram_id,
-                month_key,
-                payment_id,
-                starts_at,
-                expires_at,
-                created_at
-            )
-            VALUES (?, ?, NULL, ?, ?, ?)
-            ON CONFLICT(telegram_id, month_key)
-            DO UPDATE SET
-                starts_at=excluded.starts_at,
-                expires_at=excluded.expires_at,
-                revoked=0
-        """, (
-            uid,
-            session["key"],
-            session["start"],
-            session["end"],
-            datetime.now(timezone.utc).isoformat()
-        ))
-
-        con.execute("""
-            UPDATE users
-            SET premium_until=?
-            WHERE telegram_id=?
-        """, (session["end"], uid))
-
-        con.commit()
-
-    finally:
-        con.close()
+    db.grant_monthly_access(
+        uid,
+        session["key"],
+        int(admin["id"]),
+    )
 
     record_admin_action(
         admin["id"],
         "GRANT_MONTHLY_ACCESS",
         uid,
-        "Manual monthly access " + session["key"]
+        "Manual monthly access " + session["key"],
     )
 
     return {
         "success": True,
         "message": "Monthly access granted.",
-        "expires_at": session["end"]
+        "expires_at": session["end"],
     }
 
 
@@ -1147,35 +1187,35 @@ def admin_monthly_revoke(
     action: AdminPlayerAction,
     x_telegram_init_data: str = Header(
         default="",
-        alias="X-Telegram-Init-Data"
-    )
+        alias="X-Telegram-Init-Data",
+    ),
 ):
     admin = require_admin(x_telegram_init_data)
 
     uid = int(action.telegram_id)
-    session = db.monthly_session()
+    session = monthly_session()
 
     removed = db.revoke_monthly_access(
         uid,
-        session["key"]
+        session["key"],
     )
 
     if not removed:
         raise HTTPException(
             status_code=404,
-            detail="No monthly membership was found."
+            detail="No monthly membership was found.",
         )
 
     record_admin_action(
         admin["id"],
         "REVOKE_MONTHLY_ACCESS",
         uid,
-        "Monthly membership " + session["key"]
+        "Monthly membership " + session["key"],
     )
 
     return {
         "success": True,
-        "message": "Monthly access revoked."
+        "message": "Monthly access revoked.",
     }
 
 
@@ -1187,28 +1227,29 @@ def admin_monthly_revoke(
 def admin_weekly_funding(
     x_telegram_init_data: str = Header(
         default="",
-        alias="X-Telegram-Init-Data"
-    )
+        alias="X-Telegram-Init-Data",
+    ),
 ):
     require_admin(x_telegram_init_data)
 
-    session = db.weekly_session()
+    session = weekly_session()
 
     rows = db.list_weekly_funding(session["key"])
 
     total_by_currency = {}
 
     for row in rows:
-        currency = row["currency"]
+        currency = row.get("currency", "KES")
+
         total_by_currency[currency] = (
             total_by_currency.get(currency, 0)
-            + float(row["amount"])
+            + float(row.get("amount", 0))
         )
 
     return {
         "session": session,
-        "funding": [dict(row) for row in rows],
-        "totals": total_by_currency
+        "funding": json_safe(rows),
+        "totals": total_by_currency,
     }
 
 
@@ -1217,12 +1258,12 @@ def admin_add_weekly_funding(
     action: WeeklyFundingAction,
     x_telegram_init_data: str = Header(
         default="",
-        alias="X-Telegram-Init-Data"
-    )
+        alias="X-Telegram-Init-Data",
+    ),
 ):
     admin = require_admin(x_telegram_init_data)
 
-    session = db.weekly_session()
+    session = weekly_session()
 
     funding_id = db.add_weekly_funding(
         session_key=session["key"],
@@ -1231,32 +1272,32 @@ def admin_add_weekly_funding(
         currency=action.currency.upper(),
         funding_source=action.funding_source,
         reference=action.reference,
-        notes=action.notes
+        notes=action.notes,
     )
 
     record_admin_action(
         admin["id"],
         "ADD_WEEKLY_PRIZE_FUNDING",
         None,
-        f"{action.amount} {action.currency}"
+        f"{action.amount} {action.currency}",
     )
 
     return {
         "success": True,
-        "funding_id": funding_id
+        "funding_id": funding_id,
     }
 
 
 # ============================================================
-# ADMIN MONTHLY FINANCIAL SUMMARY
+# ADMIN MONTHLY FINANCIALS
 # ============================================================
 
 @app.get("/api/admin/monthly/financials")
 def admin_monthly_financials(
     x_telegram_init_data: str = Header(
         default="",
-        alias="X-Telegram-Init-Data"
-    )
+        alias="X-Telegram-Init-Data",
+    ),
 ):
     require_admin(x_telegram_init_data)
 
@@ -1264,7 +1305,7 @@ def admin_monthly_financials(
 
 
 # ============================================================
-# ADMIN PRIZE RECORDS
+# ADMIN PRIZES
 # ============================================================
 
 @app.get("/api/admin/prizes")
@@ -1273,25 +1314,24 @@ def admin_prizes(
     period_key: str = Query(default=""),
     x_telegram_init_data: str = Header(
         default="",
-        alias="X-Telegram-Init-Data"
-    )
+        alias="X-Telegram-Init-Data",
+    ),
 ):
     require_admin(x_telegram_init_data)
 
     if period_type and period_type not in ("weekly", "monthly"):
         raise HTTPException(
             status_code=400,
-            detail="Invalid prize period."
+            detail="Invalid prize period.",
         )
 
     return {
-        "awards": [
-            dict(row)
-            for row in db.list_prize_awards(
+        "awards": json_safe(
+            db.list_prize_awards(
                 period_type or None,
-                period_key or None
+                period_key or None,
             )
-        ]
+        ),
     }
 
 
@@ -1300,23 +1340,21 @@ def admin_create_prize(
     action: PrizeAwardAction,
     x_telegram_init_data: str = Header(
         default="",
-        alias="X-Telegram-Init-Data"
-    )
+        alias="X-Telegram-Init-Data",
+    ),
 ):
     admin = require_admin(x_telegram_init_data)
 
     if action.period_type not in ("weekly", "monthly"):
         raise HTTPException(
             status_code=400,
-            detail="Prize period must be weekly or monthly."
+            detail="Prize period must be weekly or monthly.",
         )
 
-    player = db.get_user(action.telegram_id)
-
-    if not player:
+    if not db.get_user(action.telegram_id):
         raise HTTPException(
             status_code=404,
-            detail="Prize winner was not found."
+            detail="Prize winner was not found.",
         )
 
     award_id = db.save_prize_award(
@@ -1326,60 +1364,63 @@ def admin_create_prize(
         telegram_id=action.telegram_id,
         amount=action.amount,
         currency=action.currency.upper(),
-        notes=action.notes
+        notes=action.notes,
     )
 
     record_admin_action(
         admin["id"],
         "CREATE_PRIZE_AWARD",
         action.telegram_id,
-        f"{action.period_type} {action.period_key}, position {action.position}"
+        (
+            f"{action.period_type} {action.period_key}, "
+            f"position {action.position}"
+        ),
     )
 
     return {
         "success": True,
-        "award_id": award_id
+        "award_id": award_id,
     }
 
 
 @app.post("/api/admin/prizes/{award_id}/paid")
 def admin_mark_prize_paid(
-    award_id: int,
+    award_id: str,
     action: PrizePaidAction,
     x_telegram_init_data: str = Header(
         default="",
-        alias="X-Telegram-Init-Data"
-    )
+        alias="X-Telegram-Init-Data",
+    ),
 ):
     admin = require_admin(x_telegram_init_data)
 
     changed = db.mark_prize_paid(
         award_id,
         action.payment_reference,
-        action.notes
+        action.notes,
     )
 
     if not changed:
         raise HTTPException(
             status_code=404,
-            detail="Prize record not found."
+            detail="Prize record not found.",
         )
 
     record_admin_action(
         admin["id"],
         "MARK_PRIZE_PAID",
         None,
-        f"Prize award {award_id}"
+        f"Prize award {award_id}",
     )
 
     return {
         "success": True,
-        "message": "Prize payout recorded."
+        "message": "Prize payout recorded.",
     }
 
 
 # ============================================================
-# ADMIN LEADERBOARDS AND PERFORMANCE
+# ADMIN PERFORMANCE
 # ============================================================
 
 @app.get("/api/admin/performance")
@@ -1387,66 +1428,41 @@ def admin_performance(
     mode: str = Query(default="weekly"),
     x_telegram_init_data: str = Header(
         default="",
-        alias="X-Telegram-Init-Data"
-    )
+        alias="X-Telegram-Init-Data",
+    ),
 ):
     require_admin(x_telegram_init_data)
 
     mode = mode.lower().strip()
 
     if mode == "weekly":
-        session = db.weekly_session()
-
-        has_access_sql = """
-            EXISTS (
-                SELECT 1 FROM weekly_entries e
-                WHERE e.telegram_id=s.telegram_id
-                AND e.session_key=s.day_key
-            )
-        """
+        session = weekly_session()
 
     elif mode == "monthly":
-        session = db.monthly_session()
-
-        has_access_sql = """
-            EXISTS (
-                SELECT 1 FROM monthly_memberships m
-                WHERE m.telegram_id=s.telegram_id
-                AND m.month_key=s.day_key
-            )
-        """
+        session = monthly_session()
 
     else:
         raise HTTPException(
             status_code=400,
-            detail="Mode must be weekly or monthly."
+            detail="Mode must be weekly or monthly.",
         )
 
-    rows = admin_rows(f"""
-        SELECT
-            s.telegram_id,
-            MAX(s.display_name) AS display_name,
-            MAX(s.score) AS score,
-            COUNT(*) AS games_played
-        FROM scores s
-        WHERE s.mode=?
-        AND s.day_key=?
-        AND {has_access_sql}
-        GROUP BY s.telegram_id
-        ORDER BY score DESC, s.telegram_id ASC
-        LIMIT 100
-    """, (mode, session["key"]))
+    scores = db.list_tournament_scores(
+        mode,
+        session["key"],
+        100,
+    )
 
     return {
         "mode": mode,
         "session": session,
-        "top_scores": rows,
-        "top_five": rows[:5]
+        "top_scores": json_safe(scores),
+        "top_five": json_safe(scores[:5]),
     }
 
 
 # ============================================================
-# ADMIN PAYMENT RECORDS
+# ADMIN PAYMENTS
 # ============================================================
 
 @app.get("/api/admin/payments")
@@ -1454,31 +1470,27 @@ def admin_payments(
     limit: int = Query(default=100, ge=1, le=500),
     x_telegram_init_data: str = Header(
         default="",
-        alias="X-Telegram-Init-Data"
-    )
+        alias="X-Telegram-Init-Data",
+    ),
 ):
     require_admin(x_telegram_init_data)
 
-    return {
-        "payments": admin_rows("""
-            SELECT
-                p.id,
-                p.telegram_id,
-                p.telegram_charge_id,
-                p.provider_charge_id,
-                p.amount,
-                p.currency,
-                p.created_at,
-                u.username,
-                u.first_name,
-                u.last_name
-            FROM payments p
-            LEFT JOIN users u
-                ON u.telegram_id=p.telegram_id
-            ORDER BY p.created_at DESC
-            LIMIT ?
-        """, (limit,))
-    }
+    payments = db.list_payments(limit)
+
+    result = []
+
+    for payment in payments:
+        uid = payment.get("telegram_id")
+        user = db.get_user(uid) or {}
+
+        result.append({
+            **payment,
+            "username": user.get("username"),
+            "first_name": user.get("first_name"),
+            "last_name": user.get("last_name"),
+        })
+
+    return {"payments": json_safe(result)}
 
 
 # ============================================================
@@ -1490,63 +1502,46 @@ def admin_history(
     limit: int = Query(default=100, ge=1, le=500),
     x_telegram_init_data: str = Header(
         default="",
-        alias="X-Telegram-Init-Data"
-    )
+        alias="X-Telegram-Init-Data",
+    ),
 ):
     require_admin(x_telegram_init_data)
 
-    return {
-        "games": admin_rows("""
-            SELECT
-                s.id,
-                s.telegram_id,
-                s.display_name,
-                s.score,
-                s.mode,
-                s.day_key,
-                s.duration_seconds,
-                s.created_at
-            FROM scores s
-            ORDER BY s.created_at DESC
-            LIMIT ?
-        """, (limit,))
-    }
+    history = []
+
+    for mode in ("weekly", "monthly"):
+        periods = db.list_tournament_periods(mode, 500)
+
+        for period in periods:
+            key = period.get("period_key")
+
+            scores = db.list_tournament_scores(
+                mode,
+                key,
+                500,
+            )
+
+            for score in scores:
+                history.append({
+                    "telegram_id": score.get("telegram_id"),
+                    "display_name": score.get("username"),
+                    "score": score.get("score"),
+                    "mode": mode,
+                    "day_key": key,
+                    "created_at": score.get("created_at"),
+                })
+
+    history.sort(
+        key=lambda item: str(item.get("created_at", "")),
+        reverse=True,
+    )
+
+    return {"games": json_safe(history[:limit])}
 
 
 # ============================================================
 # ADMIN TOURNAMENT HISTORY
 # ============================================================
-
-def history_json_safe(value):
-    """
-    Convert SQLite rows and nested results into JSON-safe data.
-    """
-    if value is None:
-        return None
-
-    if isinstance(value, dict):
-        return {
-            str(key): history_json_safe(item)
-            for key, item in value.items()
-        }
-
-    if isinstance(value, (list, tuple)):
-        return [
-            history_json_safe(item)
-            for item in value
-        ]
-
-    if hasattr(value, "keys") and not isinstance(value, (str, bytes)):
-        try:
-            return {
-                str(key): history_json_safe(value[key])
-                for key in value.keys()
-            }
-        except (TypeError, KeyError, IndexError):
-            pass
-
-    return value
-
 
 def validate_history_period_type(period_type):
     period_type = period_type.lower().strip()
@@ -1554,7 +1549,7 @@ def validate_history_period_type(period_type):
     if period_type not in ("weekly", "monthly"):
         raise HTTPException(
             status_code=400,
-            detail="Period type must be weekly or monthly."
+            detail="Period type must be weekly or monthly.",
         )
 
     return period_type
@@ -1564,14 +1559,14 @@ def validate_history_period_type(period_type):
 def admin_tournament_history_summary(
     x_telegram_init_data: str = Header(
         default="",
-        alias="X-Telegram-Init-Data"
-    )
+        alias="X-Telegram-Init-Data",
+    ),
 ):
     require_admin(x_telegram_init_data)
 
-    summary = db.get_tournament_history_summary()
-
-    return history_json_safe(summary)
+    return json_safe(
+        db.get_tournament_history_summary()
+    )
 
 
 @app.get("/api/admin/history/periods")
@@ -1580,8 +1575,8 @@ def admin_tournament_history_periods(
     limit: int = Query(default=100, ge=1, le=500),
     x_telegram_init_data: str = Header(
         default="",
-        alias="X-Telegram-Init-Data"
-    )
+        alias="X-Telegram-Init-Data",
+    ),
 ):
     require_admin(x_telegram_init_data)
 
@@ -1589,12 +1584,12 @@ def admin_tournament_history_periods(
 
     periods = db.list_tournament_periods(
         period_type,
-        limit
+        limit,
     )
 
     return {
         "period_type": period_type,
-        "periods": history_json_safe(periods)
+        "periods": json_safe(periods),
     }
 
 
@@ -1604,31 +1599,31 @@ def admin_tournament_history_detail(
     period_key: str,
     x_telegram_init_data: str = Header(
         default="",
-        alias="X-Telegram-Init-Data"
-    )
+        alias="X-Telegram-Init-Data",
+    ),
 ):
     require_admin(x_telegram_init_data)
 
     period_type = validate_history_period_type(period_type)
 
-    if not period_key or len(period_key) > 20:
+    if not period_key or len(period_key) > 30:
         raise HTTPException(
             status_code=400,
-            detail="Invalid tournament period key."
+            detail="Invalid tournament period key.",
         )
 
     history = db.get_tournament_history(
         period_type,
-        period_key
+        period_key,
     )
 
     if not history:
         raise HTTPException(
             status_code=404,
-            detail="Tournament history was not found."
+            detail="Tournament history was not found.",
         )
 
-    return history_json_safe(history)
+    return json_safe(history)
 
 
 # ============================================================
@@ -1639,23 +1634,15 @@ def admin_tournament_history_detail(
 def admin_banned(
     x_telegram_init_data: str = Header(
         default="",
-        alias="X-Telegram-Init-Data"
-    )
+        alias="X-Telegram-Init-Data",
+    ),
 ):
     require_admin(x_telegram_init_data)
 
     return {
-        "players": admin_rows("""
-            SELECT
-                telegram_id,
-                username,
-                first_name,
-                last_name,
-                banned
-            FROM users
-            WHERE banned=1
-            ORDER BY telegram_id DESC
-        """)
+        "players": json_safe(
+            db.list_banned_players()
+        ),
     }
 
 
@@ -1668,8 +1655,8 @@ def admin_ban(
     action: AdminPlayerAction,
     x_telegram_init_data: str = Header(
         default="",
-        alias="X-Telegram-Init-Data"
-    )
+        alias="X-Telegram-Init-Data",
+    ),
 ):
     admin = require_admin(x_telegram_init_data)
     uid = int(action.telegram_id)
@@ -1677,39 +1664,27 @@ def admin_ban(
     if uid in get_admin_ids():
         raise HTTPException(
             status_code=403,
-            detail="An administrator cannot be banned."
+            detail="An administrator cannot be banned.",
         )
 
-    con = db.connect()
-
-    try:
-        cursor = con.execute(
-            "UPDATE users SET banned=1 WHERE telegram_id=?",
-            (uid,)
-        )
-
-        con.commit()
-        changed = cursor.rowcount
-
-    finally:
-        con.close()
-
-    if not changed:
+    if not db.get_user(uid):
         raise HTTPException(
             status_code=404,
-            detail="Player not found."
+            detail="Player not found.",
         )
+
+    db.set_banned(uid, True, admin["id"])
 
     record_admin_action(
         admin["id"],
         "BAN_PLAYER",
         uid,
-        "Player banned by administrator"
+        "Player banned by administrator",
     )
 
     return {
         "success": True,
-        "message": "Player banned."
+        "message": "Player banned.",
     }
 
 
@@ -1722,42 +1697,30 @@ def admin_unban(
     action: AdminPlayerAction,
     x_telegram_init_data: str = Header(
         default="",
-        alias="X-Telegram-Init-Data"
-    )
+        alias="X-Telegram-Init-Data",
+    ),
 ):
     admin = require_admin(x_telegram_init_data)
     uid = int(action.telegram_id)
 
-    con = db.connect()
-
-    try:
-        cursor = con.execute(
-            "UPDATE users SET banned=0 WHERE telegram_id=?",
-            (uid,)
-        )
-
-        con.commit()
-        changed = cursor.rowcount
-
-    finally:
-        con.close()
-
-    if not changed:
+    if not db.get_user(uid):
         raise HTTPException(
             status_code=404,
-            detail="Player not found."
+            detail="Player not found.",
         )
+
+    db.set_banned(uid, False, admin["id"])
 
     record_admin_action(
         admin["id"],
         "UNBAN_PLAYER",
         uid,
-        "Player unbanned by administrator"
+        "Player unbanned by administrator",
     )
 
     return {
         "success": True,
-        "message": "Player unbanned."
+        "message": "Player unbanned.",
     }
 
 
@@ -1770,24 +1733,15 @@ def admin_activity(
     limit: int = Query(default=100, ge=1, le=500),
     x_telegram_init_data: str = Header(
         default="",
-        alias="X-Telegram-Init-Data"
-    )
+        alias="X-Telegram-Init-Data",
+    ),
 ):
     require_admin(x_telegram_init_data)
 
     return {
-        "activity": admin_rows("""
-            SELECT
-                id,
-                admin_id,
-                action,
-                target_id,
-                details,
-                created_at
-            FROM admin_activity
-            ORDER BY id DESC
-            LIMIT ?
-        """, (limit,))
+        "activity": json_safe(
+            db.list_admin_activity(limit)
+        ),
     }
 
 
@@ -1799,8 +1753,8 @@ def admin_activity(
 def admin_tournament(
     x_telegram_init_data: str = Header(
         default="",
-        alias="X-Telegram-Init-Data"
-    )
+        alias="X-Telegram-Init-Data",
+    ),
 ):
     require_admin(x_telegram_init_data)
 
@@ -1810,10 +1764,10 @@ def admin_tournament(
             "entry_price_stars": 0,
             "timezone": "Africa/Nairobi",
             "schedule": "Sunday 6:00 PM to Sunday 6:00 PM",
-            "session": db.weekly_session(),
+            "session": weekly_session(),
             "locked": db.is_weekly_locked(),
             "admission": "Administrator controlled",
-            "winners": 5
+            "winners": 5,
         },
 
         "monthly": {
@@ -1821,11 +1775,11 @@ def admin_tournament(
             "entry_price_stars": MONTHLY_STARS,
             "timezone": "Africa/Nairobi",
             "schedule": "Calendar month",
-            "session": db.monthly_session(),
+            "session": monthly_session(),
             "prize_percentage": MONTHLY_PRIZE_PERCENTAGE,
             "retained_percentage": MONTHLY_RETAINED_PERCENTAGE,
-            "winners": 5
-        }
+            "winners": 5,
+        },
     }
 
 
@@ -1837,18 +1791,15 @@ def admin_tournament(
 def admin_settings(
     x_telegram_init_data: str = Header(
         default="",
-        alias="X-Telegram-Init-Data"
-    )
+        alias="X-Telegram-Init-Data",
+    ),
 ):
     require_admin(x_telegram_init_data)
 
-    return {
-        "settings": admin_rows("""
-            SELECT key, value
-            FROM settings
-            ORDER BY key
-        """),
+    settings = db.list_settings()
 
+    return {
+        "settings": settings,
         "timezone": "Africa/Nairobi",
         "monthly_price_stars": MONTHLY_STARS,
         "monthly_prize_percentage": MONTHLY_PRIZE_PERCENTAGE,
@@ -1856,13 +1807,13 @@ def admin_settings(
 
         "whatsapp": db.get_setting(
             "support_whatsapp",
-            SUPPORT_WHATSAPP
+            SUPPORT_WHATSAPP,
         ),
 
         "email": db.get_setting(
             "support_email",
-            SUPPORT_EMAIL
-        )
+            SUPPORT_EMAIL,
+        ),
     }
 
 
@@ -1871,30 +1822,33 @@ def admin_update_contact(
     action: ContactSettingsAction,
     x_telegram_init_data: str = Header(
         default="",
-        alias="X-Telegram-Init-Data"
-    )
+        alias="X-Telegram-Init-Data",
+    ),
 ):
     admin = require_admin(x_telegram_init_data)
 
     db.set_setting(
         "support_whatsapp",
-        action.whatsapp.strip()
+        action.whatsapp.strip(),
+        admin["id"],
     )
 
     db.set_setting(
         "support_email",
-        action.email.strip()
+        action.email.strip(),
+        admin["id"],
     )
 
     record_admin_action(
         admin["id"],
         "UPDATE_CONTACT_SETTINGS",
         None,
-        "Support contact details updated"
+        "Support contact details updated",
     )
 
     return {
         "success": True,
         "whatsapp": action.whatsapp.strip(),
-        "email": action.email.strip()
+        "email": action.email.strip(),
     }
+
