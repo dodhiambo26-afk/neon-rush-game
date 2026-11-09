@@ -1220,18 +1220,11 @@ def admin_monthly_grant(
         int(admin["id"]),
     )
 
-    record_admin_action(
-        admin["id"],
-        "GRANT_MONTHLY_ACCESS",
-        uid,
-        "Manual monthly access " + session["key"],
-    )
-
     return {
         "success": True,
         "message": "Monthly access granted.",
         "expires_at": session["end"],
-    }
+        }
 
 
 # ============================================================
