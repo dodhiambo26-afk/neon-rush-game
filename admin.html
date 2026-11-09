@@ -506,9 +506,10 @@ async function loadEntries(){
   renderList("entriesList",d.entries,[
    ["telegram_id","Telegram ID"],
    ["username","Username"],
-   ["session_key","Session"],
-   ["payment_id","Payment ID"],
-   ["created_at","Created"]
+   ["display_name","Player"],
+   ["session_key","Weekly session"],
+   ["admitted_by","Granted by"],
+   ["created_at","Granted date"]
   ]);
 
  }catch(e){
