@@ -1063,13 +1063,6 @@ def admin_grant(
         int(admin["id"]),
     )
 
-    record_admin_action(
-        admin["id"],
-        "GRANT_WEEKLY_ENTRY",
-        uid,
-        "Weekly tournament " + session["key"],
-    )
-
     return {
         "success": True,
         "message": "Weekly tournament access granted.",
