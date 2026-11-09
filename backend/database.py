@@ -1,322 +1,190 @@
-
 import os
-import sqlite3
 import threading
-
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
+
+import firebase_admin
+from firebase_admin import credentials, firestore
 
 
 # ============================================================
 # CONFIGURATION
 # ============================================================
 
-DB_PATH = os.getenv("DATABASE_PATH", "tap_tap_rush.db")
 KENYA = ZoneInfo("Africa/Nairobi")
-_lock = threading.RLock()
-
 MONTHLY_STARS = 300
-LEGACY_TOURNAMENT_STARS = 8
+MONTHLY_PRIZE_PERCENT = 30
+MONTHLY_RETAINED_PERCENT = 70
+
+_lock = threading.RLock()
+_db = None
 
 
 # ============================================================
-# DATABASE CONNECTION
-# ============================================================
-
-def connect():
-    con = sqlite3.connect(DB_PATH, check_same_thread=False)
-    con.row_factory = sqlite3.Row
-    con.execute("PRAGMA foreign_keys = ON")
-    return con
-
-
-def utc_now():
-    return datetime.now(timezone.utc)
-
-
-def utc_iso():
-    return utc_now().isoformat()
-
-
-# ============================================================
-# TOURNAMENT PERIODS
-# ============================================================
-
-def weekly_session():
-    now = datetime.now(KENYA)
-    days_since_sunday = (now.weekday() + 1) % 7
-
-    start = now.replace(
-        hour=18, minute=0, second=0, microsecond=0
-    ) - timedelta(days=days_since_sunday)
-
-    if now < start:
-        start -= timedelta(days=7)
-
-    end = start + timedelta(days=7)
-
-    return {
-        "key": start.strftime("%Y-%m-%d"),
-        "start": start.isoformat(),
-        "end": end.isoformat(),
-        "starts_at": "Sunday 6:00 PM",
-        "ends_at": "Sunday 6:00 PM",
-        "timezone": "Africa/Nairobi"
-    }
-
-
-def monthly_session():
-    now = datetime.now(KENYA)
-
-    start = now.replace(
-        day=1, hour=0, minute=0, second=0, microsecond=0
-    )
-
-    if start.month == 12:
-        end = start.replace(year=start.year + 1, month=1)
-    else:
-        end = start.replace(month=start.month + 1)
-
-    return {
-        "key": start.strftime("%Y-%m"),
-        "start": start.isoformat(),
-        "end": end.isoformat(),
-        "starts_at": start.strftime("%d %B %Y"),
-        "ends_at": (end - timedelta(seconds=1)).strftime(
-            "%d %B %Y, 11:59 PM"
-        ),
-        "timezone": "Africa/Nairobi"
-    }
-
-
-# Legacy daily session retained for compatibility.
-def tournament_session():
-    now = datetime.now(KENYA)
-
-    start = now.replace(
-        hour=6, minute=0, second=0, microsecond=0
-    )
-
-    if now < start:
-        start -= timedelta(days=1)
-
-    end = start + timedelta(days=1)
-
-    return {
-        "key": start.strftime("%Y-%m-%d"),
-        "start": start.isoformat(),
-        "end": end.isoformat(),
-        "starts_at": "06:00 AM",
-        "ends_at": "06:00 AM",
-        "timezone": "Africa/Nairobi"
-    }
-
-
-def kenya_day_key():
-    return tournament_session()["key"]
-
-
-# ============================================================
-# DATABASE INITIALIZATION AND SAFE MIGRATION
+# FIRESTORE INITIALIZATION
 # ============================================================
 
 def init_db():
+    global _db
+
     with _lock:
-        con = connect()
+        if _db is not None:
+            return _db
 
-        try:
-            con.executescript("""
-            CREATE TABLE IF NOT EXISTS users (
-                telegram_id INTEGER PRIMARY KEY,
-                username TEXT,
-                first_name TEXT,
-                last_name TEXT,
-                premium_until TEXT,
-                banned INTEGER DEFAULT 0,
-                created_at TEXT NOT NULL
-            );
+        if not firebase_admin._apps:
+            service_account_path = os.getenv(
+                "GOOGLE_APPLICATION_CREDENTIALS",
+                "/etc/secrets/firebase-service-account.json"
+            )
 
-            CREATE TABLE IF NOT EXISTS payments (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                telegram_id INTEGER NOT NULL,
-                telegram_charge_id TEXT UNIQUE NOT NULL,
-                provider_charge_id TEXT,
-                amount INTEGER NOT NULL,
-                currency TEXT NOT NULL,
-                created_at TEXT NOT NULL
-            );
+            if os.path.exists(service_account_path):
+                cred = credentials.Certificate(service_account_path)
+                firebase_admin.initialize_app(cred)
+            else:
+                raise RuntimeError(
+                    "Firebase service account file not found. "
+                    "Set GOOGLE_APPLICATION_CREDENTIALS or add the Render "
+                    "Secret File at /etc/secrets/firebase-service-account.json"
+                )
 
-            CREATE TABLE IF NOT EXISTS scores (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                telegram_id INTEGER NOT NULL,
-                display_name TEXT NOT NULL,
-                score INTEGER NOT NULL,
-                mode TEXT NOT NULL,
-                day_key TEXT NOT NULL,
-                duration_seconds INTEGER NOT NULL,
-                created_at TEXT NOT NULL
-            );
+        _db = firestore.client()
+        return _db
 
-            CREATE TABLE IF NOT EXISTS settings (
-                key TEXT PRIMARY KEY,
-                value TEXT NOT NULL
-            );
 
-            CREATE TABLE IF NOT EXISTS tournament_entries (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                telegram_id INTEGER NOT NULL,
-                session_key TEXT NOT NULL,
-                payment_id INTEGER,
-                created_at TEXT NOT NULL,
-                UNIQUE(telegram_id, session_key)
-            );
+def db():
+    return init_db()
 
-            CREATE INDEX IF NOT EXISTS idx_scores_tournament
-            ON scores(mode, day_key, telegram_id, score);
 
-            CREATE INDEX IF NOT EXISTS idx_entries_session
-            ON tournament_entries(session_key, telegram_id);
+def connect():
+    """Compatibility function for older code."""
+    return db()
 
-            CREATE TABLE IF NOT EXISTS weekly_entries (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                telegram_id INTEGER NOT NULL,
-                session_key TEXT NOT NULL,
-                admitted_by INTEGER,
-                created_at TEXT NOT NULL,
-                UNIQUE(telegram_id, session_key)
-            );
 
-            CREATE INDEX IF NOT EXISTS idx_weekly_entries
-            ON weekly_entries(session_key, telegram_id);
+def now_utc():
+    return datetime.now(timezone.utc)
 
-            CREATE TABLE IF NOT EXISTS monthly_memberships (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                telegram_id INTEGER NOT NULL,
-                month_key TEXT NOT NULL,
-                payment_id INTEGER,
-                starts_at TEXT NOT NULL,
-                expires_at TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                UNIQUE(telegram_id, month_key)
-            );
 
-            CREATE INDEX IF NOT EXISTS idx_monthly_memberships
-            ON monthly_memberships(month_key, telegram_id);
+def now_kenya():
+    return datetime.now(KENYA)
 
-            CREATE TABLE IF NOT EXISTS weekly_prize_funding (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                session_key TEXT NOT NULL,
-                admin_id INTEGER NOT NULL,
-                amount REAL NOT NULL,
-                currency TEXT NOT NULL,
-                funding_source TEXT NOT NULL,
-                reference TEXT,
-                notes TEXT,
-                created_at TEXT NOT NULL
-            );
 
-            CREATE TABLE IF NOT EXISTS prize_awards (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                period_type TEXT NOT NULL,
-                period_key TEXT NOT NULL,
-                position INTEGER NOT NULL,
-                telegram_id INTEGER NOT NULL,
-                amount REAL NOT NULL,
-                currency TEXT NOT NULL,
-                status TEXT NOT NULL DEFAULT 'pending',
-                payment_reference TEXT,
-                paid_at TEXT,
-                notes TEXT,
-                created_at TEXT NOT NULL,
-                UNIQUE(period_type, period_key, position)
-            );
+def timestamp():
+    return now_utc()
 
-            CREATE INDEX IF NOT EXISTS idx_prize_awards_period
-            ON prize_awards(period_type, period_key);
 
-            CREATE TABLE IF NOT EXISTS admin_activity (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                admin_id INTEGER NOT NULL,
-                action TEXT NOT NULL,
-                target_id INTEGER,
-                details TEXT,
-                created_at TEXT NOT NULL
-            );
-            """)
+def _doc(collection, doc_id):
+    return db().collection(collection).document(str(doc_id))
 
-            # Safe migration: preserve revoked memberships.
-            columns = {
-                row["name"]
-                for row in con.execute(
-                    "PRAGMA table_info(monthly_memberships)"
-                ).fetchall()
-            }
 
-            if "revoked" not in columns:
-                con.execute("""
-                    ALTER TABLE monthly_memberships
-                    ADD COLUMN revoked INTEGER NOT NULL DEFAULT 0
-                """)
+def _get(collection, doc_id):
+    snap = _doc(collection, doc_id).get()
+    return snap.to_dict() if snap.exists else None
 
-            defaults = {
-                "weekly_locked": "1",
-                "premium_price": "300",
-                "monthly_prize_percentage": "30",
-                "monthly_retained_percentage": "70",
-                "support_whatsapp": "+254183375330",
-                "support_email": "neonrusharena@gmail.com"
-            }
 
-            for key, value in defaults.items():
-                con.execute("""
-                    INSERT OR IGNORE INTO settings(key, value)
-                    VALUES(?, ?)
-                """, (key, value))
+def _all(collection):
+    return [s.to_dict() for s in db().collection(collection).stream()]
 
-            con.commit()
 
-        finally:
-            con.close()
+def _as_int(value, default=0):
+    try:
+        return int(value or 0)
+    except (ValueError, TypeError):
+        return default
+
+
+def _user_id(uid):
+    return str(uid)
+
+
+def _period_key(value=None):
+    if value:
+        return str(value)
+    return now_kenya().strftime("%Y-%m")
+
+
+def current_month_key():
+    return now_kenya().strftime("%Y-%m")
+
+
+def current_weekly_session():
+    """
+    Weekly tournament session: Sunday 6 PM Kenya time to the
+    following Sunday 6 PM Kenya time.
+    """
+    local = now_kenya()
+    days_since_sunday = (local.weekday() + 1) % 7
+    sunday = (local - timedelta(days=days_since_sunday)).replace(
+        hour=18, minute=0, second=0, microsecond=0
+    )
+
+    if local < sunday:
+        sunday -= timedelta(days=7)
+
+    return sunday.strftime("%Y-%m-%dT%H:%M")
+
+
+def weekly_session():
+    return current_weekly_session()
+
+
+def monthly_session():
+    return current_month_key()
+
+
+def month_end_datetime(month_key=None):
+    key = _period_key(month_key)
+    year, month = map(int, key.split("-"))
+
+    if month == 12:
+        next_month = datetime(year + 1, 1, 1, tzinfo=KENYA)
+    else:
+        next_month = datetime(year, month + 1, 1, tzinfo=KENYA)
+
+    return next_month - timedelta(microseconds=1)
 
 
 # ============================================================
 # SETTINGS
 # ============================================================
 
+DEFAULT_SETTINGS = {
+    "support_email": "neonrusharena@gmail.com",
+    "support_whatsapp": "+254183375330",
+    "weekly_locked": False,
+    "monthly_price_stars": MONTHLY_STARS,
+}
+
+
 def get_setting(key, default=None):
-    with _lock:
-        con = connect()
-        try:
-            row = con.execute(
-                "SELECT value FROM settings WHERE key=?",
-                (key,)
-            ).fetchone()
-            return row["value"] if row else default
-        finally:
-            con.close()
+    value = _get("settings", key)
+    if value is None:
+        return DEFAULT_SETTINGS.get(key, default)
+    return value.get("value", default)
 
 
-def set_setting(key, value):
-    with _lock:
-        con = connect()
-        try:
-            con.execute("""
-                INSERT INTO settings(key, value)
-                VALUES(?, ?)
-                ON CONFLICT(key)
-                DO UPDATE SET value=excluded.value
-            """, (str(key), str(value)))
-            con.commit()
-        finally:
-            con.close()
+def set_setting(key, value, admin_id=None):
+    _doc("settings", key).set({
+        "key": key,
+        "value": value,
+        "updated_at": timestamp(),
+        "updated_by": str(admin_id) if admin_id is not None else None,
+    })
+    return True
+
+
+def list_settings():
+    result = dict(DEFAULT_SETTINGS)
+    for item in _all("settings"):
+        result[item["key"]] = item.get("value")
+    return result
 
 
 def is_weekly_locked():
-    return get_setting("weekly_locked", "1") == "1"
+    return bool(get_setting("weekly_locked", False))
 
 
-def set_weekly_locked(locked):
-    set_setting("weekly_locked", "1" if locked else "0")
+def set_weekly_locked(locked, admin_id=None):
+    return set_setting("weekly_locked", bool(locked), admin_id)
 
 
 # ============================================================
@@ -324,915 +192,758 @@ def set_weekly_locked(locked):
 # ============================================================
 
 def upsert_user(uid, username=None, first_name=None, last_name=None):
-    with _lock:
-        con = connect()
-        try:
-            con.execute("""
-                INSERT INTO users
-                (telegram_id, username, first_name, last_name, created_at)
-                VALUES (?, ?, ?, ?, ?)
-                ON CONFLICT(telegram_id) DO UPDATE SET
-                    username=excluded.username,
-                    first_name=excluded.first_name,
-                    last_name=excluded.last_name
-            """, (
-                int(uid), username, first_name, last_name, utc_iso()
-            ))
-            con.commit()
-        finally:
-            con.close()
+    uid = _user_id(uid)
+    ref = _doc("users", uid)
+    old = ref.get().to_dict() or {}
+
+    data = {
+        "telegram_id": uid,
+        "username": username if username is not None else old.get("username"),
+        "first_name": first_name if first_name is not None else old.get("first_name"),
+        "last_name": last_name if last_name is not None else old.get("last_name"),
+        "banned": bool(old.get("banned", False)),
+        "created_at": old.get("created_at", timestamp()),
+        "updated_at": timestamp(),
+    }
+
+    ref.set(data, merge=True)
+    return data
 
 
 def get_user(uid):
-    with _lock:
-        con = connect()
-        try:
-            return con.execute(
-                "SELECT * FROM users WHERE telegram_id=?",
-                (int(uid),)
-            ).fetchone()
-        finally:
-            con.close()
+    return _get("users", _user_id(uid))
 
 
 def is_banned(uid):
-    row = get_user(uid)
-    return bool(row and row["banned"])
+    user = get_user(uid)
+    return bool(user and user.get("banned", False))
 
 
-def set_banned(uid, value):
-    with _lock:
-        con = connect()
-        try:
-            con.execute(
-                "UPDATE users SET banned=? WHERE telegram_id=?",
-                (1 if value else 0, int(uid))
-            )
-            con.commit()
-        finally:
-            con.close()
+def set_banned(uid, banned, admin_id=None):
+    uid = _user_id(uid)
+    user = get_user(uid) or {"telegram_id": uid}
+
+    _doc("users", uid).set({
+        **user,
+        "telegram_id": uid,
+        "banned": bool(banned),
+        "updated_at": timestamp(),
+        "moderated_by": str(admin_id) if admin_id is not None else None,
+    }, merge=True)
+
+    record_admin_activity(
+        admin_id,
+        "ban" if banned else "unban",
+        uid,
+        {"banned": bool(banned)}
+    )
+    return True
+
+
+def search_players(query=""):
+    query = str(query or "").strip().lower()
+    players = _all("users")
+
+    if not query:
+        return players
+
+    return [
+        p for p in players
+        if query in str(p.get("telegram_id", "")).lower()
+        or query in str(p.get("username", "")).lower()
+        or query in str(p.get("first_name", "")).lower()
+        or query in str(p.get("last_name", "")).lower()
+    ]
+
+
+def list_banned_players():
+    return [p for p in _all("users") if p.get("banned")]
 
 
 # ============================================================
-# WEEKLY TOURNAMENT ACCESS
+# WEEKLY TOURNAMENT ENTRIES
 # ============================================================
+
+def _weekly_entry_id(uid, session_key):
+    return f"{session_key}_{uid}"
+
 
 def grant_weekly_entry(uid, session_key=None, admin_id=None):
-    if session_key is None:
-        session_key = weekly_session()["key"]
+    uid = _user_id(uid)
+    session_key = str(session_key or current_weekly_session())
+    entry_id = _weekly_entry_id(uid, session_key)
+    ref = _doc("weekly_entries", entry_id)
 
-    with _lock:
-        con = connect()
-        try:
-            con.execute("""
-                INSERT OR IGNORE INTO weekly_entries
-                (telegram_id, session_key, admitted_by, created_at)
-                VALUES (?, ?, ?, ?)
-            """, (int(uid), session_key, admin_id, utc_iso()))
+    if ref.get().exists:
+        return True
 
-            con.commit()
+    ref.set({
+        "entry_id": entry_id,
+        "telegram_id": uid,
+        "session_key": session_key,
+        "granted_at": timestamp(),
+        "granted_by": str(admin_id) if admin_id is not None else None,
+    })
 
-            row = con.execute("""
-                SELECT id FROM weekly_entries
-                WHERE telegram_id=? AND session_key=?
-            """, (int(uid), session_key)).fetchone()
-
-            return row is not None
-        finally:
-            con.close()
+    record_admin_activity(
+        admin_id, "grant_weekly_entry", uid,
+        {"session_key": session_key}
+    )
+    return True
 
 
 def revoke_weekly_entry(uid, session_key=None):
-    if session_key is None:
-        session_key = weekly_session()["key"]
+    uid = _user_id(uid)
+    session_key = str(session_key or current_weekly_session())
+    entry_id = _weekly_entry_id(uid, session_key)
+    ref = _doc("weekly_entries", entry_id)
 
-    with _lock:
-        con = connect()
-        try:
-            cursor = con.execute("""
-                DELETE FROM weekly_entries
-                WHERE telegram_id=? AND session_key=?
-            """, (int(uid), session_key))
-            con.commit()
-            return cursor.rowcount > 0
-        finally:
-            con.close()
+    if ref.get().exists:
+        ref.delete()
+        return True
+
+    return False
 
 
 def has_weekly_entry(uid, session_key=None):
-    if session_key is None:
-        session_key = weekly_session()["key"]
-
-    with _lock:
-        con = connect()
-        try:
-            row = con.execute("""
-                SELECT id FROM weekly_entries
-                WHERE telegram_id=? AND session_key=?
-            """, (int(uid), session_key)).fetchone()
-            return row is not None
-        finally:
-            con.close()
+    uid = _user_id(uid)
+    session_key = str(session_key or current_weekly_session())
+    return _doc("weekly_entries", _weekly_entry_id(uid, session_key)).get().exists
 
 
 def list_weekly_entries(session_key=None):
-    if session_key is None:
-        session_key = weekly_session()["key"]
-
-    with _lock:
-        con = connect()
-        try:
-            return con.execute("""
-                SELECT
-                    e.telegram_id,
-                    e.session_key,
-                    e.admitted_by,
-                    e.created_at,
-                    u.username,
-                    u.first_name,
-                    u.last_name
-                FROM weekly_entries e
-                LEFT JOIN users u
-                    ON u.telegram_id=e.telegram_id
-                WHERE e.session_key=?
-                ORDER BY e.created_at DESC
-            """, (session_key,)).fetchall()
-        finally:
-            con.close()
+    session_key = str(session_key or current_weekly_session())
+    return [
+        entry for entry in _all("weekly_entries")
+        if str(entry.get("session_key")) == session_key
+    ]
 
 
-# ============================================================
-# MONTHLY PREMIUM ACCESS
-# ============================================================
-
-def monthly_membership_expiry():
-    return monthly_session()["end"]
-
-
-def has_monthly_access(uid, month_key=None):
-    if month_key is None:
-        month_key = monthly_session()["key"]
-
-    with _lock:
-        con = connect()
-        try:
-            row = con.execute("""
-                SELECT id
-                FROM monthly_memberships
-                WHERE telegram_id=?
-                AND month_key=?
-                AND expires_at>?
-                AND revoked=0
-            """, (int(uid), month_key, utc_iso())).fetchone()
-            return row is not None
-        finally:
-            con.close()
-
-
-def record_monthly_payment(
-    uid, charge_id, provider_id, amount, currency
-):
-    if currency != "XTR" or int(amount) != MONTHLY_STARS:
-        return False
-
-    session = monthly_session()
-
-    with _lock:
-        con = connect()
-        try:
-            con.execute("BEGIN IMMEDIATE")
-
-            cur = con.execute("""
-                INSERT OR IGNORE INTO payments
-                (
-                    telegram_id, telegram_charge_id,
-                    provider_charge_id, amount, currency, created_at
-                )
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, (
-                int(uid), charge_id, provider_id,
-                int(amount), currency, utc_iso()
-            ))
-
-            if cur.rowcount != 1:
-                con.rollback()
-                return False
-
-            payment = con.execute("""
-                SELECT id FROM payments
-                WHERE telegram_charge_id=?
-            """, (charge_id,)).fetchone()
-
-            con.execute("""
-                INSERT INTO monthly_memberships
-                (
-                    telegram_id, month_key, payment_id,
-                    starts_at, expires_at, created_at
-                )
-                VALUES (?, ?, ?, ?, ?, ?)
-                ON CONFLICT(telegram_id, month_key)
-                DO UPDATE SET
-                    payment_id=excluded.payment_id,
-                    expires_at=excluded.expires_at,
-                    revoked=0
-            """, (
-                int(uid), session["key"], payment["id"],
-                session["start"], session["end"], utc_iso()
-            ))
-
-            con.execute("""
-                UPDATE users
-                SET premium_until=?
-                WHERE telegram_id=?
-            """, (session["end"], int(uid)))
-
-            con.commit()
-            return True
-
-        except Exception:
-            con.rollback()
-            raise
-        finally:
-            con.close()
-
-
-def list_monthly_members(session_key=None):
-    if session_key is None:
-        session_key = monthly_session()["key"]
-
-    with _lock:
-        con = connect()
-        try:
-            return con.execute("""
-                SELECT
-                    m.telegram_id,
-                    m.month_key,
-                    m.starts_at,
-                    m.expires_at,
-                    m.created_at,
-                    m.revoked,
-                    u.username,
-                    u.first_name,
-                    u.last_name
-                FROM monthly_memberships m
-                LEFT JOIN users u
-                    ON u.telegram_id=m.telegram_id
-                WHERE m.month_key=?
-                ORDER BY m.created_at DESC
-            """, (session_key,)).fetchall()
-        finally:
-            con.close()
-
-
-def revoke_monthly_access(uid, month_key=None):
-    if month_key is None:
-        month_key = monthly_session()["key"]
-
-    with _lock:
-        con = connect()
-        try:
-            cursor = con.execute("""
-                UPDATE monthly_memberships
-                SET revoked=1
-                WHERE telegram_id=? AND month_key=?
-            """, (int(uid), month_key))
-
-            if month_key == monthly_session()["key"]:
-                con.execute("""
-                    UPDATE users
-                    SET premium_until=NULL
-                    WHERE telegram_id=?
-                """, (int(uid),))
-
-            con.commit()
-            return cursor.rowcount > 0
-        finally:
-            con.close()
-
-
-# ============================================================
-# SCORES
-# ============================================================
-
-def score_period(mode):
-    if mode == "weekly":
-        return weekly_session()["key"]
-    if mode == "monthly":
-        return monthly_session()["key"]
-    if mode == "tournament":
-        return tournament_session()["key"]
-    return kenya_day_key()
-
-
-def save_score(uid, display_name, score, mode, duration):
-    mode = str(mode).lower().strip()
-
-    if mode == "free":
-        return False
-
-    if mode not in ("weekly", "monthly", "tournament"):
-        raise ValueError("Invalid score mode.")
-
-    session_key = score_period(mode)
-
-    with _lock:
-        con = connect()
-        try:
-            con.execute("""
-                INSERT INTO scores
-                (
-                    telegram_id, display_name, score,
-                    mode, day_key, duration_seconds, created_at
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (
-                int(uid), str(display_name), int(score),
-                mode, session_key, int(duration), utc_iso()
-            ))
-            con.commit()
-            return True
-        finally:
-            con.close()
-
-
-def list_tournament_scores(mode, session_key=None, limit=10):
-    if mode not in ("weekly", "monthly", "tournament"):
-        raise ValueError("Invalid tournament mode.")
-
-    if session_key is None:
-        session_key = score_period(mode)
-
-    with _lock:
-        con = connect()
-        try:
-            return con.execute("""
-                SELECT
-                    telegram_id,
-                    MAX(display_name) AS display_name,
-                    MAX(score) AS score,
-                    COUNT(*) AS games_played
-                FROM scores
-                WHERE day_key=? AND mode=?
-                GROUP BY telegram_id
-                ORDER BY score DESC, telegram_id ASC
-                LIMIT ?
-            """, (session_key, mode, int(limit))).fetchall()
-        finally:
-            con.close()
-
-
-def get_tournament_ranking(uid, mode, session_key=None):
-    if mode not in ("weekly", "monthly", "tournament"):
-        raise ValueError("Invalid tournament mode.")
-
-    if session_key is None:
-        session_key = score_period(mode)
-
-    with _lock:
-        con = connect()
-        try:
-            rows = con.execute("""
-                SELECT
-                    telegram_id,
-                    MAX(display_name) AS display_name,
-                    MAX(score) AS score
-                FROM scores
-                WHERE day_key=? AND mode=?
-                GROUP BY telegram_id
-                ORDER BY score DESC, telegram_id ASC
-            """, (session_key, mode)).fetchall()
-        finally:
-            con.close()
-
-    for position, row in enumerate(rows, start=1):
-        if int(row["telegram_id"]) == int(uid):
-            return {
-                "position": position,
-                "score": int(row["score"]),
-                "display_name": row["display_name"]
-            }
+def weekly_entries_diagnostic():
+    all_entries = _all("weekly_entries")
+    current_key = current_weekly_session()
+    current_entries = [
+        e for e in all_entries
+        if str(e.get("session_key")) == current_key
+    ]
 
     return {
-        "position": None,
-        "score": 0,
-        "display_name": None
+        "current_session": current_key,
+        "weekly_entries_total": len(all_entries),
+        "weekly_entries_current": len(current_entries),
+        "weekly_session_records": sorted(
+            list({str(e.get("session_key")) for e in all_entries})
+        ),
     }
 
 
 # ============================================================
-# LEGACY SCORE FUNCTIONS
+# MONTHLY MEMBERSHIPS
 # ============================================================
 
-def list_top_scores(limit=10, session_key=None):
-    return list_tournament_scores(
-        "tournament", session_key, limit
+def _monthly_membership_id(uid, month_key):
+    return f"{month_key}_{uid}"
+
+
+def grant_monthly_access(uid, month_key=None, admin_id=None):
+    uid = _user_id(uid)
+    month_key = _period_key(month_key)
+    membership_id = _monthly_membership_id(uid, month_key)
+
+    _doc("monthly_memberships", membership_id).set({
+        "membership_id": membership_id,
+        "telegram_id": uid,
+        "month_key": month_key,
+        "price_stars": MONTHLY_STARS,
+        "granted_at": timestamp(),
+        "granted_by": str(admin_id) if admin_id is not None else None,
+        "expires_at": month_end_datetime(month_key),
+        "source": "admin",
+    }, merge=True)
+
+    record_admin_activity(
+        admin_id, "grant_monthly_access", uid,
+        {"month_key": month_key}
     )
+    return True
 
 
-def get_player_ranking(uid, session_key=None):
-    return get_tournament_ranking(
-        uid, "tournament", session_key
-    )
+def grant_monthly_membership(uid, admin_id=None, month_key=None):
+    return grant_monthly_access(uid, month_key, admin_id)
 
 
-# ============================================================
-# LEGACY DAILY TOURNAMENT COMPATIBILITY
-# ============================================================
+def revoke_monthly_access(uid, month_key=None):
+    uid = _user_id(uid)
+    month_key = _period_key(month_key)
+    membership_id = _monthly_membership_id(uid, month_key)
+    ref = _doc("monthly_memberships", membership_id)
 
-def grant_tournament_entry(uid, session_key=None, payment_id=None):
-    if session_key is None:
-        session_key = tournament_session()["key"]
+    if ref.get().exists:
+        ref.delete()
+        return True
 
-    with _lock:
-        con = connect()
-        try:
-            con.execute("""
-                INSERT OR IGNORE INTO tournament_entries
-                (telegram_id, session_key, payment_id, created_at)
-                VALUES (?, ?, ?, ?)
-            """, (int(uid), session_key, payment_id, utc_iso()))
-
-            con.commit()
-
-            row = con.execute("""
-                SELECT id FROM tournament_entries
-                WHERE telegram_id=? AND session_key=?
-            """, (int(uid), session_key)).fetchone()
-
-            return row is not None
-        finally:
-            con.close()
+    return False
 
 
-def has_tournament_entry(uid, session_key=None):
-    if session_key is None:
-        session_key = tournament_session()["key"]
+def has_monthly_access(uid, month_key=None):
+    uid = _user_id(uid)
+    month_key = _period_key(month_key)
+    membership_id = _monthly_membership_id(uid, month_key)
+    snap = _doc("monthly_memberships", membership_id).get()
 
-    with _lock:
-        con = connect()
-        try:
-            row = con.execute("""
-                SELECT id FROM tournament_entries
-                WHERE telegram_id=? AND session_key=?
-            """, (int(uid), session_key)).fetchone()
-            return row is not None
-        finally:
-            con.close()
-
-
-def record_tournament_payment(
-    uid, charge_id, provider_id, amount, currency
-):
-    if currency != "XTR" or int(amount) != LEGACY_TOURNAMENT_STARS:
+    if not snap.exists:
         return False
 
-    session_key = tournament_session()["key"]
+    data = snap.to_dict() or {}
+    expires = data.get("expires_at")
 
-    with _lock:
-        con = connect()
-        try:
-            con.execute("BEGIN IMMEDIATE")
+    if expires and hasattr(expires, "timestamp"):
+        return expires >= timestamp()
 
-            cur = con.execute("""
-                INSERT OR IGNORE INTO payments
-                (
-                    telegram_id, telegram_charge_id,
-                    provider_charge_id, amount, currency, created_at
-                )
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, (
-                int(uid), charge_id, provider_id,
-                int(amount), currency, utc_iso()
-            ))
-
-            inserted = cur.rowcount == 1
-
-            if inserted:
-                payment = con.execute("""
-                    SELECT id FROM payments
-                    WHERE telegram_charge_id=?
-                """, (charge_id,)).fetchone()
-
-                con.execute("""
-                    INSERT OR IGNORE INTO tournament_entries
-                    (telegram_id, session_key, payment_id, created_at)
-                    VALUES (?, ?, ?, ?)
-                """, (
-                    int(uid), session_key, payment["id"], utc_iso()
-                ))
-
-            con.commit()
-            return inserted
-
-        except Exception:
-            con.rollback()
-            raise
-        finally:
-            con.close()
+    return True
 
 
-def add_payment(uid, charge_id, provider_id, amount, currency):
-    with _lock:
-        con = connect()
-        try:
-            cur = con.execute("""
-                INSERT OR IGNORE INTO payments
-                (
-                    telegram_id, telegram_charge_id,
-                    provider_charge_id, amount, currency, created_at
-                )
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, (
-                int(uid), charge_id, provider_id,
-                int(amount), currency, utc_iso()
-            ))
-            con.commit()
-            return cur.rowcount == 1
-        finally:
-            con.close()
+def list_monthly_members(month_key=None):
+    month_key = _period_key(month_key)
+    return [
+        m for m in _all("monthly_memberships")
+        if str(m.get("month_key")) == month_key
+    ]
 
 
 # ============================================================
-# LEGACY PREMIUM COMPATIBILITY
+# SCORES AND LEADERBOARDS
 # ============================================================
 
-def set_premium(uid, days):
-    now = utc_now()
-    row = get_user(uid)
-    current = None
+def save_score(uid, score, mode="weekly", session_key=None, username=None):
+    uid = _user_id(uid)
+    score = _as_int(score)
 
-    if row and row["premium_until"]:
-        try:
-            current = datetime.fromisoformat(row["premium_until"])
-        except ValueError:
-            current = None
+    if mode == "free":
+        return False
 
-    start = current if current and current > now else now
-    expiry = (start + timedelta(days=int(days))).isoformat()
+    if mode == "weekly":
+        session_key = str(session_key or current_weekly_session())
+        if not has_weekly_entry(uid, session_key):
+            return False
 
-    with _lock:
-        con = connect()
-        try:
-            con.execute(
-                "UPDATE users SET premium_until=? WHERE telegram_id=?",
-                (expiry, int(uid))
-            )
-            con.commit()
-        finally:
-            con.close()
+    elif mode == "monthly":
+        session_key = str(session_key or current_month_key())
+        if not has_monthly_access(uid, session_key):
+            return False
 
-    return expiry
+    else:
+        return False
 
+    score_id = f"{mode}_{session_key}_{uid}_{int(now_utc().timestamp() * 1000)}"
 
-def revoke_premium(uid):
-    with _lock:
-        con = connect()
-        try:
-            con.execute(
-                "UPDATE users SET premium_until=NULL WHERE telegram_id=?",
-                (int(uid),)
-            )
-            con.commit()
-        finally:
-            con.close()
+    _doc("scores", score_id).set({
+        "score_id": score_id,
+        "telegram_id": uid,
+        "username": username,
+        "score": score,
+        "mode": mode,
+        "session_key": session_key,
+        "created_at": timestamp(),
+    })
+
+    return True
 
 
-def set_premium_price(stars):
-    set_setting("premium_price", int(stars))
+def list_tournament_scores(mode="weekly", session_key=None, limit=100):
+    if mode == "weekly":
+        session_key = str(session_key or current_weekly_session())
+    elif mode == "monthly":
+        session_key = str(session_key or current_month_key())
+    else:
+        return []
+
+    scores = [
+        s for s in _all("scores")
+        if s.get("mode") == mode
+        and str(s.get("session_key")) == session_key
+    ]
+
+    scores.sort(key=lambda s: _as_int(s.get("score")), reverse=True)
+    return scores[:limit]
 
 
-def get_premium_price(default=MONTHLY_STARS):
-    try:
-        return int(get_setting("premium_price", default))
-    except (ValueError, TypeError):
-        return default
+def get_tournament_ranking(mode="weekly", session_key=None, limit=100):
+    return list_tournament_scores(mode, session_key, limit)
+
+
+def get_player_ranking(uid, mode="weekly", session_key=None):
+    uid = _user_id(uid)
+    scores = list_tournament_scores(mode, session_key, 10000)
+
+    for position, score in enumerate(scores, start=1):
+        if str(score.get("telegram_id")) == uid:
+            return position
+
+    return None
+
+
+def get_leaderboard(mode="weekly", session_key=None, limit=100):
+    return list_tournament_scores(mode, session_key, limit)
+
+
+# ============================================================
+# PAYMENTS
+# ============================================================
+
+def add_payment(uid, amount, currency="XTR", payment_id=None,
+                provider_payment_charge_id=None, details=None):
+    uid = _user_id(uid)
+    payment_id = str(
+        payment_id or provider_payment_charge_id
+        or f"{uid}_{int(now_utc().timestamp() * 1000)}"
+    )
+
+    ref = _doc("payments", payment_id)
+
+    if ref.get().exists:
+        return False
+
+    ref.set({
+        "payment_id": payment_id,
+        "telegram_id": uid,
+        "amount": _as_int(amount),
+        "currency": currency,
+        "provider_payment_charge_id": provider_payment_charge_id,
+        "details": details or {},
+        "created_at": timestamp(),
+    })
+    return True
+
+
+def record_monthly_payment(uid, telegram_charge_id,
+                           provider_charge_id=None,
+                           amount=MONTHLY_STARS,
+                           currency="XTR"):
+    uid = _user_id(uid)
+    charge_id = str(telegram_charge_id)
+
+    if _doc("payments", charge_id).get().exists:
+        return False
+
+    month_key = current_month_key()
+    membership_id = _monthly_membership_id(uid, month_key)
+
+    payment_ref = _doc("payments", charge_id)
+    membership_ref = _doc("monthly_memberships", membership_id)
+    user_ref = _doc("users", uid)
+
+    batch = db().batch()
+
+    batch.set(payment_ref, {
+        "payment_id": charge_id,
+        "telegram_id": uid,
+        "amount": _as_int(amount),
+        "currency": currency,
+        "provider_payment_charge_id": provider_charge_id,
+        "payment_type": "monthly_membership",
+        "month_key": month_key,
+        "created_at": timestamp(),
+    })
+
+    batch.set(membership_ref, {
+        "membership_id": membership_id,
+        "telegram_id": uid,
+        "month_key": month_key,
+        "price_stars": _as_int(amount),
+        "granted_at": timestamp(),
+        "expires_at": month_end_datetime(month_key),
+        "source": "telegram_payment",
+        "payment_id": charge_id,
+    }, merge=True)
+
+    batch.set(user_ref, {
+        "telegram_id": uid,
+        "premium_until": month_end_datetime(month_key),
+        "updated_at": timestamp(),
+    }, merge=True)
+
+    batch.commit()
+    return True
+
+
+def list_payments(limit=500):
+    payments = _all("payments")
+    payments.sort(
+        key=lambda p: p.get("created_at") or datetime.min.replace(tzinfo=timezone.utc),
+        reverse=True
+    )
+    return payments[:limit]
+
+
+def monthly_financials(month_key=None):
+    month_key = _period_key(month_key)
+
+    payments = [
+        p for p in _all("payments")
+        if str(p.get("month_key") or "") == month_key
+        and p.get("payment_type") == "monthly_membership"
+    ]
+
+    total_stars = sum(_as_int(p.get("amount")) for p in payments)
+    prize_stars = total_stars * MONTHLY_PRIZE_PERCENT // 100
+    retained_stars = total_stars * MONTHLY_RETAINED_PERCENT // 100
+
+    return {
+        "month_key": month_key,
+        "payments_count": len(payments),
+        "total_stars": total_stars,
+        "prize_stars": prize_stars,
+        "retained_stars": retained_stars,
+        "prize_percent": MONTHLY_PRIZE_PERCENT,
+        "retained_percent": MONTHLY_RETAINED_PERCENT,
+    }
 
 
 # ============================================================
 # WEEKLY PRIZE FUNDING
 # ============================================================
 
-def add_weekly_funding(
-    session_key,
-    admin_id,
-    amount,
-    currency="KES",
-    funding_source="Administrator",
-    reference=None,
-    notes=None
-):
-    amount = float(amount)
+def add_weekly_funding(session_key, admin_id, amount,
+                       currency="KES", funding_source="admin",
+                       reference=None, notes=None):
+    funding_id = f"{session_key}_{int(now_utc().timestamp() * 1000)}"
 
-    if amount <= 0:
-        raise ValueError("Funding amount must be greater than zero.")
+    _doc("weekly_prize_funding", funding_id).set({
+        "funding_id": funding_id,
+        "session_key": str(session_key),
+        "admin_id": str(admin_id) if admin_id is not None else None,
+        "amount": _as_int(amount),
+        "currency": currency,
+        "funding_source": funding_source,
+        "reference": reference,
+        "notes": notes,
+        "created_at": timestamp(),
+    })
 
-    with _lock:
-        con = connect()
-        try:
-            cur = con.execute("""
-                INSERT INTO weekly_prize_funding
-                (
-                    session_key, admin_id, amount, currency,
-                    funding_source, reference, notes, created_at
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                session_key, int(admin_id), amount, currency,
-                funding_source, reference, notes, utc_iso()
-            ))
-            con.commit()
-            return cur.lastrowid
-        finally:
-            con.close()
+    record_admin_activity(
+        admin_id, "add_weekly_funding", session_key,
+        {"amount": amount, "currency": currency}
+    )
+    return funding_id
 
 
 def list_weekly_funding(session_key=None):
-    if session_key is None:
-        session_key = weekly_session()["key"]
+    items = _all("weekly_prize_funding")
 
-    with _lock:
-        con = connect()
-        try:
-            return con.execute("""
-                SELECT *
-                FROM weekly_prize_funding
-                WHERE session_key=?
-                ORDER BY created_at DESC
-            """, (session_key,)).fetchall()
-        finally:
-            con.close()
+    if session_key is not None:
+        items = [
+            i for i in items
+            if str(i.get("session_key")) == str(session_key)
+        ]
+
+    items.sort(key=lambda i: i.get("created_at") or timestamp(), reverse=True)
+    return items
+
+
+def weekly_overview(session_key=None):
+    session_key = str(session_key or current_weekly_session())
+
+    funding = [
+        f for f in _all("weekly_prize_funding")
+        if str(f.get("session_key")) == session_key
+    ]
+
+    awards = [
+        a for a in _all("prize_awards")
+        if a.get("period_type") == "weekly"
+        and str(a.get("period_key")) == session_key
+    ]
+
+    return {
+        "session_key": session_key,
+        "funding_total": sum(_as_int(f.get("amount")) for f in funding),
+        "funding_count": len(funding),
+        "awards_total": sum(_as_int(a.get("amount")) for a in awards),
+        "awards_count": len(awards),
+        "entries_count": len(list_weekly_entries(session_key)),
+    }
 
 
 # ============================================================
-# TOP 5 PRIZE AWARDS AND PAYOUT RECORDS
+# PRIZE AWARDS
 # ============================================================
 
-def save_prize_award(
-    period_type,
-    period_key,
-    position,
-    telegram_id,
-    amount,
-    currency="KES",
-    status="pending",
-    notes=None
-):
-    if period_type not in ("weekly", "monthly"):
-        raise ValueError("Invalid prize period.")
+def save_prize_award(period_type, period_key, position, telegram_id,
+                     amount, currency="KES", status="pending", notes=None):
+    award_id = (
+        f"{period_type}_{period_key}_{position}_{telegram_id}"
+    )
 
-    if int(position) < 1 or int(position) > 5:
-        raise ValueError("Only the Top 5 positions can receive awards.")
+    _doc("prize_awards", award_id).set({
+        "award_id": award_id,
+        "period_type": str(period_type),
+        "period_key": str(period_key),
+        "position": _as_int(position),
+        "telegram_id": _user_id(telegram_id),
+        "amount": _as_int(amount),
+        "currency": currency,
+        "status": status,
+        "notes": notes,
+        "created_at": timestamp(),
+        "paid_at": None,
+        "payment_reference": None,
+    }, merge=True)
 
-    if float(amount) < 0:
-        raise ValueError("Prize amount cannot be negative.")
-
-    with _lock:
-        con = connect()
-        try:
-            cur = con.execute("""
-                INSERT INTO prize_awards
-                (
-                    period_type, period_key, position,
-                    telegram_id, amount, currency,
-                    status, notes, created_at
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(period_type, period_key, position)
-                DO UPDATE SET
-                    telegram_id=excluded.telegram_id,
-                    amount=excluded.amount,
-                    currency=excluded.currency,
-                    status=excluded.status,
-                    notes=excluded.notes
-            """, (
-                period_type, period_key, int(position),
-                int(telegram_id), float(amount), currency,
-                status, notes, utc_iso()
-            ))
-            con.commit()
-            return cur.lastrowid
-        finally:
-            con.close()
+    return award_id
 
 
 def mark_prize_paid(award_id, payment_reference=None, notes=None):
-    with _lock:
-        con = connect()
-        try:
-            cur = con.execute("""
-                UPDATE prize_awards
-                SET status='paid',
-                    payment_reference=?,
-                    paid_at=?,
-                    notes=COALESCE(?, notes)
-                WHERE id=?
-            """, (
-                payment_reference, utc_iso(), notes, int(award_id)
-            ))
-            con.commit()
-            return cur.rowcount > 0
-        finally:
-            con.close()
+    ref = _doc("prize_awards", str(award_id))
+
+    if not ref.get().exists:
+        return False
+
+    ref.set({
+        "status": "paid",
+        "paid_at": timestamp(),
+        "payment_reference": payment_reference,
+        "notes": notes,
+    }, merge=True)
+
+    return True
 
 
 def list_prize_awards(period_type=None, period_key=None):
-    sql = "SELECT * FROM prize_awards WHERE 1=1"
-    params = []
+    awards = _all("prize_awards")
 
-    if period_type:
-        sql += " AND period_type=?"
-        params.append(period_type)
+    if period_type is not None:
+        awards = [
+            a for a in awards
+            if str(a.get("period_type")) == str(period_type)
+        ]
 
-    if period_key:
-        sql += " AND period_key=?"
-        params.append(period_key)
+    if period_key is not None:
+        awards = [
+            a for a in awards
+            if str(a.get("period_key")) == str(period_key)
+        ]
 
-    sql += " ORDER BY period_type, period_key DESC, position ASC"
-
-    with _lock:
-        con = connect()
-        try:
-            return con.execute(sql, params).fetchall()
-        finally:
-            con.close()
+    awards.sort(key=lambda a: _as_int(a.get("position")))
+    return awards
 
 
 # ============================================================
-# PERMANENT TOURNAMENT HISTORY
+# TOURNAMENT HISTORY
 # ============================================================
 
-def list_tournament_periods(period_type, limit=100):
+def list_tournament_periods(period_type="weekly", limit=100):
     if period_type == "weekly":
-        query = """
-            SELECT period_key
-            FROM (
-                SELECT day_key AS period_key
-                FROM scores
-                WHERE mode='weekly'
-
-                UNION
-
-                SELECT session_key AS period_key
-                FROM weekly_entries
-
-                UNION
-
-                SELECT session_key AS period_key
-                FROM weekly_prize_funding
-
-                UNION
-
-                SELECT period_key
-                FROM prize_awards
-                WHERE period_type='weekly'
-            )
-            WHERE period_key IS NOT NULL
-            ORDER BY period_key DESC
-            LIMIT ?
-        """
+        scores = [s for s in _all("scores") if s.get("mode") == "weekly"]
+        entries = _all("weekly_entries")
+        keys = {
+            str(s.get("session_key")) for s in scores
+        } | {
+            str(e.get("session_key")) for e in entries
+        }
 
     elif period_type == "monthly":
-        query = """
-            SELECT period_key
-            FROM (
-                SELECT day_key AS period_key
-                FROM scores
-                WHERE mode='monthly'
-
-                UNION
-
-                SELECT month_key AS period_key
-                FROM monthly_memberships
-
-                UNION
-
-                SELECT period_key
-                FROM prize_awards
-                WHERE period_type='monthly'
-            )
-            WHERE period_key IS NOT NULL
-            ORDER BY period_key DESC
-            LIMIT ?
-        """
+        scores = [s for s in _all("scores") if s.get("mode") == "monthly"]
+        members = _all("monthly_memberships")
+        keys = {
+            str(s.get("session_key")) for s in scores
+        } | {
+            str(m.get("month_key")) for m in members
+        }
 
     else:
-        raise ValueError("Period must be weekly or monthly.")
+        return []
 
-    with _lock:
-        con = connect()
-        try:
-            return con.execute(query, (int(limit),)).fetchall()
-        finally:
-            con.close()
+    current_key = (
+        current_weekly_session()
+        if period_type == "weekly"
+        else current_month_key()
+    )
+
+    periods = sorted(keys, reverse=True)[:limit]
+
+    return [
+        {
+            "period_key": key,
+            "is_current": key == current_key,
+        }
+        for key in periods
+    ]
 
 
 def get_tournament_history(period_type, period_key):
-    if period_type not in ("weekly", "monthly"):
-        raise ValueError("Invalid tournament period.")
-
+    mode = str(period_type)
     period_key = str(period_key)
 
-    if period_type == "weekly":
-        current_key = weekly_session()["key"]
-        scores = list_tournament_scores("weekly", period_key, 1000)
-        entries = list_weekly_entries(period_key)
-        funding = list_weekly_funding(period_key)
-        members = []
+    scores = [
+        s for s in _all("scores")
+        if s.get("mode") == mode
+        and str(s.get("session_key")) == period_key
+    ]
+
+    scores.sort(key=lambda s: _as_int(s.get("score")), reverse=True)
+
+    if mode == "weekly":
+        entries = [
+            e for e in _all("weekly_entries")
+            if str(e.get("session_key")) == period_key
+        ]
+        memberships = []
+        funding = [
+            f for f in _all("weekly_prize_funding")
+            if str(f.get("session_key")) == period_key
+        ]
+
+    elif mode == "monthly":
+        entries = []
+        memberships = [
+            m for m in _all("monthly_memberships")
+            if str(m.get("month_key")) == period_key
+        ]
+        funding = []
 
     else:
-        current_key = monthly_session()["key"]
-        scores = list_tournament_scores("monthly", period_key, 1000)
         entries = []
+        memberships = []
         funding = []
-        members = list_monthly_members(period_key)
 
-    awards = list_prize_awards(period_type, period_key)
+    awards = [
+        a for a in _all("prize_awards")
+        if str(a.get("period_type")) == mode
+        and str(a.get("period_key")) == period_key
+    ]
+
+    current_key = (
+        current_weekly_session()
+        if mode == "weekly"
+        else current_month_key()
+    )
 
     return {
-        "period_type": period_type,
+        "period_type": mode,
         "period_key": period_key,
         "is_current": period_key == current_key,
         "scores": scores,
         "entries": entries,
-        "memberships": members,
+        "memberships": memberships,
         "funding": funding,
-        "awards": awards
+        "awards": awards,
     }
 
 
 def get_tournament_history_summary():
-    weekly = list_tournament_periods("weekly")
-    monthly = list_tournament_periods("monthly")
+    weekly_periods = list_tournament_periods("weekly")
+    monthly_periods = list_tournament_periods("monthly")
 
     return {
-        "weekly_periods": weekly,
-        "monthly_periods": monthly,
-        "weekly_count": len(weekly),
-        "monthly_count": len(monthly)
+        "weekly_periods_count": len(weekly_periods),
+        "monthly_periods_count": len(monthly_periods),
+        "weekly_periods": weekly_periods,
+        "monthly_periods": monthly_periods,
     }
 
 
 # ============================================================
-# GENERAL DATABASE STATISTICS
+# ADMIN ACTIVITY
+# ============================================================
+
+def record_admin_activity(admin_id, action, target_id=None, details=None):
+    activity_id = str(int(now_utc().timestamp() * 1000))
+
+    _doc("admin_activity", activity_id).set({
+        "activity_id": activity_id,
+        "admin_id": str(admin_id) if admin_id is not None else None,
+        "action": str(action),
+        "target_id": str(target_id) if target_id is not None else None,
+        "details": details or {},
+        "created_at": timestamp(),
+    })
+
+    return activity_id
+
+
+def list_admin_activity(limit=200):
+    items = _all("admin_activity")
+    items.sort(key=lambda i: i.get("created_at") or timestamp(), reverse=True)
+    return items[:limit]
+
+
+# ============================================================
+# STATISTICS AND PERFORMANCE
 # ============================================================
 
 def get_stats():
-    with _lock:
-        con = connect()
-        try:
-            players = con.execute(
-                "SELECT COUNT(*) AS n FROM users"
-            ).fetchone()["n"]
+    users = _all("users")
+    payments = _all("payments")
+    scores = _all("scores")
+    weekly_entries = _all("weekly_entries")
+    monthly_members = _all("monthly_memberships")
 
-            now = utc_iso()
+    return {
+        "users": len(users),
+        "players": len(users),
+        "banned": sum(1 for u in users if u.get("banned")),
+        "payments": len(payments),
+        "stars": sum(
+            _as_int(p.get("amount"))
+            for p in payments if p.get("currency") == "XTR"
+        ),
+        "scores": len(scores),
+        "weekly_entries": len(weekly_entries),
+        "monthly_members": len(monthly_members),
+    }
 
-            premium = con.execute("""
-                SELECT COUNT(*) AS n
-                FROM users
-                WHERE premium_until>?
-            """, (now,)).fetchone()["n"]
 
-            payments = con.execute(
-                "SELECT COUNT(*) AS n FROM payments"
-            ).fetchone()["n"]
+def get_monthly_overview(month_key=None):
+    month_key = _period_key(month_key)
+    members = list_monthly_members(month_key)
+    finances = monthly_financials(month_key)
 
-            stars = con.execute("""
-                SELECT COALESCE(SUM(amount), 0) AS n
-                FROM payments
-                WHERE currency='XTR'
-            """).fetchone()["n"]
+    scores = [
+        s for s in _all("scores")
+        if s.get("mode") == "monthly"
+        and str(s.get("session_key")) == month_key
+    ]
 
-            weekly_entries = con.execute("""
-                SELECT COUNT(*) AS n
-                FROM weekly_entries
-                WHERE session_key=?
-            """, (weekly_session()["key"],)).fetchone()["n"]
+    scores.sort(key=lambda s: _as_int(s.get("score")), reverse=True)
 
-            monthly_members = con.execute("""
-                SELECT COUNT(*) AS n
-                FROM monthly_memberships
-                WHERE month_key=?
-                AND expires_at>?
-                AND revoked=0
-            """, (
-                monthly_session()["key"], now
-            )).fetchone()["n"]
+    return {
+        "month_key": month_key,
+        "members_count": len(members),
+        "payments_count": finances["payments_count"],
+        "total_stars": finances["total_stars"],
+        "prize_stars": finances["prize_stars"],
+        "retained_stars": finances["retained_stars"],
+        "top_scores": scores[:5],
+    }
 
-            legacy_entries = con.execute("""
-                SELECT COUNT(*) AS n
-                FROM tournament_entries
-                WHERE session_key=?
-            """, (tournament_session()["key"],)).fetchone()["n"]
 
-            return {
-                "players": players,
-                "premium": premium,
-                "payments": payments,
-                "stars": stars,
-                "weekly_entries": weekly_entries,
-                "monthly_members": monthly_members,
-                "tournament_entries": legacy_entries
-            }
+def get_performance(mode="weekly", session_key=None):
+    if mode == "weekly":
+        session_key = str(session_key or current_weekly_session())
+    elif mode == "monthly":
+        session_key = str(session_key or current_month_key())
+    else:
+        return {
+            "mode": mode,
+            "session": None,
+            "top_scores": [],
+            "top_five": [],
+        }
 
-        finally:
-            con.close()
+    scores = list_tournament_scores(mode, session_key, 100)
+
+    return {
+        "mode": mode,
+        "session": session_key,
+        "top_scores": scores,
+        "top_five": scores[:5],
+    }
+
+
+# ============================================================
+# INITIALIZE
+# ============================================================
+
+init_db()
+
