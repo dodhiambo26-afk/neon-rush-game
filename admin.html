@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -123,22 +124,10 @@ footer{text-align:center;color:#6f88a8;font-size:11px;padding:25px}
 <div class="notice">
 Players with access to the current weekly tournament session.
 </div>
-
-<button class="action" onclick="loadWeeklyMembers()">
-Refresh weekly members
-</button>
-
-<button class="action" onclick="checkWeeklyDatabase()">
-CHECK DATABASE
-</button>
-
-<div id="weeklyMembersList" class="panel">
-Loading weekly members...
-</div>
-
-<div id="weeklyDiagnosticList" class="panel">
-Database diagnostic has not been run.
-</div>
+<button class="action" onclick="loadWeeklyMembers()">Refresh weekly members</button>
+<button class="action" onclick="checkWeeklyDatabase()">CHECK DATABASE</button>
+<div id="weeklyMembersList" class="panel">Loading weekly members...</div>
+<div id="weeklyDiagnosticList" class="panel">Database diagnostic has not been run.</div>
 </section>
 
 <section id="monthlyMembers">
@@ -150,12 +139,12 @@ View players with monthly tournament memberships, including their month, expiry 
 <div id="monthlyMembersList" class="panel">Loading monthly members...</div>
 </section>
 
-<!-- NEW LEADERBOARD SECTION -->
+<!-- TOURNAMENT LEADERBOARD -->
 <section id="leaderboard">
 <h2>Tournament leaderboard</h2>
 
 <div class="notice">
-View the total number of players admitted to the current weekly and monthly tournaments.
+View tournament participation totals and actual player rankings and scores.
 </div>
 
 <button class="action" onclick="loadLeaderboard()">Refresh leaderboard</button>
@@ -178,8 +167,22 @@ View the total number of players admitted to the current weekly and monthly tour
  <h3>Participation summary</h3>
  <div id="leaderboardStatus" class="muted">Loading tournament participation...</div>
 </div>
+
+<div class="divider"></div>
+
+<h2>Player rankings and scores</h2>
+
+<label for="leaderboardMode">Select tournament leaderboard</label>
+<select id="leaderboardMode" onchange="loadLeaderboardScores()">
+ <option value="weekly">Weekly tournament</option>
+ <option value="monthly">Monthly tournament</option>
+</select>
+
+<button class="action" onclick="loadLeaderboardScores()">Refresh player rankings</button>
+
+<div id="leaderboardScores" class="panel">Loading player rankings...</div>
 </section>
-<!-- END LEADERBOARD SECTION -->
+<!-- END TOURNAMENT LEADERBOARD -->
 
 <section id="grant">
 <h2>Manage tournament access</h2>
@@ -222,13 +225,11 @@ These actions do not charge Telegram Stars.
 
 <section id="performance">
 <h2>Top scores and performance</h2>
-
 <label for="performanceMode">Tournament type</label>
 <select id="performanceMode" onchange="loadPerformance()">
 <option value="weekly">Weekly tournament</option>
 <option value="monthly">Monthly tournament</option>
 </select>
-
 <button class="action" onclick="loadPerformance()">Refresh performance</button>
 <div id="performanceList" class="panel">Loading scores...</div>
 </section>
@@ -263,7 +264,6 @@ View archived weekly and monthly tournament periods, historical statistics, lead
 <div id="historySummary" class="panel">Loading tournament history summary...</div>
 
 <h3>Archived tournament periods</h3>
-
 <label class="history-label">Tournament type</label>
 <select id="historyType">
 <option value="weekly">Weekly tournaments</option>
@@ -307,29 +307,17 @@ Select a tournament period to view its archived details.
 <h3>NEON RUSH administration guide</h3>
 
 <p>• Tournament access and eligibility are controlled by the backend.</p>
-
 <p>• Weekly tournament entry is KES 25.</p>
-
 <p>• Monthly premium membership costs 300 Telegram Stars.</p>
-
 <p>• Administrators can grant complimentary weekly or monthly access to registered players.</p>
-
 <p>• Check Stars payment records before resolving payment disputes.</p>
-
 <p>• Monthly membership expires at the end of its calendar month.</p>
-
 <p>• Revoking membership removes the player's monthly access.</p>
-
 <p>• Use player moderation carefully. Ban only when necessary.</p>
-
 <p>• Review player performance, game history and tournament records when investigating issues.</p>
-
 <p>• Keep your Telegram bot token, administrator credentials and Render secrets private.</p>
-
 <p>• Email: neonrusharena@gmail.com</p>
-
 <p>• WhatsApp: +254183375330</p>
-
 </div>
 </section>
 
@@ -488,23 +476,12 @@ async function loadOverview(){
   const weekly=Number(s.weekly_entries||0);
   const monthly=Number(s.monthly_members||0);
 
-  document.getElementById("playersCount").textContent=
-   s.players??"—";
-
-  document.getElementById("weeklyCount").textContent=
-   weekly;
-
-  document.getElementById("monthlyCount").textContent=
-   monthly;
-
-  document.getElementById("totalMembershipsCount").textContent=
-   weekly+monthly;
-
-  document.getElementById("starsCount").textContent=
-   s.stars??"—";
-
-  document.getElementById("paymentsCount").textContent=
-   s.payments??"—";
+  document.getElementById("playersCount").textContent=s.players??"—";
+  document.getElementById("weeklyCount").textContent=weekly;
+  document.getElementById("monthlyCount").textContent=monthly;
+  document.getElementById("totalMembershipsCount").textContent=weekly+monthly;
+  document.getElementById("starsCount").textContent=s.stars??"—";
+  document.getElementById("paymentsCount").textContent=s.payments??"—";
 
   document.getElementById("systemInfo").textContent=
    "Backend connected • Admin authentication active";
@@ -641,13 +618,16 @@ async function loadPayments(){
  }
 }
 
-/* NEW LEADERBOARD FUNCTION */
+/* TOURNAMENT LEADERBOARD */
 
 async function loadLeaderboard(){
+
  const status=document.getElementById("leaderboardStatus");
- status.textContent="Loading tournament player totals...";
+
+ status.textContent="Loading tournament participation...";
 
  try{
+
   const [weekly,monthly]=await Promise.all([
    api("/api/admin/entries"),
    api("/api/admin/monthly/members")
@@ -669,19 +649,100 @@ async function loadLeaderboard(){
    monthlyPlayers.length;
 
   document.getElementById("leaderboardWeeklySession").textContent=
-   "Session: "+(weekly.session?.key||weekly.session_key||"Current weekly session");
+   "Session: "+(
+    weekly.session?.key||
+    weekly.session_key||
+    "Current weekly session"
+   );
 
   document.getElementById("leaderboardMonthlySession").textContent=
-   "Month: "+(monthly.session?.key||monthly.month_key||"Current month");
+   "Month: "+(
+    monthly.session?.key||
+    monthly.month_key||
+    "Current month"
+   );
 
   status.textContent=
-   "Current participation — Weekly: "+weeklyPlayers.length+
+   "Weekly: "+weeklyPlayers.length+
    " players | Monthly: "+monthlyPlayers.length+" players.";
 
+  await loadLeaderboardScores();
+
  }catch(e){
+
   status.textContent="Could not load leaderboard: "+e.message;
   showMessage(e.message);
+
  }
+
+}
+
+/* ACTUAL PLAYER RANKINGS AND SCORES */
+
+async function loadLeaderboardScores(){
+
+ const el=document.getElementById("leaderboardScores");
+ const mode=document.getElementById("leaderboardMode").value;
+
+ el.textContent="Loading "+mode+" player rankings...";
+
+ try{
+
+  const d=await api(
+   "/api/admin/performance?mode="+encodeURIComponent(mode)
+  );
+
+  const scores=d.top_scores||[];
+
+  if(!scores.length){
+   el.textContent="No "+mode+" tournament score records found.";
+   return;
+  }
+
+  const players=scores.map((item,index)=>({
+
+   rank:index+1,
+
+   telegram_id:item.telegram_id,
+
+   player_name:
+    item.username||
+    item.display_name||
+    item.name||
+    ("Player "+item.telegram_id),
+
+   best_score:item.score,
+
+   mode:item.mode||d.mode||mode,
+
+   session:
+    item.session_key||
+    item.month_key||
+    d.session?.key||
+    d.month_key||
+    "—",
+
+   created_at:item.created_at||"Not available"
+
+  }));
+
+  renderList("leaderboardScores",players,[
+   ["rank","Rank"],
+   ["telegram_id","Telegram ID"],
+   ["player_name","Player"],
+   ["best_score","Best score"],
+   ["mode","Tournament"],
+   ["session","Tournament session"],
+   ["created_at","Date recorded"]
+  ]);
+
+ }catch(e){
+
+  el.textContent="Could not load player rankings: "+e.message;
+  showMessage(e.message);
+
+ }
+
 }
 
 /* PERFORMANCE */
@@ -895,7 +956,6 @@ async function loadHistoryDetail(){
    encodeURIComponent(key);
 
   const d=await api(path);
-
   renderJSON("historyDetail",d);
 
  }catch(e){
