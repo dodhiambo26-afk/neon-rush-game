@@ -404,7 +404,25 @@ async def lifespan(app: FastAPI):
         await bot_application.updater.stop()
         await bot_application.stop()
         await bot_application.shutdown()
+        
+app = FastAPI(
+    title="NEON RUSH Game Backend",
+    version="3.0",
+    lifespan=lifespan,
+)
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "https://dodhiambo26-afk.github.io",
+    ],
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=[
+        "Content-Type",
+        "X-Telegram-Init-Data",
+    ],
+)
 
 # ============================================================
 # REQUEST MODELS
