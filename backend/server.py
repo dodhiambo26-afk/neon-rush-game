@@ -15,8 +15,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 import database as db
-from bot import run_bot
-
+from bot import build_application
+from telegram import Update
 
 # ============================================================
 # CONFIGURATION
@@ -384,42 +384,26 @@ def player_rank_data(uid, mode, session_key):
 async def lifespan(app: FastAPI):
     db.init_db()
 
-    bot_task = asyncio.create_task(
-        asyncio.to_thread(run_bot)
+    bot_application = build_application()
+
+    await bot_application.initialize()
+    await bot_application.start()
+
+    await bot_application.updater.start_polling(
+        allowed_updates=Update.ALL_TYPES
     )
+
+    print("NEON RUSH ARENA Telegram bot started successfully.")
 
     try:
         yield
 
     finally:
-        bot_task.cancel()
+        print("Stopping NEON RUSH ARENA Telegram bot...")
 
-        try:
-            await bot_task
-        except asyncio.CancelledError:
-            pass
-        except Exception:
-            pass
-
-
-app = FastAPI(
-    title="NEON RUSH Game Backend",
-    version="3.0",
-    lifespan=lifespan,
-)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        "https://dodhiambo26-afk.github.io",
-    ],
-    allow_credentials=False,
-    allow_methods=["GET", "POST", "OPTIONS"],
-    allow_headers=[
-        "Content-Type",
-        "X-Telegram-Init-Data",
-    ],
-)
+        await bot_application.updater.stop()
+        await bot_application.stop()
+        await bot_application.shutdown()
 
 
 # ============================================================
