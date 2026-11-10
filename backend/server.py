@@ -335,6 +335,11 @@ def get_player_best_score(uid):
 # ============================================================
 
 def tournament_player_rankings(mode, session_key):
+    return db.get_tournament_ranking(
+        mode=mode,
+        session_key=session_key,
+        limit=10000
+    )
     """
     Return one leaderboard record per player.
 
