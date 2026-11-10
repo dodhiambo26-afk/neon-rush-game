@@ -123,50 +123,62 @@ def ensure_user(update):
 
 
 def player_keyboard(uid):
-    buttons = [
+    keyboard = [
         [
             InlineKeyboardButton(
-                "🎮 PLAY FREE DAILY GAME",
-                web_app=WebAppInfo(url=game_url("free"))
+                "🏁 PLAY FREE DAILY GAME",
+                web_app=WebAppInfo(url=f"{WEBAPP_URL}?mode=free")
             )
         ],
         [
             InlineKeyboardButton(
                 "🏆 WEEKLY TOURNAMENT",
                 callback_data="weekly_info"
-            )
-        ],
-        [
+            ),
             InlineKeyboardButton(
-                "🌟 MONTHLY TOURNAMENT — 300 STARS",
+                "👑 MONTHLY TOURNAMENT — 300 STARS",
                 callback_data="monthly_join"
             )
         ],
         [
             InlineKeyboardButton(
-                "🥇 WEEKLY LEADERBOARD",
+                "📊 WEEKLY LEADERBOARD",
                 callback_data="weekly_leaderboard"
-            )
-        ],
-        [
+            ),
             InlineKeyboardButton(
-                "🏆 MONTHLY LEADERBOARD",
+                "👑 MONTHLY LEADERBOARD",
                 callback_data="monthly_leaderboard"
             )
         ],
         [
             InlineKeyboardButton(
                 "👤 MY PROFILE",
-                callback_data="profile"
+                callback_data="my_profile"
             )
         ],
         [
             InlineKeyboardButton(
-                "📞 SUPPORT",
-                callback_data="support"
+                "🌍 JOIN GLOBAL COMMUNITY",
+                url=COMMUNITY_URL
             )
         ],
+        [
+            InlineKeyboardButton(
+                "📩 SUPPORT",
+                callback_data="support"
+            )
+        ]
     ]
+
+    if uid in ADMIN_IDS:
+        keyboard.append([
+            InlineKeyboardButton(
+                "🛠 ADMIN DASHBOARD",
+                web_app=WebAppInfo(url=ADMIN_DASHBOARD_URL)
+            )
+        ])
+
+    return InlineKeyboardMarkup(keyboard)
 
     if is_admin(uid):
         buttons.append([
