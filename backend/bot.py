@@ -35,6 +35,9 @@ WEBAPP_URL = os.getenv(
     "WEBAPP_URL",
     "https://dodhiambo26-afk.github.io/neon-rush-game/"
 )
+LOGO_URL = (
+    "https://dodhiambo26-afk.github.io/neon-rush-game/nra_logo.png"
+)
 
 ADMIN_DASHBOARD_URL = os.getenv(
     "ADMIN_DASHBOARD_URL",
@@ -211,11 +214,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    await update.message.reply_text(
-        main_text(user),
+    await update.message.reply_photo(
+        photo=LOGO_URL,
+        caption=main_text(user),
         reply_markup=player_keyboard(user.id),
     )
-
 
 # ============================================================
 # WEEKLY TOURNAMENT
