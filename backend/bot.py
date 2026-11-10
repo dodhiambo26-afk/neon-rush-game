@@ -341,11 +341,11 @@ async def leaderboard_message(update, context, mode):
         session_key = current_month_session()
         title = "🌟 MONTHLY LEADERBOARD"
 
-    scores = db.list_tournament_scores(
-        mode=mode,
-        session_key=session_key,
-        limit=10,
-    )
+    scores = db.get_tournament_ranking(
+    mode=mode,
+    session_key=session_key,
+    limit=10,
+)
 
     if not scores:
         await query.message.reply_text(
