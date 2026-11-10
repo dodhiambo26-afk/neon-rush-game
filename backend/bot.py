@@ -192,7 +192,7 @@ def main_text(user):
         "Entry is approved by an administrator.\n"
         "Weekly session: Sunday 6 PM to Sunday 6 PM "
         "(Kenya time).\n\n"
-        "Compete for Weekly leaderboard rewards.\n\n"
+        "Compete for Weekly leaderboard rewards.\n"
         "🌟 MONTHLY TOURNAMENT\n"
         "Membership: 300 Telegram Stars.\n"
         "Compete for Monthly leaderboard rewards.\n\n"
