@@ -1091,38 +1091,39 @@ async function authenticateTelegram(){
 // TOURNAMENT ACTIVE PLAYER COUNT
 // ======================================
 
-async function loadTournamentPlayerCount() {
-    try {
-        const response = await fetch(
-            `${API_URL}/api/tournament/status`,
-            {
-                headers: {
-                    "X-Telegram-Init-Data": Telegram.WebApp.initData
-                }
-            }
-        );
+async function loadTournamentPlayerCount(){
 
-        if (!response.ok) {
-            throw new Error("Could not load tournament player count");
-        }
+ if(!initData || !verifiedPlayer || gameMode==="free")return;
 
-        const data = await response.json();
-
-        const mode = new URLSearchParams(window.location.search)
-            .get("mode") || "weekly";
-
-        const count = mode === "monthly"
-            ? data.monthly.active_players
-            : data.weekly.active_players;
-
-        const display = document.getElementById("activePlayers");
-
-        if (display) {
-            display.textContent = Number(count || 0).toLocaleString();
-        }
-    } catch (error) {
-        console.error("Tournament player count:", error);
+ try{
+  const response=await fetch(
+   BACKEND_URL+"/api/tournament/status",
+   {
+    headers:{
+     "X-Telegram-Init-Data":initData
     }
+   }
+  );
+
+  if(!response.ok){
+   throw new Error("Could not load tournament player count");
+  }
+
+  const data=await response.json();
+
+  const count=gameMode==="monthly"
+   ?data.monthly?.active_players
+   :data.weekly?.active_players;
+
+  const display=$("activePlayers");
+
+  if(display){
+   display.textContent=Number(count||0).toLocaleString();
+  }
+
+ }catch(error){
+  console.error("Tournament player count:",error);
+ }
 }
 
 // YOUR NEXT EXISTING FUNCTION CONTINUES HERE
