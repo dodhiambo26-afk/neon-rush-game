@@ -468,13 +468,116 @@ def list_tournament_scores(mode="weekly", session_key=None, limit=100):
     return scores[:limit]
 
 
+
+def _score_recorded_time(row):
+    """Convert a score's created_at value into a sortable timestamp."""
+    value = row.get("created_at")
+
+    if value is None:
+        return float("inf")
+
+    try:
+        if isinstance(value, datetime):
+            if value.tzinfo is None:
+                value = value.replace(tzinfo=timezone.utc)
+            return value.timestamp()
+
+        if isinstance(value, str):
+            value = value.strip().replace("Z", "+00:00")
+            parsed = datetime.fromisoformat(value)
+
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+
+            return parsed.timestamp()
+
+    except (ValueError, TypeError, OverflowError):
+        pass
+
+    return float("inf")
+
+
+def list_tournament_player_rankings(
+    mode="weekly",
+    session_key=None,
+    limit=100
+):
+    """
+    Return one best score per Telegram player.
+
+    Rules:
+    1. Each Telegram ID appears only once.
+    2. Highest score is retained.
+    3. If scores are equal, the earliest recorded score wins.
+    4. Remaining ties are ordered by Telegram ID.
+    """
+    rows = list_tournament_scores(
+        mode=mode,
+        session_key=session_key,
+        limit=10000
+    )
+
+    best_by_player = {}
+
+    for row in rows:
+        uid = str(row.get("telegram_id", "")).strip()
+
+        if not uid:
+            continue
+
+        score = _as_int(row.get("score"))
+        recorded_time = _score_recorded_time(row)
+
+        existing = best_by_player.get(uid)
+
+        if existing is None:
+            best_by_player[uid] = {
+                "row": row,
+                "score": score,
+                "time": recorded_time,
+            }
+            continue
+
+        if (
+            score > existing["score"]
+            or (
+                score == existing["score"]
+                and recorded_time < existing["time"]
+            )
+        ):
+            best_by_player[uid] = {
+                "row": row,
+                "score": score,
+                "time": recorded_time,
+            }
+
+    ranked = sorted(
+        best_by_player.values(),
+        key=lambda item: (
+            -item["score"],
+            item["time"],
+            str(item["row"].get("telegram_id", ""))
+        )
+    )
+
+    return [
+        item["row"]
+        for item in ranked[:max(0, limit)]
+    ]
+
+
 def get_tournament_ranking(mode="weekly", session_key=None, limit=100):
-    return list_tournament_scores(mode, session_key, limit)
+    return list_tournament_player_rankings(
+        mode, session_key, limit
+    )
 
 
 def get_player_ranking(uid, mode="weekly", session_key=None):
     uid = _user_id(uid)
-    scores = list_tournament_scores(mode, session_key, 10000)
+
+    scores = list_tournament_player_rankings(
+        mode, session_key, 10000
+    )
 
     for position, score in enumerate(scores, start=1):
         if str(score.get("telegram_id")) == uid:
@@ -484,7 +587,9 @@ def get_player_ranking(uid, mode="weekly", session_key=None):
 
 
 def get_leaderboard(mode="weekly", session_key=None, limit=100):
-    return list_tournament_scores(mode, session_key, limit)
+    return list_tournament_player_rankings(
+        mode, session_key, limit
+    )
 
 
 # ============================================================
