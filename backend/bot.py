@@ -50,7 +50,7 @@ MONTHLY_CURRENCY = "XTR"
 SUPPORT_WHATSAPP = "+254183375330"
 SUPPORT_EMAIL = os.getenv(
     "SUPPORT_EMAIL",
-    "neonrusharena.com"
+    "neonrusharena@gmail.com"
 )
 
 ADMIN_IDS = set()
