@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -7,6 +8,7 @@
 <meta name="description" content="NEON RUSH ARENA — Race, compete and conquer the neon highway.">
 <title>NEON RUSH ARENA</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
+
 <style>
 :root{
  --bg:#080F20;
@@ -23,204 +25,405 @@
 html,body{width:100%;height:100%;margin:0}
 body{overflow:hidden;background:var(--bg);color:var(--white);font-family:Arial,Helvetica,sans-serif;touch-action:none}
 canvas{display:block;width:100vw;height:100vh}
-#hud{position:fixed;top:12px;left:8px;right:8px;z-index:3;display:flex;justify-content:center;align-items:center;flex-wrap:wrap;gap:6px;pointer-events:none}
-.stat{background:rgba(16,29,52,.94);border:1px solid var(--line);border-radius:10px;padding:8px 10px;font-size:11px;box-shadow:0 0 12px rgba(0,229,255,.08)}
-#leaderboardToggle,#soundToggle{pointer-events:auto;background:linear-gradient(135deg,#142541,#21163d);color:var(--white);border:1px solid var(--cyan);border-radius:10px;padding:9px 10px;font-weight:800;font-size:10px;letter-spacing:.35px;box-shadow:0 0 12px rgba(0,229,255,.12)}
+
+#hud{
+ position:fixed;
+ top:12px;
+ left:8px;
+ right:8px;
+ z-index:3;
+ display:flex;
+ justify-content:center;
+ align-items:center;
+ flex-wrap:wrap;
+ gap:6px;
+ pointer-events:none
+}
+.stat{
+ background:rgba(16,29,52,.94);
+ border:1px solid var(--line);
+ border-radius:10px;
+ padding:8px 10px;
+ font-size:11px;
+ box-shadow:0 0 12px rgba(0,229,255,.08)
+}
+#leaderboardToggle,#soundToggle{
+ pointer-events:auto;
+ background:linear-gradient(135deg,#142541,#21163d);
+ color:var(--white);
+ border:1px solid var(--cyan);
+ border-radius:10px;
+ padding:9px 10px;
+ font-weight:800;
+ font-size:10px;
+ letter-spacing:.35px;
+ box-shadow:0 0 12px rgba(0,229,255,.12)
+}
 #soundToggle{border-color:var(--pink)}
-#status{position:fixed;top:66px;left:10px;right:10px;text-align:center;font-size:12px;color:#8DF5FF;z-index:3;pointer-events:none;text-shadow:0 0 8px rgba(0,229,255,.45)}
-#controls{position:fixed;bottom:20px;left:0;right:0;display:flex;justify-content:space-between;padding:0 22px;z-index:3;pointer-events:none}
-.control{width:76px;height:66px;border-radius:17px;border:1px solid var(--cyan);background:linear-gradient(145deg,rgba(16,37,65,.94),rgba(31,19,57,.92));color:white;font-size:28px;pointer-events:auto;touch-action:none;box-shadow:0 0 18px rgba(0,229,255,.16),inset 0 0 12px rgba(0,229,255,.08)}
+#status{
+ position:fixed;
+ top:66px;
+ left:10px;
+ right:10px;
+ text-align:center;
+ font-size:12px;
+ color:#8DF5FF;
+ z-index:3;
+ pointer-events:none;
+ text-shadow:0 0 8px rgba(0,229,255,.45)
+}
+#controls{
+ position:fixed;
+ bottom:20px;
+ left:0;
+ right:0;
+ display:flex;
+ justify-content:space-between;
+ padding:0 22px;
+ z-index:3;
+ pointer-events:none
+}
+.control{
+ width:76px;
+ height:66px;
+ border-radius:17px;
+ border:1px solid var(--cyan);
+ background:linear-gradient(145deg,rgba(16,37,65,.94),rgba(31,19,57,.92));
+ color:white;
+ font-size:28px;
+ pointer-events:auto;
+ touch-action:none;
+ box-shadow:0 0 18px rgba(0,229,255,.16),inset 0 0 12px rgba(0,229,255,.08)
+}
 .control:active{transform:scale(.96);background:#07516a}
-#overlay{position:fixed;inset:0;background:radial-gradient(ellipse at 50% 25%,rgba(32,23,68,.76),rgba(8,15,32,.97) 65%);display:flex;align-items:center;justify-content:center;z-index:5;padding:16px;overflow:auto}
-#menu{width:min(420px,100%);max-height:94vh;overflow:auto;background:linear-gradient(160deg,rgba(20,37,65,.98),rgba(12,21,42,.99));border:1px solid var(--cyan);border-radius:22px;padding:22px;text-align:center;box-shadow:0 0 12px rgba(0,229,255,.22),0 0 38px rgba(161,0,255,.15),inset 0 0 25px rgba(0,229,255,.035)}
-#menu h1{margin:0 0 5px;color:var(--white);font-size:clamp(27px,8vw,34px);font-weight:900;letter-spacing:1.3px;text-shadow:0 0 13px rgba(0,229,255,.35)}
- .brand-logo{
-  display:block;
-  width:clamp(112px,34vw,156px);
-  height:auto;
-  max-height:150px;
-  object-fit:contain;
-  margin:0 auto 12px;
-  filter:drop-shadow(0 0 12px rgba(0,229,255,.55)) drop-shadow(0 0 24px rgba(161,0,255,.28));
-  animation:logoPulse 2.8s ease-in-out infinite;
-}
 
+#overlay{
+ position:fixed;
+ inset:0;
+ background:radial-gradient(ellipse at 50% 25%,rgba(32,23,68,.76),rgba(8,15,32,.97) 65%);
+ display:flex;
+ align-items:center;
+ justify-content:center;
+ z-index:5;
+ padding:16px;
+ overflow:auto
+}
+#menu{
+ width:min(420px,100%);
+ max-height:94vh;
+ overflow:auto;
+ background:linear-gradient(160deg,rgba(20,37,65,.98),rgba(12,21,42,.99));
+ border:1px solid var(--cyan);
+ border-radius:22px;
+ padding:22px;
+ text-align:center;
+ box-shadow:0 0 12px rgba(0,229,255,.22),0 0 38px rgba(161,0,255,.15),inset 0 0 25px rgba(0,229,255,.035)
+}
+#menu h1{
+ margin:0 0 5px;
+ color:var(--white);
+ font-size:clamp(27px,8vw,34px);
+ font-weight:900;
+ letter-spacing:1.3px;
+ text-shadow:0 0 13px rgba(0,229,255,.35)
+}
+.brand-logo{
+ display:block;
+ width:clamp(112px,34vw,156px);
+ height:auto;
+ max-height:150px;
+ object-fit:contain;
+ margin:0 auto 12px;
+ filter:drop-shadow(0 0 12px rgba(0,229,255,.55)) drop-shadow(0 0 24px rgba(161,0,255,.28));
+ animation:logoPulse 2.8s ease-in-out infinite;
+}
 @keyframes logoPulse{
-  0%,100%{transform:scale(1);filter:drop-shadow(0 0 10px rgba(0,229,255,.45)) drop-shadow(0 0 18px rgba(161,0,255,.22))}
-  50%{transform:scale(1.035);filter:drop-shadow(0 0 17px rgba(0,229,255,.8)) drop-shadow(0 0 30px rgba(255,34,212,.32))}
+ 0%,100%{transform:scale(1);filter:drop-shadow(0 0 10px rgba(0,229,255,.45)) drop-shadow(0 0 18px rgba(161,0,255,.22))}
+ 50%{transform:scale(1.035);filter:drop-shadow(0 0 17px rgba(0,229,255,.8)) drop-shadow(0 0 30px rgba(255,34,212,.32))}
 }
-
-.action:not(:disabled){
-  animation:buttonGlow 2.2s ease-in-out infinite;
-}
-
+.action:not(:disabled){animation:buttonGlow 2.2s ease-in-out infinite}
 @keyframes buttonGlow{
-  0%,100%{box-shadow:0 5px 18px rgba(0,229,255,.16)}
-  50%{box-shadow:0 5px 27px rgba(0,229,255,.36),0 0 20px rgba(161,0,255,.2)}
+ 0%,100%{box-shadow:0 5px 18px rgba(0,229,255,.16)}
+ 50%{box-shadow:0 5px 27px rgba(0,229,255,.36),0 0 20px rgba(161,0,255,.2)}
 }
-
 @media(prefers-reduced-motion:reduce){
-  .brand-logo,.action:not(:disabled){animation:none}
+ .brand-logo,.action:not(:disabled){animation:none}
 }
 #menu h1 span{color:var(--cyan);text-shadow:0 0 14px rgba(0,229,255,.7)}
-.brand-tagline{margin:0 0 15px!important;color:var(--pink)!important;font-size:10px!important;font-weight:900;letter-spacing:3px}
+.brand-tagline{
+ margin:0 0 15px!important;
+ color:var(--pink)!important;
+ font-size:10px!important;
+ font-weight:900;
+ letter-spacing:3px
+}
 #menu p{font-size:14px;line-height:1.55;color:#C6D8EC}
-#authStatus{padding:10px 11px;background:rgba(8,15,32,.55);border:1px solid rgba(0,229,255,.16);border-radius:10px}
-.action{width:100%;padding:14px;margin-top:10px;border:1px solid rgba(255,255,255,.12);border-radius:12px;background:linear-gradient(100deg,var(--cyan),var(--purple) 72%,var(--pink));color:#071326;font-weight:900;font-size:15px;letter-spacing:.6px;box-shadow:0 5px 20px rgba(0,229,255,.16)}
+#authStatus{
+ padding:10px 11px;
+ background:rgba(8,15,32,.55);
+ border:1px solid rgba(0,229,255,.16);
+ border-radius:10px
+}
+
+/* MENU TOURNAMENT PARTICIPANT COUNT */
+#menuActivePlayers{
+ background:rgba(0,229,255,.10);
+ border:1px solid rgba(0,229,255,.4);
+ border-radius:10px;
+ padding:12px;
+ color:#00e5ff!important;
+ font-weight:900;
+ font-size:14px!important;
+ margin:10px 0;
+}
+#menuActivePlayers b{
+ color:#ffffff;
+ font-size:17px;
+}
+
+.action{
+ width:100%;
+ padding:14px;
+ margin-top:10px;
+ border:1px solid rgba(255,255,255,.12);
+ border-radius:12px;
+ background:linear-gradient(100deg,var(--cyan),var(--purple) 72%,var(--pink));
+ color:#071326;
+ font-weight:900;
+ font-size:15px;
+ letter-spacing:.6px;
+ box-shadow:0 5px 20px rgba(0,229,255,.16)
+}
 .action:disabled{opacity:.45;filter:grayscale(.5)}
 .action:active{transform:scale(.985)}
-.secondary{background:linear-gradient(100deg,#263d60,#34204f);color:var(--white);border-color:rgba(0,229,255,.3);box-shadow:none}
+.secondary{
+ background:linear-gradient(100deg,#263d60,#34204f);
+ color:var(--white);
+ border-color:rgba(0,229,255,.3);
+ box-shadow:none
+}
 .difficulty{display:flex;gap:7px;margin:10px 0}
-.difficulty button{flex:1;padding:11px 5px;border-radius:10px;border:1px solid #3c6384;background:#172b48;color:#d8efff;font-weight:bold}
-.difficulty button.selected{background:linear-gradient(110deg,#075c76,#38205e);border-color:var(--cyan);color:white;box-shadow:0 0 12px rgba(0,229,255,.18)}
+.difficulty button{
+ flex:1;
+ padding:11px 5px;
+ border-radius:10px;
+ border:1px solid #3c6384;
+ background:#172b48;
+ color:#d8efff;
+ font-weight:bold
+}
+.difficulty button.selected{
+ background:linear-gradient(110deg,#075c76,#38205e);
+ border-color:var(--cyan);
+ color:white;
+ box-shadow:0 0 12px rgba(0,229,255,.18)
+}
 #difficultyWrap{margin-top:12px}
-#difficultyWrap small{color:var(--muted);font-size:10px;letter-spacing:1px;font-weight:bold}
-#leaderboardPanel{display:none;position:fixed;top:108px;right:10px;width:min(320px,calc(100vw - 20px));max-height:60vh;overflow:auto;z-index:4;background:rgba(16,29,52,.98);border:1px solid var(--cyan);border-radius:15px;padding:14px;box-shadow:0 0 24px rgba(0,229,255,.15)}
+#difficultyWrap small{
+ color:var(--muted);
+ font-size:10px;
+ letter-spacing:1px;
+ font-weight:bold
+}
+
+#leaderboardPanel{
+ display:none;
+ position:fixed;
+ top:108px;
+ right:10px;
+ width:min(320px,calc(100vw - 20px));
+ max-height:60vh;
+ overflow:auto;
+ z-index:4;
+ background:rgba(16,29,52,.98);
+ border:1px solid var(--cyan);
+ border-radius:15px;
+ padding:14px;
+ box-shadow:0 0 24px rgba(0,229,255,.15)
+}
 #leaderboardPanel h3{margin:0 0 10px;color:var(--cyan)}
-.lbrow{display:flex;justify-content:space-between;padding:8px 5px;border-bottom:1px solid #ffffff18;font-size:13px;gap:10px}
-#myRank{margin-top:12px;padding:10px;background:rgba(0,229,255,.1);border:1px solid rgba(0,229,255,.25);border-radius:9px;font-size:13px}
-#closeLeaderboard{float:right;background:none;border:0;color:white;font-size:20px}
-#hint{position:fixed;bottom:100px;left:0;right:0;text-align:center;color:#B8D9EF;font-size:12px;pointer-events:none;text-shadow:0 1px 6px #080F20}
-#gameRank{display:none;padding:10px;margin-top:9px;background:rgba(0,229,255,.1);border:1px solid rgba(0,229,255,.35);border-radius:10px;font-weight:bold;color:#9EF3FF}
-#contact{font-size:11px!important;color:#8EA9C5!important;margin:14px 0 0!important;overflow-wrap:anywhere}
-@media(max-height:620px){#menu{padding:15px}#menu h1{font-size:26px}#menu p{font-size:12px;margin:8px 0}.action{padding:11px;margin-top:7px}.control{height:58px}}
- #cinematicIntro{
-  position:fixed;
-  inset:0;
-  z-index:99999;
-  overflow:hidden;
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  background:radial-gradient(ellipse at center,#17234b 0%,#080b1c 65%,#02030a 100%);
-  animation:introExit 1s ease 4.5s forwards;
+.lbrow{
+ display:flex;
+ justify-content:space-between;
+ padding:8px 5px;
+ border-bottom:1px solid #ffffff18;
+ font-size:13px;
+ gap:10px
+}
+#myRank{
+ margin-top:12px;
+ padding:10px;
+ background:rgba(0,229,255,.1);
+ border:1px solid rgba(0,229,255,.25);
+ border-radius:9px;
+ font-size:13px
+}
+#closeLeaderboard{
+ float:right;
+ background:none;
+ border:0;
+ color:white;
+ font-size:20px
+}
+#hint{
+ position:fixed;
+ bottom:100px;
+ left:0;
+ right:0;
+ text-align:center;
+ color:#B8D9EF;
+ font-size:12px;
+ pointer-events:none;
+ text-shadow:0 1px 6px #080F20
+}
+#gameRank{
+ display:none;
+ padding:10px;
+ margin-top:9px;
+ background:rgba(0,229,255,.1);
+ border:1px solid rgba(0,229,255,.35);
+ border-radius:10px;
+ font-weight:bold;
+ color:#9EF3FF
+}
+#contact{
+ font-size:11px!important;
+ color:#8EA9C5!important;
+ margin:14px 0 0!important;
+ overflow-wrap:anywhere
 }
 
+@media(max-height:620px){
+ #menu{padding:15px}
+ #menu h1{font-size:26px}
+ #menu p{font-size:12px;margin:8px 0}
+ .action{padding:11px;margin-top:7px}
+ .control{height:58px}
+}
+
+/* CINEMATIC INTRO */
+#cinematicIntro{
+ position:fixed;
+ inset:0;
+ z-index:99999;
+ overflow:hidden;
+ display:flex;
+ align-items:center;
+ justify-content:center;
+ background:radial-gradient(ellipse at center,#17234b 0%,#080b1c 65%,#02030a 100%);
+ animation:introExit 1s ease 4.5s forwards;
+}
 .intro-content{
-  position:relative;
-  z-index:3;
-  text-align:center;
-  animation:introZoom 4.5s ease-in-out forwards;
+ position:relative;
+ z-index:3;
+ text-align:center;
+ animation:introZoom 4.5s ease-in-out forwards
 }
-
 .intro-title{
-  color:#fff;
-  font-size:clamp(30px,9vw,48px);
-  font-weight:1000;
-  letter-spacing:5px;
-  text-shadow:0 0 15px #00e5ff,0 0 35px #00e5ff;
+ color:#fff;
+ font-size:clamp(30px,9vw,48px);
+ font-weight:1000;
+ letter-spacing:5px;
+ text-shadow:0 0 15px #00e5ff,0 0 35px #00e5ff
 }
-
 .intro-subtitle{
-  color:#d000ff;
-  font-size:clamp(24px,7vw,38px);
-  font-weight:900;
-  letter-spacing:12px;
-  text-shadow:0 0 20px #d000ff;
+ color:#d000ff;
+ font-size:clamp(24px,7vw,38px);
+ font-weight:900;
+ letter-spacing:12px;
+ text-shadow:0 0 20px #d000ff
 }
-
 .intro-car{
-  font-size:75px;
-  margin:25px 0;
-  filter:drop-shadow(0 0 15px #00e5ff);
-  animation:carRush 2s ease-in-out infinite;
+ font-size:75px;
+ margin:25px 0;
+ filter:drop-shadow(0 0 15px #00e5ff);
+ animation:carRush 2s ease-in-out infinite
 }
-
 .intro-start{
-  color:#00e5ff;
-  font-weight:900;
-  letter-spacing:5px;
-  animation:startFlash .7s infinite alternate;
+ color:#00e5ff;
+ font-weight:900;
+ letter-spacing:5px;
+ animation:startFlash .7s infinite alternate
 }
-
 .intro-tagline{
-  color:#aaa;
-  font-size:11px;
-  letter-spacing:3px;
-  margin-top:20px;
+ color:#aaa;
+ font-size:11px;
+ letter-spacing:3px;
+ margin-top:20px
 }
-
 .intro-track{
-  position:absolute;
-  width:150%;
-  height:120px;
-  top:65%;
-  left:-25%;
-  transform:perspective(180px) rotateX(45deg);
-  background:repeating-linear-gradient(90deg,transparent 0 45px,#00e5ff 46px 49px,transparent 50px 90px);
-  opacity:.35;
-  animation:trackMove .4s linear infinite;
+ position:absolute;
+ width:150%;
+ height:120px;
+ top:65%;
+ left:-25%;
+ transform:perspective(180px) rotateX(45deg);
+ background:repeating-linear-gradient(90deg,transparent 0 45px,#00e5ff 46px 49px,transparent 50px 90px);
+ opacity:.35;
+ animation:trackMove .4s linear infinite
 }
-
 .intro-lights{
-  position:absolute;
-  inset:0;
-  background:linear-gradient(90deg,transparent,#00e5ff22,transparent,#d000ff22,transparent);
-  animation:lightSweep 2s linear infinite;
+ position:absolute;
+ inset:0;
+ background:linear-gradient(90deg,transparent,#00e5ff22,transparent,#d000ff22,transparent);
+ animation:lightSweep 2s linear infinite
 }
-
 @keyframes carRush{
-  0%,100%{transform:translateX(-8px) scale(1)}
-  50%{transform:translateX(8px) scale(1.12)}
+ 0%,100%{transform:translateX(-8px) scale(1)}
+ 50%{transform:translateX(8px) scale(1.12)}
 }
-
-@keyframes trackMove{
-  to{background-position:90px 0}
-}
-
+@keyframes trackMove{to{background-position:90px 0}}
 @keyframes lightSweep{
-  0%{transform:translateX(-100%)}
-  100%{transform:translateX(100%)}
+ 0%{transform:translateX(-100%)}
+ 100%{transform:translateX(100%)}
 }
-
 @keyframes startFlash{
-  from{opacity:.45;text-shadow:0 0 5px #00e5ff}
-  to{opacity:1;text-shadow:0 0 25px #00e5ff}
+ from{opacity:.45;text-shadow:0 0 5px #00e5ff}
+ to{opacity:1;text-shadow:0 0 25px #00e5ff}
 }
-
 @keyframes introZoom{
-  0%{transform:scale(.7);opacity:0}
-  15%{transform:scale(1);opacity:1}
-  85%{transform:scale(1.08);opacity:1}
-  100%{transform:scale(1.15);opacity:0}
+ 0%{transform:scale(.7);opacity:0}
+ 15%{transform:scale(1);opacity:1}
+ 85%{transform:scale(1.08);opacity:1}
+ 100%{transform:scale(1.15);opacity:0}
 }
-
 @keyframes introExit{
-  to{opacity:0;visibility:hidden;pointer-events:none}
+ to{opacity:0;visibility:hidden;pointer-events:none}
+}
+@media(prefers-reduced-motion:reduce){
+ #cinematicIntro{animation:introExit .5s ease 1s forwards}
+ .intro-content,.intro-car,.intro-track,.intro-lights,.intro-start{animation:none}
 }
 
-@media(prefers-reduced-motion:reduce){
-  #cinematicIntro{animation:introExit .5s ease 1s forwards}
-  .intro-content,.intro-car,.intro-track,.intro-lights,.intro-start{animation:none}
-}
- /* TOURNAMENT COUNTDOWNS */
+/* TOURNAMENT COUNTDOWNS */
 .countdown-wrap{
  display:grid;
  grid-template-columns:1fr 1fr;
  gap:8px;
- margin:12px 0;
+ margin:12px 0
 }
 .countdown-card{
  background:#09152a;
  border:1px solid rgba(0,229,255,.4);
  border-radius:11px;
- padding:10px 6px;
+ padding:10px 6px
 }
 .countdown-card strong{
  display:block;
  color:#00e5ff;
  font-size:10px;
- margin-bottom:6px;
+ margin-bottom:6px
 }
 .countdown-time{
  color:#fff;
  font-size:12px;
  font-weight:900;
  line-height:1.5;
- font-variant-numeric:tabular-nums;
+ font-variant-numeric:tabular-nums
 }
 </style>
 </head>
+
 <body>
 
 <canvas id="game"></canvas>
@@ -240,16 +443,18 @@ canvas{display:block;width:100vw;height:100vh}
 <div id="leaderboardPanel">
  <button id="closeLeaderboard">×</button>
  <h3 id="leaderboardTitle">🏆 Tournament Leaderboard</h3>
+
  <div class="countdown-wrap" aria-label="Tournament reset countdowns">
- <div class="countdown-card">
-  <strong>🏁 WEEKLY RESET</strong>
-  <div class="countdown-time" id="weeklyLeaderboardCountdown">Calculating...</div>
+  <div class="countdown-card">
+   <strong>🏁 WEEKLY RESET</strong>
+   <div class="countdown-time" id="weeklyLeaderboardCountdown">Calculating...</div>
+  </div>
+  <div class="countdown-card">
+   <strong>👑 MONTHLY RESET</strong>
+   <div class="countdown-time" id="monthlyLeaderboardCountdown">Calculating...</div>
+  </div>
  </div>
- <div class="countdown-card">
-  <strong>👑 MONTHLY RESET</strong>
-  <div class="countdown-time" id="monthlyLeaderboardCountdown">Calculating...</div>
- </div>
- </div>
+
  <div id="leaderboardRows">Open the leaderboard to load scores.</div>
  <div id="myRank">Your position: Not available</div>
 </div>
@@ -259,33 +464,44 @@ canvas{display:block;width:100vw;height:100vh}
  <button class="control" id="right">▶</button>
 </div>
 
- <div id="cinematicIntro">
-  <div class="intro-track"></div>
-  <div class="intro-lights"></div>
-  <div class="intro-content">
-    <div class="intro-title">NEON RUSH</div>
-    <div class="intro-subtitle">ARENA</div>
-    <div class="intro-car">🏎️</div>
-    <div class="intro-start">RACE START</div>
-    <div class="intro-tagline">RACE • COMPETE • CONQUER</div>
-  </div>
+<div id="cinematicIntro">
+ <div class="intro-track"></div>
+ <div class="intro-lights"></div>
+ <div class="intro-content">
+  <div class="intro-title">NEON RUSH</div>
+  <div class="intro-subtitle">ARENA</div>
+  <div class="intro-car">🏎️</div>
+  <div class="intro-start">RACE START</div>
+  <div class="intro-tagline">RACE • COMPETE • CONQUER</div>
  </div>
+</div>
+
 <div id="overlay">
  <div id="menu">
   <img class="brand-logo" src="nra_logo.png" alt="NEON RUSH ARENA logo" width="156" height="156" fetchpriority="high">
+
   <h1>NEON RUSH <span>ARENA</span></h1>
   <p class="brand-tagline">RACE • COMPETE • CONQUER</p>
+
   <p id="introText">Race through the neon highway. Avoid traffic, collect coins, diamonds and hearts, and beat your best score!</p>
+
   <p id="authStatus">Connecting to Telegram...</p>
+
+  <!-- NEW: OPENING MENU TOURNAMENT PARTICIPANT COUNT -->
+  <p id="menuActivePlayers">
+   👥 WEEKLY TOURNAMENT PARTICIPANTS:
+   <b id="menuActivePlayersCount">0</b>
+  </p>
+
   <div class="countdown-wrap" aria-label="Tournament reset countdowns">
- <div class="countdown-card">
-  <strong>🏁 WEEKLY RESET</strong>
-  <div class="countdown-time" id="weeklyCountdown">Calculating...</div>
- </div>
- <div class="countdown-card">
-  <strong>👑 MONTHLY RESET</strong>
-  <div class="countdown-time" id="monthlyCountdown">Calculating...</div>
- </div>
+   <div class="countdown-card">
+    <strong>🏁 WEEKLY RESET</strong>
+    <div class="countdown-time" id="weeklyCountdown">Calculating...</div>
+   </div>
+   <div class="countdown-card">
+    <strong>👑 MONTHLY RESET</strong>
+    <div class="countdown-time" id="monthlyCountdown">Calculating...</div>
+   </div>
   </div>
 
   <div id="difficultyWrap">
@@ -317,7 +533,8 @@ const requestedMode=new URLSearchParams(location.search).get("mode")||"free";
 const gameMode=["weekly","monthly"].includes(requestedMode)?requestedMode:"free";
 
 const $=id=>document.getElementById(id);
- /* =========================================
+
+/* =========================================
    NEON RUSH TOURNAMENT COUNTDOWNS
    Weekly: Sunday 6:00 PM Nairobi time
    Monthly: First day, 12:00 AM Nairobi time
@@ -345,6 +562,7 @@ function nairobiParts(){
 
 function getWeeklyReset(){
  const n=nairobiParts();
+
  const weekdays={
   Sun:0,Mon:1,Tue:2,Wed:3,Thu:4,Fri:5,Sat:6
  };
@@ -405,6 +623,7 @@ function updateTournamentCountdowns(){
 
 updateTournamentCountdowns();
 setInterval(updateTournamentCountdowns,1000);
+
 const canvas=$("game");
 const ctx=canvas.getContext("2d",{alpha:false});
 const startBtn=$("start");
@@ -643,7 +862,7 @@ let coinTimer=0;
 let distanceTimer=0;
 
 let animationId=0;
- let crashEffectTimer=0;
+let crashEffectTimer=0;
 let crashEffectX=0;
 let crashEffectY=0;
 let animationRunning=false;
@@ -698,7 +917,6 @@ function drawCar(x,y,color,playerCar=false){
  ctx.save();
  ctx.translate(x,y);
 
- // Neon underglow
  if(playerCar){
   ctx.shadowColor="#00eaff";
   ctx.shadowBlur=22;
@@ -706,7 +924,6 @@ function drawCar(x,y,color,playerCar=false){
   ctx.fillRect(-w/2-5,-h/2+5,w+10,h-10);
  }
 
- // Wheels
  ctx.shadowBlur=0;
  ctx.fillStyle="#050812";
  ctx.fillRect(-w/2-5,-h/2+12,7,19);
@@ -714,7 +931,6 @@ function drawCar(x,y,color,playerCar=false){
  ctx.fillRect(-w/2-5,h/2-29,7,19);
  ctx.fillRect(w/2-2,h/2-29,7,19);
 
- // 3D body gradient
  const body=ctx.createLinearGradient(-w/2,0,w/2,0);
  body.addColorStop(0,"#111827");
  body.addColorStop(.22,color);
@@ -737,7 +953,6 @@ function drawCar(x,y,color,playerCar=false){
 
  ctx.shadowBlur=0;
 
- // Windshield
  ctx.fillStyle="#102b45";
  ctx.beginPath();
  ctx.moveTo(-w*.31,-h*.25);
@@ -747,7 +962,6 @@ function drawCar(x,y,color,playerCar=false){
  ctx.closePath();
  ctx.fill();
 
- // Windshield reflection
  ctx.strokeStyle="rgba(255,255,255,.45)";
  ctx.lineWidth=2;
  ctx.beginPath();
@@ -755,42 +969,37 @@ function drawCar(x,y,color,playerCar=false){
  ctx.lineTo(-w*.08,-h*.03);
  ctx.stroke();
 
- // Hood detail
  ctx.fillStyle="rgba(255,255,255,.25)";
  ctx.fillRect(-2,h*.12,4,h*.2);
 
- // Headlights
  ctx.shadowColor="#00eaff";
  ctx.shadowBlur=14;
  ctx.fillStyle="#dfffff";
  ctx.fillRect(-w*.37,-h*.46,9,6);
  ctx.fillRect(w*.16,-h*.46,9,6);
 
- // Rear lights
  ctx.shadowColor="#ff174f";
  ctx.fillStyle="#ff174f";
  ctx.fillRect(-w*.36,h*.39,10,5);
  ctx.fillRect(w*.14,h*.39,10,5);
 
  if(playerCar){
-  // Racing stripe
   ctx.shadowColor="#ffffff";
   ctx.shadowBlur=7;
   ctx.fillStyle="#ffffff";
   ctx.fillRect(-2,-h*.42,4,h*.65);
 
-  // Neon outline
   ctx.shadowColor="#00eaff";
   ctx.shadowBlur=15;
   ctx.strokeStyle="#00eaff";
   ctx.lineWidth=2;
   ctx.stroke();
 
-  // Headlight beams
   ctx.shadowBlur=0;
   const beam=ctx.createLinearGradient(0,-h/2,0,-h*1.9);
   beam.addColorStop(0,"rgba(0,229,255,.22)");
   beam.addColorStop(1,"rgba(0,229,255,0)");
+
   ctx.fillStyle=beam;
   ctx.beginPath();
   ctx.moveTo(-w*.35,-h/2);
@@ -881,47 +1090,46 @@ function drawHeart(x,y){
 }
 
 function drawGame(){
+
  function drawCrashEffect(){
- if(crashEffectTimer<=0)return;
+  if(crashEffectTimer<=0)return;
 
- const progress=crashEffectTimer/18;
- const radius=(1-progress)*65;
+  const progress=crashEffectTimer/18;
+  const radius=(1-progress)*65;
 
- ctx.save();
+  ctx.save();
 
- // Impact flash
- ctx.fillStyle="rgba(255,40,100,"+(progress*.22)+")";
- ctx.fillRect(0,0,W,H);
-
- // Neon impact ring
- ctx.beginPath();
- ctx.arc(crashEffectX,crashEffectY,radius,0,Math.PI*2);
- ctx.strokeStyle="rgba(0,229,255,"+progress+")";
- ctx.lineWidth=4;
- ctx.shadowColor="#00e5ff";
- ctx.shadowBlur=22;
- ctx.stroke();
-
- // Flying sparks
- for(let i=0;i<12;i++){
-  const angle=(Math.PI*2*i)/12;
-  const distance=(1-progress)*55;
+  ctx.fillStyle="rgba(255,40,100,"+(progress*.22)+")";
+  ctx.fillRect(0,0,W,H);
 
   ctx.beginPath();
-  ctx.moveTo(crashEffectX,crashEffectY);
-  ctx.lineTo(
-   crashEffectX+Math.cos(angle)*distance,
-   crashEffectY+Math.sin(angle)*distance
-  );
-
-  ctx.strokeStyle=i%2?"#ff22d4":"#00e5ff";
-  ctx.lineWidth=3;
+  ctx.arc(crashEffectX,crashEffectY,radius,0,Math.PI*2);
+  ctx.strokeStyle="rgba(0,229,255,"+progress+")";
+  ctx.lineWidth=4;
+  ctx.shadowColor="#00e5ff";
+  ctx.shadowBlur=22;
   ctx.stroke();
+
+  for(let i=0;i<12;i++){
+   const angle=(Math.PI*2*i)/12;
+   const distance=(1-progress)*55;
+
+   ctx.beginPath();
+   ctx.moveTo(crashEffectX,crashEffectY);
+   ctx.lineTo(
+    crashEffectX+Math.cos(angle)*distance,
+    crashEffectY+Math.sin(angle)*distance
+   );
+
+   ctx.strokeStyle=i%2?"#ff22d4":"#00e5ff";
+   ctx.lineWidth=3;
+   ctx.stroke();
+  }
+
+  ctx.restore();
+  crashEffectTimer--;
  }
 
- ctx.restore();
- crashEffectTimer--;
- }
  if(!ctx||!W||!H)return;
 
  ctx.fillStyle="#080F20";
@@ -971,12 +1179,14 @@ function drawGame(){
   else if(p.type==="heart")drawHeart(x,p.y);
   else drawCoin(x,p.y);
  }
+
  drawCrashEffect();
 }
 
 /* TELEGRAM AUTHENTICATION */
 
 async function authenticateTelegram(){
+
  if(tg){
   try{
    tg.ready();
@@ -1085,15 +1295,17 @@ async function authenticateTelegram(){
   clearTimeout(timeout);
  }
 }
- 
 
-// ======================================
-// TOURNAMENT ACTIVE PLAYER COUNT
-// ======================================
+/* ======================================
+   TOURNAMENT ACTIVE PLAYER COUNT
+   Updates both menu and game HUD.
+====================================== */
 
 async function loadTournamentPlayerCount(){
 
- if(!initData || !verifiedPlayer || gameMode==="free")return;
+ if(!initData || !verifiedPlayer || gameMode==="free"){
+  return;
+ }
 
  try{
   const response=await fetch(
@@ -1106,27 +1318,52 @@ async function loadTournamentPlayerCount(){
   );
 
   if(!response.ok){
-   throw new Error("Could not load tournament player count");
+   throw new Error(
+    "Could not load tournament participant count"
+   );
   }
 
   const data=await response.json();
 
-  const count=gameMode==="monthly"
-   ?data.monthly?.active_players
-   :data.weekly?.active_players;
+  const count=Number(
+   gameMode==="monthly"
+    ?data.monthly?.active_players
+    :data.weekly?.active_players
+  )||0;
 
-  const display=$("activePlayers");
+  const formattedCount=count.toLocaleString();
 
-  if(display){
-   display.textContent=Number(count||0).toLocaleString();
+  // Update the game HUD
+  const hudDisplay=$("activePlayers");
+
+  if(hudDisplay){
+   hudDisplay.textContent=formattedCount;
+  }
+
+  // Update the opening menu
+  const menuDisplay=$("menuActivePlayersCount");
+
+  if(menuDisplay){
+   menuDisplay.textContent=formattedCount;
+  }
+
+  // Update the tournament label
+  const menuLabel=$("menuActivePlayers");
+
+  if(menuLabel){
+   menuLabel.firstChild.textContent=
+    "👥 "+gameMode.toUpperCase()+
+    " TOURNAMENT PARTICIPANTS: ";
   }
 
  }catch(error){
-  console.error("Tournament player count:",error);
+  console.error(
+   "Tournament participant count:",
+   error
+  );
  }
 }
 
-// YOUR NEXT EXISTING FUNCTION CONTINUES HERE
 /* LEADERBOARD */
 
 function renderLeaderboard(data){
@@ -1256,6 +1493,9 @@ async function submitScore(){
 
   setStatus("Tournament score saved successfully.");
 
+  // Refresh the participant count after a score is submitted.
+  loadTournamentPlayerCount();
+
  }catch(e){
   console.error(e);
   setStatus("Score not saved: "+e.message);
@@ -1300,7 +1540,7 @@ function spawnPickup(){
 function resetGame(){
  stopGameLoop();
  stopEngineSound();
-  crashEffectTimer=0;
+ crashEffectTimer=0;
 
  score=0;
  coins=0;
@@ -1428,8 +1668,9 @@ function updateGame(delta){
 
    playCrashSound();
    crashEffectTimer=18;
-crashEffectX=laneX(lane);
-crashEffectY=H*.78;
+   crashEffectX=laneX(lane);
+   crashEffectY=H*.78;
+
    updateHUD();
 
    setStatus("Collision! Watch out for traffic!");
@@ -1668,6 +1909,7 @@ document.addEventListener("visibilitychange",()=>{
 
 resizeCanvas();
 drawGame();
+
 authenticateTelegram().then(()=>{
  loadTournamentPlayerCount();
 
@@ -1678,5 +1920,6 @@ authenticateTelegram().then(()=>{
 
 })();
 </script>
+
 </body>
 </html>
