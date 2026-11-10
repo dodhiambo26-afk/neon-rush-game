@@ -1670,7 +1670,13 @@ document.addEventListener("visibilitychange",()=>{
 
 resizeCanvas();
 drawGame();
-authenticateTelegram();
+authenticateTelegram().then(()=>{
+ loadTournamentPlayerCount();
+
+ if(gameMode!=="free"){
+  setInterval(loadTournamentPlayerCount,60000);
+ }
+});
 
 })();
 </script>
