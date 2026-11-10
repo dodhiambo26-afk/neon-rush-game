@@ -1836,7 +1836,10 @@ document.querySelectorAll(".difficulty button").forEach(b=>{
  });
 });
 
-if(gameMode!=="free"){
+if(gameMode==="free"){
+ $("menuActivePlayers").style.display="none";
+ $("activePlayers").parentElement.style.display="none";
+}else{
  $("difficultyWrap").style.display="none";
  $("leaderboardToggle").style.display="inline-block";
 
