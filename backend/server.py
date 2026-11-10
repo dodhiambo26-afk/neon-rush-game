@@ -1630,12 +1630,11 @@ def admin_performance(
             detail="Mode must be weekly or monthly.",
         )
 
-    scores = db.list_tournament_scores(
-        mode,
-        session["key"],
-        100,
-    )
-
+    scores = db.get_tournament_ranking(
+    mode=mode,
+    session_key=session["key"],
+    limit=100
+)
     return {
         "mode": mode,
         "session": session,
