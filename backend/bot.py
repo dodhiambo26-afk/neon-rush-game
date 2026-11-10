@@ -35,6 +35,7 @@ WEBAPP_URL = os.getenv(
     "WEBAPP_URL",
     "https://dodhiambo26-afk.github.io/neon-rush-game/"
 )
+COMMUNITY_URL = "https://t.me/neonrusharenacomunity"
 LOGO_URL = (
     "https://dodhiambo26-afk.github.io/neon-rush-game/nra_logo.png"
 )
