@@ -18,6 +18,7 @@ import database as db
 from bot import build_application
 from telegram import Update
 
+
 # ============================================================
 # CONFIGURATION
 # ============================================================
@@ -329,21 +330,128 @@ def get_player_best_score(uid):
     return best
 
 
-def build_leaderboard(mode, session_key, limit=10):
+# ============================================================
+# LEADERBOARD RANKING
+# ============================================================
+
+def tournament_player_rankings(mode, session_key):
+    """
+    Return one leaderboard record per player.
+
+    Highest score determines rank.
+    Equal scores are ranked by the earliest recorded achievement.
+
+    Original individual game records remain in Firestore.
+    """
+
     rows = db.list_tournament_scores(
         mode,
         session_key,
-        limit,
+        10000,
+    )
+
+    best_by_player = {}
+
+    def recorded_time(row):
+        value = row.get("created_at")
+
+        if value is None:
+            return float("inf")
+
+        if hasattr(value, "timestamp"):
+            try:
+                return value.timestamp()
+            except (ValueError, OSError):
+                return float("inf")
+
+        if isinstance(value, str):
+            try:
+                parsed = datetime.fromisoformat(
+                    value.replace("Z", "+00:00")
+                )
+
+                if parsed.tzinfo is None:
+                    parsed = parsed.replace(
+                        tzinfo=timezone.utc
+                    )
+
+                return parsed.timestamp()
+
+            except (ValueError, TypeError, OSError):
+                return float("inf")
+
+        return float("inf")
+
+    for row in rows:
+        uid = str(row.get("telegram_id", "")).strip()
+
+        if not uid:
+            continue
+
+        try:
+            score = int(row.get("score", 0))
+        except (TypeError, ValueError):
+            score = 0
+
+        time_key = recorded_time(row)
+
+        current = best_by_player.get(uid)
+
+        if current is None:
+            best_by_player[uid] = {
+                "row": row,
+                "score": score,
+                "time": time_key,
+            }
+
+        elif (
+            score > current["score"]
+            or (
+                score == current["score"]
+                and time_key < current["time"]
+            )
+        ):
+            best_by_player[uid] = {
+                "row": row,
+                "score": score,
+                "time": time_key,
+            }
+
+    ranked = sorted(
+        best_by_player.values(),
+        key=lambda item: (
+            -item["score"],
+            item["time"],
+            str(item["row"].get("telegram_id", "")),
+        ),
+    )
+
+    return [
+        item["row"]
+        for item in ranked
+    ]
+
+
+def build_leaderboard(mode, session_key, limit=10):
+    rows = tournament_player_rankings(
+        mode,
+        session_key,
     )
 
     output = []
 
-    for index, row in enumerate(rows, start=1):
+    for index, row in enumerate(rows[:limit], start=1):
+        uid = str(row.get("telegram_id", ""))
+
         output.append({
             "position": index,
-            "telegram_id": int(row.get("telegram_id", 0)),
-            "name": row.get("username") or row.get("display_name")
-                   or str(row.get("telegram_id", "Player")),
+            "telegram_id": int(uid) if uid.isdigit() else uid,
+            "name": (
+                row.get("username")
+                or row.get("display_name")
+                or uid
+                or "Player"
+            ),
             "score": int(row.get("score", 0)),
         })
 
@@ -351,10 +459,9 @@ def build_leaderboard(mode, session_key, limit=10):
 
 
 def player_rank_data(uid, mode, session_key):
-    rows = db.list_tournament_scores(
+    rows = tournament_player_rankings(
         mode,
         session_key,
-        10000,
     )
 
     for index, row in enumerate(rows, start=1):
@@ -375,8 +482,6 @@ def player_rank_data(uid, mode, session_key):
         "display_name": None,
     }
 
-
-# ============================================================
 
 # ============================================================
 # APPLICATION STARTUP
@@ -791,7 +896,6 @@ def leaderboard(
 # PUBLIC TOURNAMENT STATUS
 # ============================================================
 
-
 @app.get("/api/tournament/status")
 def tournament_status(
     x_telegram_init_data: str = Header(
@@ -805,11 +909,9 @@ def tournament_status(
     weekly = weekly_session()
     monthly = monthly_session()
 
-    # Get participants in the current tournament sessions.
     weekly_entries = db.list_weekly_entries(weekly["key"])
     monthly_members = db.list_monthly_members(monthly["key"])
 
-    # Count unique participants who are not banned.
     def count_active_players(records):
         player_ids = set()
 
@@ -849,7 +951,6 @@ def tournament_status(
             "active_players": monthly_count,
         },
     }
-
 
 
 # ============================================================
@@ -1018,6 +1119,7 @@ def admin_entries(
         "locked": db.is_weekly_locked(),
         "entries": json_safe(result),
     }
+
 
 # ============================================================
 # ADMIN WEEKLY DIAGNOSTIC
@@ -1214,7 +1316,8 @@ def admin_monthly_members(
     return {
         "session": session,
         "members": json_safe(result),
-        }
+    }
+
 
 # ============================================================
 # ADMIN GRANT MONTHLY ACCESS
@@ -1250,7 +1353,7 @@ def admin_monthly_grant(
         "success": True,
         "message": "Monthly access granted.",
         "expires_at": session["end"],
-        }
+    }
 
 
 # ============================================================
@@ -1926,4 +2029,3 @@ def admin_update_contact(
         "whatsapp": action.whatsapp.strip(),
         "email": action.email.strip(),
     }
-
