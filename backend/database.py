@@ -819,6 +819,42 @@ def list_mpesa_reconciliation_candidates(limit=10, min_age_seconds=120,
     return candidates
 
 
+def list_mpesa_transactions(limit=100):
+    """Return a bounded, admin-safe view of recent M-Pesa transactions."""
+    limit = max(1, min(int(limit or 100), 500))
+    rows = []
+    for snap in db().collection("mpesa_transactions").stream():
+        data = snap.to_dict() or {}
+        if data.get("provider") != "mpesa":
+            continue
+        phone = str(data.get("phone") or "")
+        rows.append({
+            "internal_id": str(data.get("internal_id") or snap.id),
+            "telegram_id": str(data.get("telegram_id") or ""),
+            "amount": _as_int(data.get("amount")),
+            "currency": str(data.get("currency") or "KES"),
+            "payment_type": str(data.get("payment_type") or ""),
+            "status": str(data.get("status") or ""),
+            "created_at": data.get("created_at"),
+            "updated_at": data.get("updated_at"),
+            "paid_at": data.get("paid_at"),
+            "mpesa_receipt": data.get("mpesa_receipt"),
+            "checkout_request_id": data.get("checkout_request_id"),
+            "result_code": data.get("result_code"),
+            "result_description": data.get("result_description"),
+            "reconciliation_status": data.get("reconciliation_status"),
+            "reconciliation_attempts": _as_int(data.get("reconciliation_attempts")),
+            "review_reason": data.get("review_reason"),
+            "failure_reason": data.get("failure_reason"),
+            "phone_last4": phone[-4:] if len(phone) >= 4 else "",
+        })
+    rows.sort(
+        key=lambda row: row.get("created_at") or datetime.min.replace(tzinfo=timezone.utc),
+        reverse=True,
+    )
+    return rows[:limit]
+
+
 def process_mpesa_query_result(internal_id, query_result):
     """Apply an authoritative Daraja STK-query result idempotently."""
     pending_ref = _doc("mpesa_transactions", internal_id)
@@ -833,13 +869,21 @@ def process_mpesa_query_result(internal_id, query_result):
     response_checkout = str(query_result.get("CheckoutRequestID") or "")
     response_merchant = str(query_result.get("MerchantRequestID") or "")
     expected_merchant = str(pending.get("merchant_request_id") or "")
-    if response_checkout and response_checkout != checkout_id:
-        return {"processed": False, "reason": "checkout_mismatch"}
-    if response_merchant and expected_merchant and response_merchant != expected_merchant:
+    # A final Daraja result must echo both identifiers exactly. Missing IDs
+    # are not proof that this result belongs to the stored checkout.
+    if not response_checkout or response_checkout != checkout_id:
         pending_ref.set({
             "status": "review_required",
             "reconciliation_status": "manual_review",
-            "review_reason": "STK query merchant reference mismatch.",
+            "review_reason": "STK query checkout reference missing or mismatched.",
+            "updated_at": timestamp(),
+        }, merge=True)
+        return {"processed": False, "reason": "checkout_mismatch"}
+    if not response_merchant or not expected_merchant or response_merchant != expected_merchant:
+        pending_ref.set({
+            "status": "review_required",
+            "reconciliation_status": "manual_review",
+            "review_reason": "STK query merchant reference missing or mismatched.",
             "updated_at": timestamp(),
         }, merge=True)
         return {"processed": False, "reason": "merchant_mismatch"}
