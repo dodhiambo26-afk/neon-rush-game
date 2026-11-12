@@ -672,6 +672,187 @@ def record_monthly_payment(uid, telegram_charge_id,
     return True
 
 
+def create_mpesa_pending(internal_id, uid, phone, month_key):
+    """Create a server-priced pending KES 200 monthly membership payment."""
+    uid = _user_id(uid)
+    _doc("mpesa_transactions", internal_id).set({
+        "internal_id": internal_id,
+        "telegram_id": uid,
+        "phone": str(phone),
+        "amount": 200,
+        "currency": "KES",
+        "payment_type": "monthly_membership",
+        "month_key": str(month_key),
+        "provider": "mpesa",
+        "status": "pending",
+        "created_at": timestamp(),
+    })
+    return True
+
+
+def update_mpesa_checkout(internal_id, checkout_id, merchant_id, response=None):
+    _doc("mpesa_transactions", internal_id).set({
+        "checkout_request_id": str(checkout_id),
+        "merchant_request_id": str(merchant_id),
+        "status": "initiated",
+        "daraja_response": response or {},
+        "updated_at": timestamp(),
+    }, merge=True)
+    return True
+
+
+def fail_mpesa_pending(internal_id, reason):
+    _doc("mpesa_transactions", internal_id).set({
+        "status": "failed",
+        "failure_reason": str(reason)[:500],
+        "updated_at": timestamp(),
+    }, merge=True)
+    return True
+
+
+def process_mpesa_callback(payload):
+    """Validate a Daraja STK callback and grant access once only."""
+    try:
+        callback = payload["Body"]["stkCallback"]
+        checkout_id = str(callback.get("CheckoutRequestID") or "")
+        result_code = int(callback.get("ResultCode", -1))
+    except (KeyError, TypeError, ValueError):
+        return {"processed": False, "reason": "invalid_callback"}
+
+    matches = list(
+        db().collection("mpesa_transactions")
+        .where("checkout_request_id", "==", checkout_id)
+        .limit(1)
+        .stream()
+    )
+    if not matches:
+        return {"processed": False, "reason": "unknown_checkout"}
+
+    pending_ref = matches[0].reference
+    pending = matches[0].to_dict() or {}
+    uid = str(pending.get("telegram_id", ""))
+    month_key = str(pending.get("month_key", ""))
+    if pending.get("provider") != "mpesa" or pending.get("payment_type") != "monthly_membership":
+        return {"processed": False, "reason": "wrong_payment_type"}
+
+    if result_code != 0:
+        pending_ref.set({
+            "status": "failed",
+            "result_code": result_code,
+            "result_description": str(callback.get("ResultDesc", ""))[:500],
+            "updated_at": timestamp(),
+        }, merge=True)
+        return {"processed": True, "success": False, "telegram_id": uid}
+
+    metadata_items = (
+        callback.get("CallbackMetadata", {}).get("Item", [])
+        if isinstance(callback.get("CallbackMetadata"), dict) else []
+    )
+    metadata = {
+        str(item.get("Name")): item.get("Value")
+        for item in metadata_items
+        if isinstance(item, dict) and item.get("Name")
+    }
+    try:
+        paid_amount = int(float(metadata.get("Amount", 0)))
+    except (TypeError, ValueError):
+        paid_amount = 0
+    receipt = str(metadata.get("MpesaReceiptNumber") or "").strip()
+    callback_phone = str(metadata.get("PhoneNumber") or "").strip()
+    expected_phone = str(pending.get("phone") or "").strip()
+
+    if paid_amount != 200 or not receipt:
+        pending_ref.set({
+            "status": "review_required",
+            "result_code": result_code,
+            "callback_amount": paid_amount,
+            "updated_at": timestamp(),
+        }, merge=True)
+        return {"processed": False, "reason": "amount_or_receipt_mismatch"}
+
+    if callback_phone and expected_phone and callback_phone != expected_phone:
+        pending_ref.set({
+            "status": "review_required",
+            "callback_phone": callback_phone,
+            "updated_at": timestamp(),
+        }, merge=True)
+        return {"processed": False, "reason": "phone_mismatch"}
+
+    payment_id = "mpesa_" + receipt
+    payment_ref = _doc("payments", payment_id)
+    membership_id = _monthly_membership_id(uid, month_key)
+    membership_ref = _doc("monthly_memberships", membership_id)
+    user_ref = _doc("users", uid)
+    transaction = db().transaction()
+
+    @firestore.transactional
+    def apply_success(txn):
+        current = txn.get(pending_ref)
+        if not current.exists:
+            return False
+        current_data = current.to_dict() or {}
+        if current_data.get("status") == "success":
+            return True
+        if current_data.get("status") == "failed":
+            return False
+
+        existing_payment = txn.get(payment_ref)
+        if existing_payment.exists:
+            txn.update(pending_ref, {
+                "status": "success",
+                "mpesa_receipt": receipt,
+                "updated_at": timestamp(),
+            })
+            return True
+
+        txn.set(payment_ref, {
+            "payment_id": payment_id,
+            "telegram_id": uid,
+            "amount": 200,
+            "currency": "KES",
+            "payment_type": "monthly_membership",
+            "provider": "mpesa",
+            "month_key": month_key,
+            "mpesa_receipt": receipt,
+            "checkout_request_id": checkout_id,
+            "phone": callback_phone or expected_phone,
+            "created_at": timestamp(),
+        })
+        txn.set(membership_ref, {
+            "membership_id": membership_id,
+            "telegram_id": uid,
+            "month_key": month_key,
+            "price_kes": 200,
+            "granted_at": timestamp(),
+            "expires_at": month_end_datetime(month_key),
+            "source": "mpesa",
+            "payment_id": payment_id,
+        }, merge=True)
+        txn.set(user_ref, {
+            "telegram_id": uid,
+            "premium_until": month_end_datetime(month_key),
+            "updated_at": timestamp(),
+        }, merge=True)
+        txn.update(pending_ref, {
+            "status": "success",
+            "mpesa_receipt": receipt,
+            "callback_amount": paid_amount,
+            "callback_phone": callback_phone,
+            "paid_at": timestamp(),
+            "updated_at": timestamp(),
+        })
+        return True
+
+    applied = apply_success(transaction)
+    return {
+        "processed": bool(applied),
+        "success": bool(applied),
+        "telegram_id": uid,
+        "month_key": month_key,
+        "receipt": receipt,
+    }
+
+
 def list_payments(limit=500):
     payments = _all("payments")
     payments.sort(
@@ -689,8 +870,11 @@ def monthly_financials(month_key=None):
         if str(p.get("month_key") or "") == month_key
         and p.get("payment_type") == "monthly_membership"
     ]
+    stars_payments = [p for p in payments if p.get("currency") == "XTR"]
+    mpesa_payments = [p for p in payments if p.get("currency") == "KES"]
 
-    total_stars = sum(_as_int(p.get("amount")) for p in payments)
+    total_stars = sum(_as_int(p.get("amount")) for p in stars_payments)
+    total_mpesa_kes = sum(_as_int(p.get("amount")) for p in mpesa_payments)
     prize_stars = total_stars * MONTHLY_PRIZE_PERCENT // 100
     retained_stars = total_stars * MONTHLY_RETAINED_PERCENT // 100
 
@@ -700,6 +884,8 @@ def monthly_financials(month_key=None):
         "total_stars": total_stars,
         "prize_stars": prize_stars,
         "retained_stars": retained_stars,
+        "mpesa_payments_count": len(mpesa_payments),
+        "total_mpesa_kes": total_mpesa_kes,
         "prize_percent": MONTHLY_PRIZE_PERCENT,
         "retained_percent": MONTHLY_RETAINED_PERCENT,
     }
