@@ -523,6 +523,7 @@ async def profile_message(update, context):
         return
 
     user = db.get_user(uid) or {}
+    profile = db.get_player_profile(uid, history_limit=5)
 
     weekly_access = db.has_weekly_entry(
         uid,
@@ -534,15 +535,47 @@ async def profile_message(update, context):
         current_month_session()
     )
 
-    await query.message.reply_text(
-        "👤 PLAYER PROFILE\n\n"
-        f"Telegram ID: {uid}\n"
-        f"Username: @{user.get('username') or 'Not set'}\n\n"
-        f"Weekly tournament access: "
-        f"{'✅ Active' if weekly_access else '❌ Not active'}\n"
-        f"Monthly tournament access: "
-        f"{'✅ Active' if monthly_access else '❌ Not active'}"
-    )
+    achievements = profile.get("achievements") or []
+    recent_games = profile.get("recent_games") or []
+
+    lines = [
+        "👤 NEON RUSH PLAYER PROFILE",
+        "",
+        f"Player: {user.get('first_name') or 'Racer'}",
+        f"Username: @{user.get('username') or 'Not set'}",
+        f"Telegram ID: {uid}",
+        "",
+        "📊 CAREER STATISTICS",
+        f"Races played: {profile.get('games_played', 0)}",
+        f"Total points: {profile.get('total_points', 0):,}",
+        f"Personal best: {profile.get('personal_best', 0):,}",
+        f"Weekly best: {profile.get('weekly_best', 0):,}",
+        f"Monthly best: {profile.get('monthly_best', 0):,}",
+        "",
+        "🏆 CURRENT TOURNAMENT RANKS",
+        f"Weekly rank: #{profile['weekly_rank']}" if profile.get("weekly_rank") else "Weekly rank: Not ranked yet",
+        f"Monthly rank: #{profile['monthly_rank']}" if profile.get("monthly_rank") else "Monthly rank: Not ranked yet",
+        "",
+        "🔐 MEMBERSHIP STATUS",
+        f"Weekly access: {'✅ Active' if weekly_access else '❌ Not active'}",
+        f"Monthly access: {'✅ Active' if monthly_access else '❌ Not active'}",
+        "",
+        "🎖 ACHIEVEMENTS",
+        ", ".join(achievements) if achievements else "No achievements yet — complete your first race!",
+        "",
+        "🕹 RECENT RACES",
+    ]
+
+    if recent_games:
+        for game in recent_games:
+            lines.append(
+                f"• {str(game.get('mode', 'race')).title()}: "
+                f"{game.get('score', 0):,} points"
+            )
+    else:
+        lines.append("No tournament races recorded yet.")
+
+    await query.message.reply_text("\n".join(lines))
 
 
 # ============================================================

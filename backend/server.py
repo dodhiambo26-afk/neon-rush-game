@@ -340,11 +340,23 @@ def get_player_best_score(uid):
 # ============================================================
 
 def tournament_player_rankings(mode, session_key):
-    return db.get_tournament_ranking(
+    rows = db.get_tournament_ranking(
         mode=mode,
         session_key=session_key,
         limit=10000
     )
+
+    # Load suspended accounts once rather than making one database
+    # request per leaderboard row.
+    banned_ids = {
+        str(player.get("telegram_id"))
+        for player in db.list_banned_players()
+    }
+
+    return [
+        row for row in rows
+        if str(row.get("telegram_id")) not in banned_ids
+    ]
     """
     Return one leaderboard record per player.
 
@@ -763,6 +775,31 @@ def telegram_auth(
 # GAME SCORE SUBMISSION
 # ============================================================
 
+def validate_score_plausibility(score, duration):
+    """
+    Conservative sanity check for the current client game mechanics.
+    The game awards at most 100 points per pickup, with pickup spawning
+    capped at roughly three per second, plus distance points. A generous
+    320 points/second ceiling avoids rejecting plausible legitimate runs.
+    This is a screening check, not a substitute for server-authoritative play.
+    """
+    if duration < 5:
+        raise HTTPException(
+            status_code=422,
+            detail="Race duration is too short to qualify for a tournament score.",
+        )
+
+    maximum_plausible = duration * 320 + 100
+    if score > maximum_plausible:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Score could not be verified against the race duration. "
+                "Please replay the tournament normally."
+            ),
+        )
+
+
 @app.post("/api/scores")
 def submit_score(
     submission: ScoreSubmission,
@@ -790,6 +827,11 @@ def submit_score(
             status_code=400,
             detail="Invalid game mode. Use free, weekly or monthly.",
         )
+
+    validate_score_plausibility(
+        submission.score,
+        submission.duration,
+    )
 
     if mode == "weekly":
         session = weekly_session()
@@ -821,6 +863,7 @@ def submit_score(
         mode=mode,
         session_key=session["key"],
         username=display_name(user),
+        duration=submission.duration,
     )
 
     if not saved:
