@@ -759,6 +759,269 @@ def fail_mpesa_pending(internal_id, reason):
     return True
 
 
+
+def list_mpesa_reconciliation_candidates(limit=10, min_age_seconds=120,
+                                         retry_after_seconds=300,
+                                         max_age_hours=24, max_attempts=12):
+    """Claim stale initiated M-Pesa requests for safe STK-query reconciliation."""
+    now = now_utc()
+    candidates = []
+    for snap in db().collection("mpesa_transactions").stream():
+        data = snap.to_dict() or {}
+        if data.get("provider") != "mpesa":
+            continue
+        if data.get("status") not in ("pending", "initiated"):
+            continue
+        checkout_id = str(data.get("checkout_request_id") or "")
+        merchant_id = str(data.get("merchant_request_id") or "")
+        if not checkout_id or not merchant_id:
+            continue
+
+        created = data.get("created_at")
+        if not isinstance(created, datetime):
+            continue
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=timezone.utc)
+        age_seconds = (now - created).total_seconds()
+        if age_seconds < min_age_seconds:
+            continue
+
+        last_check = data.get("last_reconciliation_at")
+        if last_check:
+            if last_check.tzinfo is None:
+                last_check = last_check.replace(tzinfo=timezone.utc)
+            if (now - last_check).total_seconds() < retry_after_seconds:
+                continue
+
+        attempts = _as_int(data.get("reconciliation_attempts"))
+        if age_seconds > max_age_hours * 3600 or attempts >= max_attempts:
+            snap.reference.set({
+                "status": "review_required",
+                "reconciliation_status": "manual_review",
+                "review_reason": "STK status could not be confirmed automatically.",
+                "updated_at": timestamp(),
+            }, merge=True)
+            continue
+
+        snap.reference.set({
+            "last_reconciliation_at": timestamp(),
+            "reconciliation_attempts": attempts + 1,
+            "reconciliation_status": "checking",
+            "updated_at": timestamp(),
+        }, merge=True)
+        candidates.append({
+            "internal_id": str(data.get("internal_id") or snap.id),
+            "checkout_request_id": checkout_id,
+            "merchant_request_id": merchant_id,
+        })
+        if len(candidates) >= limit:
+            break
+    return candidates
+
+
+def process_mpesa_query_result(internal_id, query_result):
+    """Apply an authoritative Daraja STK-query result idempotently."""
+    pending_ref = _doc("mpesa_transactions", internal_id)
+    pending_snap = pending_ref.get()
+    if not pending_snap.exists:
+        return {"processed": False, "reason": "unknown_payment"}
+    pending = pending_snap.to_dict() or {}
+    if pending.get("status") not in ("pending", "initiated"):
+        return {"processed": False, "reason": "payment_not_pending"}
+
+    checkout_id = str(pending.get("checkout_request_id") or "")
+    response_checkout = str(query_result.get("CheckoutRequestID") or "")
+    response_merchant = str(query_result.get("MerchantRequestID") or "")
+    expected_merchant = str(pending.get("merchant_request_id") or "")
+    if response_checkout and response_checkout != checkout_id:
+        return {"processed": False, "reason": "checkout_mismatch"}
+    if response_merchant and expected_merchant and response_merchant != expected_merchant:
+        pending_ref.set({
+            "status": "review_required",
+            "reconciliation_status": "manual_review",
+            "review_reason": "STK query merchant reference mismatch.",
+            "updated_at": timestamp(),
+        }, merge=True)
+        return {"processed": False, "reason": "merchant_mismatch"}
+
+    response_code = str(query_result.get("ResponseCode") or "").strip()
+    if response_code != "0":
+        pending_ref.set({
+            "reconciliation_status": "waiting",
+            "reconciliation_last_description": str(
+                query_result.get("ResponseDescription")
+                or query_result.get("errorMessage")
+                or "Safaricom has not accepted the status query yet."
+            )[:300],
+            "updated_at": timestamp(),
+        }, merge=True)
+        return {"processed": False, "reason": "query_not_accepted"}
+
+    raw_result_code = query_result.get("ResultCode")
+    if raw_result_code is None or str(raw_result_code).strip() == "":
+        pending_ref.set({
+            "reconciliation_status": "waiting",
+            "reconciliation_last_description": str(
+                query_result.get("ResultDesc")
+                or query_result.get("ResponseDescription")
+                or "Safaricom has not returned a final transaction result."
+            )[:300],
+            "updated_at": timestamp(),
+        }, merge=True)
+        return {"processed": False, "reason": "result_pending"}
+
+    try:
+        result_code = int(raw_result_code)
+    except (TypeError, ValueError):
+        return {"processed": False, "reason": "invalid_result_code"}
+
+    if result_code != 0:
+        pending_ref.set({
+            "status": "failed",
+            "result_code": result_code,
+            "result_description": str(query_result.get("ResultDesc") or "")[:500],
+            "reconciliation_status": "confirmed_failed",
+            "updated_at": timestamp(),
+        }, merge=True)
+        return {"processed": True, "success": False, "reason": "confirmed_failed"}
+
+    payment_type = str(pending.get("payment_type") or "")
+    if payment_type not in ("weekly_entry", "monthly_membership"):
+        return {"processed": False, "reason": "unsupported_payment_type"}
+    uid = str(pending.get("telegram_id") or "")
+    amount = 25 if payment_type == "weekly_entry" else 200
+    if _as_int(pending.get("amount")) != amount or not uid:
+        pending_ref.set({
+            "status": "review_required",
+            "reconciliation_status": "manual_review",
+            "review_reason": "Stored payment amount or player details are invalid.",
+            "updated_at": timestamp(),
+        }, merge=True)
+        return {"processed": False, "reason": "stored_payment_mismatch"}
+
+    is_weekly = payment_type == "weekly_entry"
+    period_key = str(
+        pending.get("session_key" if is_weekly else "month_key") or ""
+    )
+    if not period_key:
+        return {"processed": False, "reason": "missing_period"}
+
+    payment_id = "mpesa_reconciled_" + str(pending.get("internal_id") or internal_id)
+    payment_ref = _doc("payments", payment_id)
+    transaction = db().transaction()
+
+    if is_weekly:
+        entry_id = _weekly_entry_id(uid, period_key)
+        entry_ref = _doc("weekly_entries", entry_id)
+        @firestore.transactional
+        def apply_weekly(txn):
+            current = next(txn.get(pending_ref), None)
+            existing_payment = next(txn.get(payment_ref), None)
+            existing_entry = next(txn.get(entry_ref), None)
+            if current is None or not current.exists:
+                return False
+            current_data = current.to_dict() or {}
+            if current_data.get("status") not in ("pending", "initiated"):
+                return False
+            txn.set(payment_ref, {
+                "payment_id": payment_id,
+                "telegram_id": uid,
+                "amount": amount,
+                "currency": "KES",
+                "payment_type": payment_type,
+                "provider": "mpesa",
+                "session_key": period_key,
+                "checkout_request_id": checkout_id,
+                "mpesa_receipt": None,
+                "created_at": timestamp(),
+                "reconciled_by": "daraja_stk_query",
+                "receipt_pending": True,
+            }, merge=True)
+            if existing_entry is None or not existing_entry.exists:
+                txn.set(entry_ref, {
+                    "entry_id": entry_id,
+                    "telegram_id": uid,
+                    "session_key": period_key,
+                    "granted_at": timestamp(),
+                    "granted_by": None,
+                    "source": "mpesa_stk_query",
+                    "payment_id": payment_id,
+                })
+            txn.update(pending_ref, {
+                "status": "success",
+                "payment_id": payment_id,
+                "reconciliation_status": "confirmed_success",
+                "reconciliation_source": "daraja_stk_query",
+                "paid_at": timestamp(),
+                "updated_at": timestamp(),
+            })
+            return True
+        applied = apply_weekly(transaction)
+    else:
+        membership_id = _monthly_membership_id(uid, period_key)
+        membership_ref = _doc("monthly_memberships", membership_id)
+        user_ref = _doc("users", uid)
+        @firestore.transactional
+        def apply_monthly(txn):
+            current = next(txn.get(pending_ref), None)
+            existing_payment = next(txn.get(payment_ref), None)
+            existing_membership = next(txn.get(membership_ref), None)
+            if current is None or not current.exists:
+                return False
+            current_data = current.to_dict() or {}
+            if current_data.get("status") not in ("pending", "initiated"):
+                return False
+            expiry = month_end_datetime(period_key)
+            txn.set(payment_ref, {
+                "payment_id": payment_id,
+                "telegram_id": uid,
+                "amount": amount,
+                "currency": "KES",
+                "payment_type": payment_type,
+                "provider": "mpesa",
+                "month_key": period_key,
+                "checkout_request_id": checkout_id,
+                "mpesa_receipt": None,
+                "created_at": timestamp(),
+                "reconciled_by": "daraja_stk_query",
+                "receipt_pending": True,
+            }, merge=True)
+            if existing_membership is None or not existing_membership.exists:
+                txn.set(membership_ref, {
+                    "membership_id": membership_id,
+                    "telegram_id": uid,
+                    "month_key": period_key,
+                    "price_kes": amount,
+                    "granted_at": timestamp(),
+                    "expires_at": expiry,
+                    "source": "mpesa_stk_query",
+                    "payment_id": payment_id,
+                })
+            txn.set(user_ref, {
+                "telegram_id": uid,
+                "premium_until": expiry,
+                "updated_at": timestamp(),
+            }, merge=True)
+            txn.update(pending_ref, {
+                "status": "success",
+                "payment_id": payment_id,
+                "reconciliation_status": "confirmed_success",
+                "reconciliation_source": "daraja_stk_query",
+                "paid_at": timestamp(),
+                "updated_at": timestamp(),
+            })
+            return True
+        applied = apply_monthly(transaction)
+
+    return {
+        "processed": bool(applied),
+        "success": bool(applied),
+        "telegram_id": uid,
+        "payment_type": payment_type,
+        "payment_id": payment_id,
+    }
+
+
 def process_mpesa_callback(payload):
     """Validate a Daraja STK callback and grant access once only."""
     try:
@@ -793,7 +1056,47 @@ def process_mpesa_callback(payload):
     if not callback_merchant_id or not expected_merchant_id or callback_merchant_id != expected_merchant_id:
         return {"processed": False, "reason": "merchant_request_mismatch"}
 
-    # Ignore all further callbacks for terminal transactions.
+    # A query-confirmed payment may receive its original callback later.
+    # Attach the receipt without creating a second payment or granting twice.
+    if (
+        pending.get("status") == "success"
+        and pending.get("reconciliation_source") == "daraja_stk_query"
+    ):
+        if result_code == 0:
+            items = callback.get("CallbackMetadata", {}).get("Item", [])
+            values = {
+                str(item.get("Name")): item.get("Value")
+                for item in items
+                if isinstance(item, dict) and item.get("Name")
+            } if isinstance(items, list) else {}
+            receipt = str(values.get("MpesaReceiptNumber") or "").strip()
+            callback_phone = str(values.get("PhoneNumber") or "").strip()
+            expected_phone = str(pending.get("phone") or "").strip()
+            expected_amount = 25 if payment_type == "weekly_entry" else 200
+            if (
+                receipt
+                and _as_int(values.get("Amount"), -1) == expected_amount
+                and callback_phone
+                and callback_phone == expected_phone
+                and pending.get("payment_id")
+            ):
+                _doc("payments", pending["payment_id"]).set({
+                    "mpesa_receipt": receipt,
+                    "phone": callback_phone,
+                    "receipt_pending": False,
+                    "receipt_attached_at": timestamp(),
+                }, merge=True)
+                pending_ref.set({
+                    "mpesa_receipt": receipt,
+                    "callback_amount": expected_amount,
+                    "callback_phone": callback_phone,
+                    "receipt_pending": False,
+                    "updated_at": timestamp(),
+                }, merge=True)
+                return {"processed": True, "success": False, "reason": "receipt_attached"}
+        return {"processed": False, "reason": "already_reconciled"}
+
+    # Ignore all further callbacks for other terminal transactions.
     if pending.get("status") not in ("pending", "initiated"):
         return {"processed": False, "reason": "payment_not_pending"}
 

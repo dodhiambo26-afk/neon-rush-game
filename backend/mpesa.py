@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import hmac
 import logging
@@ -28,6 +29,96 @@ def normalize_kenyan_phone(value):
     if not re.fullmatch(r"254[17]\d{8}", digits):
         raise ValueError("Enter a valid Kenyan mobile number, e.g. 0712345678.")
     return digits
+
+
+
+async def reconcile_stale_mpesa_payments(application=None):
+    """Check old STK requests with Daraja and apply only final query results."""
+    key = os.getenv("MPESA_CONSUMER_KEY", "").strip()
+    secret = os.getenv("MPESA_CONSUMER_SECRET", "").strip()
+    passkey = os.getenv("MPESA_PASSKEY", "").strip()
+    shortcode = os.getenv("MPESA_SHORTCODE", "").strip()
+    environment = os.getenv("MPESA_ENVIRONMENT", "sandbox").strip().lower()
+    if not all([key, secret, passkey, shortcode]) or environment not in ("sandbox", "production"):
+        return
+
+    base_url = (
+        "https://sandbox.safaricom.co.ke"
+        if environment == "sandbox"
+        else "https://api.safaricom.co.ke"
+    )
+    candidates = db.list_mpesa_reconciliation_candidates()
+    if not candidates:
+        return
+
+    try:
+        async with httpx.AsyncClient(timeout=25) as client:
+            token_response = await client.get(
+                f"{base_url}/oauth/v1/generate",
+                params={"grant_type": "client_credentials"},
+                auth=(key, secret),
+            )
+            token_response.raise_for_status()
+            access_token = token_response.json().get("access_token")
+            if not access_token:
+                raise RuntimeError("Daraja did not return an access token.")
+
+            for item in candidates:
+                now = datetime.now(KENYA).strftime("%Y%m%d%H%M%S")
+                password = base64.b64encode(
+                    f"{shortcode}{passkey}{now}".encode("utf-8")
+                ).decode("utf-8")
+                payload = {
+                    "BusinessShortCode": shortcode,
+                    "Password": password,
+                    "Timestamp": now,
+                    "CheckoutRequestID": item["checkout_request_id"],
+                }
+                try:
+                    response = await client.post(
+                        f"{base_url}/mpesa/stkpushquery/v1/query",
+                        json=payload,
+                        headers={"Authorization": f"Bearer {access_token}"},
+                    )
+                    response.raise_for_status()
+                    result = response.json()
+                    outcome = db.process_mpesa_query_result(
+                        item["internal_id"], result
+                    )
+                    if outcome.get("success") and application and outcome.get("telegram_id"):
+                        try:
+                            text = (
+                                "🎉 M-PESA PAYMENT CONFIRMED BY SAFARICOM!\\n\\n"
+                                + (
+                                    "Your KSh 25 weekly tournament entry is now confirmed."
+                                    if outcome.get("payment_type") == "weekly_entry"
+                                    else "Your KSh 200 monthly membership is now active."
+                                )
+                                + "\\n\\nYour payment was recovered automatically. "
+                                "If the receipt is not yet displayed, it will be attached when Safaricom's callback arrives."
+                            )
+                            await application.bot.send_message(
+                                chat_id=int(outcome["telegram_id"]),
+                                text=text,
+                            )
+                        except Exception:
+                            logger.exception("Could not send reconciled M-Pesa confirmation.")
+                except Exception:
+                    logger.exception(
+                        "M-Pesa reconciliation query failed for a pending checkout."
+                    )
+    except Exception:
+        logger.exception("M-Pesa reconciliation batch failed.")
+
+
+async def mpesa_reconciliation_loop(application=None):
+    """Run reconciliation periodically; no new STK charges are ever initiated."""
+    while True:
+        try:
+            await reconcile_stale_mpesa_payments(application)
+        except Exception:
+            logger.exception("Unexpected M-Pesa reconciliation loop error.")
+        await asyncio.sleep(300)
 
 
 async def initiate_stk_push(telegram_id, phone, payment_type="monthly_membership"):
