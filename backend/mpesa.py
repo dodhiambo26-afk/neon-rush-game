@@ -19,13 +19,13 @@ MONTHLY_MEMBERSHIP_KES = 200
 
 
 def normalize_kenyan_phone(value):
-    digits = re.sub(r"\\D", "", str(value or ""))
+    digits = re.sub(r"\D", "", str(value or ""))
     if digits.startswith("0") and len(digits) == 10:
         digits = "254" + digits[1:]
     elif digits.startswith("7") or digits.startswith("1"):
         if len(digits) == 9:
             digits = "254" + digits
-    if not re.fullmatch(r"254[17]\\d{8}", digits):
+    if not re.fullmatch(r"254[17]\d{8}", digits):
         raise ValueError("Enter a valid Kenyan mobile number, e.g. 0712345678.")
     return digits
 
@@ -143,10 +143,10 @@ async def mpesa_callback(secret: str, request: Request):
                 await application.bot.send_message(
                     chat_id=int(result["telegram_id"]),
                     text=(
-                        "🎉 M-PESA PAYMENT CONFIRMED!\\n\\n"
+                        "🎉 M-PESA PAYMENT CONFIRMED!\n\n"
                         "Your KSh 200 NEON RUSH ARENA monthly membership "
-                        "is now active until the end of this month.\\n\\n"
-                        f"Receipt: {result.get('receipt', 'confirmed')}\\n"
+                        "is now active until the end of this month.\n\n"
+                        f"Receipt: {result.get('receipt', 'confirmed')}\n"
                         "Good luck in the monthly tournament!"
                     ),
                 )
