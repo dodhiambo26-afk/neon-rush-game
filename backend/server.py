@@ -340,11 +340,17 @@ def get_player_best_score(uid):
 # ============================================================
 
 def tournament_player_rankings(mode, session_key):
-    return db.get_tournament_ranking(
+    rows = db.get_tournament_ranking(
         mode=mode,
         session_key=session_key,
         limit=10000
     )
+
+    # Suspended accounts must not appear in competitive rankings.
+    return [
+        row for row in rows
+        if not db.is_banned(row.get("telegram_id"))
+    ]
     """
     Return one leaderboard record per player.
 
