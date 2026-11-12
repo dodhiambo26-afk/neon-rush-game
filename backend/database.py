@@ -415,7 +415,7 @@ def list_monthly_members(month_key=None):
 # SCORES AND LEADERBOARDS
 # ============================================================
 
-def save_score(uid, score, mode="weekly", session_key=None, username=None):
+def save_score(uid, score, mode="weekly", session_key=None, username=None, duration=0):
     uid = _user_id(uid)
     score = _as_int(score)
 
@@ -442,6 +442,9 @@ def save_score(uid, score, mode="weekly", session_key=None, username=None):
         "telegram_id": uid,
         "username": username,
         "score": score,
+        "duration_seconds": _as_int(duration),
+        "score_rate_per_second": round(score / max(1, _as_int(duration)), 2),
+        "verification_status": "accepted",
         "mode": mode,
         "session_key": session_key,
         "created_at": timestamp(),
@@ -590,6 +593,60 @@ def get_leaderboard(mode="weekly", session_key=None, limit=100):
     return list_tournament_player_rankings(
         mode, session_key, limit
     )
+
+
+def get_player_profile(uid, history_limit=5):
+    """Return a player's aggregate tournament statistics and recent games."""
+    uid = _user_id(uid)
+    rows = [
+        row for row in _all("scores")
+        if str(row.get("telegram_id")) == uid
+        and row.get("mode") in ("weekly", "monthly")
+        and row.get("verification_status") != "rejected"
+    ]
+    rows.sort(key=_score_recorded_time, reverse=True)
+
+    weekly = [row for row in rows if row.get("mode") == "weekly"]
+    monthly = [row for row in rows if row.get("mode") == "monthly"]
+
+    def best(items):
+        return max((_as_int(row.get("score")) for row in items), default=0)
+
+    total_games = len(rows)
+    achievements = []
+    if total_games >= 1:
+        achievements.append("First Race")
+    if total_games >= 10:
+        achievements.append("10 Races")
+    if total_games >= 50:
+        achievements.append("50 Races")
+    if best(rows) >= 1000:
+        achievements.append("1,000 Point Club")
+    if best(rows) >= 5000:
+        achievements.append("5,000 Point Club")
+
+    recent = []
+    for row in rows[:max(0, min(_as_int(history_limit, 5), 20))]:
+        recent.append({
+            "mode": row.get("mode"),
+            "score": _as_int(row.get("score")),
+            "session_key": row.get("session_key"),
+            "duration_seconds": _as_int(row.get("duration_seconds")),
+            "created_at": row.get("created_at"),
+        })
+
+    return {
+        "telegram_id": uid,
+        "games_played": total_games,
+        "total_points": sum(_as_int(row.get("score")) for row in rows),
+        "personal_best": best(rows),
+        "weekly_best": best(weekly),
+        "monthly_best": best(monthly),
+        "weekly_rank": get_player_ranking(uid, "weekly", current_weekly_session()),
+        "monthly_rank": get_player_ranking(uid, "monthly", current_month_key()),
+        "achievements": achievements,
+        "recent_games": recent,
+    }
 
 
 # ============================================================
