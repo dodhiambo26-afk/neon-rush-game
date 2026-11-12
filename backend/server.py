@@ -346,10 +346,16 @@ def tournament_player_rankings(mode, session_key):
         limit=10000
     )
 
-    # Suspended accounts must not appear in competitive rankings.
+    # Load suspended accounts once rather than making one database
+    # request per leaderboard row.
+    banned_ids = {
+        str(player.get("telegram_id"))
+        for player in db.list_banned_players()
+    }
+
     return [
         row for row in rows
-        if not db.is_banned(row.get("telegram_id"))
+        if str(row.get("telegram_id")) not in banned_ids
     ]
     """
     Return one leaderboard record per player.
