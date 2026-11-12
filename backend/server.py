@@ -763,6 +763,31 @@ def telegram_auth(
 # GAME SCORE SUBMISSION
 # ============================================================
 
+def validate_score_plausibility(score, duration):
+    """
+    Conservative sanity check for the current client game mechanics.
+    The game awards at most 100 points per pickup, with pickup spawning
+    capped at roughly three per second, plus distance points. A generous
+    320 points/second ceiling avoids rejecting plausible legitimate runs.
+    This is a screening check, not a substitute for server-authoritative play.
+    """
+    if duration < 5:
+        raise HTTPException(
+            status_code=422,
+            detail="Race duration is too short to qualify for a tournament score.",
+        )
+
+    maximum_plausible = duration * 320 + 100
+    if score > maximum_plausible:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Score could not be verified against the race duration. "
+                "Please replay the tournament normally."
+            ),
+        )
+
+
 @app.post("/api/scores")
 def submit_score(
     submission: ScoreSubmission,
@@ -790,6 +815,11 @@ def submit_score(
             status_code=400,
             detail="Invalid game mode. Use free, weekly or monthly.",
         )
+
+    validate_score_plausibility(
+        submission.score,
+        submission.duration,
+    )
 
     if mode == "weekly":
         session = weekly_session()
@@ -821,6 +851,7 @@ def submit_score(
         mode=mode,
         session_key=session["key"],
         username=display_name(user),
+        duration=submission.duration,
     )
 
     if not saved:
