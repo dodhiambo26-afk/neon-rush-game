@@ -672,22 +672,71 @@ def record_monthly_payment(uid, telegram_charge_id,
     return True
 
 
-def create_mpesa_pending(internal_id, uid, phone, month_key):
-    """Create a server-priced pending KES 200 monthly membership payment."""
+def create_mpesa_pending(internal_id, uid, phone, period_key,
+                         payment_type="monthly_membership"):
+    """Create a server-priced pending M-Pesa payment."""
     uid = _user_id(uid)
-    _doc("mpesa_transactions", internal_id).set({
+    is_weekly = payment_type == "weekly_entry"
+    if payment_type not in ("monthly_membership", "weekly_entry"):
+        raise ValueError("Unsupported M-Pesa payment type.")
+    amount = 25 if is_weekly else 200
+    fields = {
         "internal_id": internal_id,
         "telegram_id": uid,
         "phone": str(phone),
-        "amount": 200,
+        "amount": amount,
         "currency": "KES",
-        "payment_type": "monthly_membership",
-        "month_key": str(month_key),
+        "payment_type": payment_type,
         "provider": "mpesa",
         "status": "pending",
         "created_at": timestamp(),
-    })
+    }
+    fields["session_key" if is_weekly else "month_key"] = str(period_key)
+    _doc("mpesa_transactions", internal_id).set(fields)
     return True
+
+def record_weekly_stars_payment(uid, telegram_charge_id,
+                                provider_charge_id=None,
+                                amount=50, currency="XTR",
+                                session_key=None):
+    """Record a verified 50-Star weekly entry exactly once."""
+    uid = _user_id(uid)
+    session_key = str(session_key or current_weekly_session())
+    charge_id = str(telegram_charge_id or "")
+    if not charge_id or _as_int(amount) != 50 or currency != "XTR":
+        return False
+    payment_ref = _doc("payments", charge_id)
+    entry_ref = _doc("weekly_entries", _weekly_entry_id(uid, session_key))
+    txn = db().transaction()
+
+    @firestore.transactional
+    def apply(tx):
+        existing = tx.get(payment_ref)
+        if existing.exists:
+            return False
+        tx.set(payment_ref, {
+            "payment_id": charge_id,
+            "telegram_id": uid,
+            "amount": 50,
+            "currency": "XTR",
+            "provider_payment_charge_id": provider_charge_id,
+            "payment_type": "weekly_entry",
+            "session_key": session_key,
+            "provider": "telegram_stars",
+            "created_at": timestamp(),
+        })
+        tx.set(entry_ref, {
+            "entry_id": _weekly_entry_id(uid, session_key),
+            "telegram_id": uid,
+            "session_key": session_key,
+            "granted_at": timestamp(),
+            "granted_by": None,
+            "source": "telegram_stars",
+            "payment_id": charge_id,
+        }, merge=True)
+        return True
+
+    return apply(txn)
 
 
 def update_mpesa_checkout(internal_id, checkout_id, merchant_id, response=None):
@@ -732,8 +781,11 @@ def process_mpesa_callback(payload):
     pending = matches[0].to_dict() or {}
     uid = str(pending.get("telegram_id", ""))
     month_key = str(pending.get("month_key", ""))
-    if pending.get("provider") != "mpesa" or pending.get("payment_type") != "monthly_membership":
+    payment_type = str(pending.get("payment_type") or "")
+    if pending.get("provider") != "mpesa" or payment_type not in ("monthly_membership", "weekly_entry"):
         return {"processed": False, "reason": "wrong_payment_type"}
+    is_weekly = payment_type == "weekly_entry"
+    period_key = str(pending.get("session_key" if is_weekly else "month_key", ""))
 
     if result_code != 0:
         pending_ref.set({
@@ -761,7 +813,8 @@ def process_mpesa_callback(payload):
     callback_phone = str(metadata.get("PhoneNumber") or "").strip()
     expected_phone = str(pending.get("phone") or "").strip()
 
-    if paid_amount != 200 or not receipt:
+    expected_amount = 25 if is_weekly else 200
+    if paid_amount != expected_amount or not receipt:
         pending_ref.set({
             "status": "review_required",
             "result_code": result_code,
@@ -780,7 +833,67 @@ def process_mpesa_callback(payload):
 
     payment_id = "mpesa_" + receipt
     payment_ref = _doc("payments", payment_id)
-    membership_id = _monthly_membership_id(uid, month_key)
+    if is_weekly:
+        entry_id = _weekly_entry_id(uid, period_key)
+        entry_ref = _doc("weekly_entries", entry_id)
+        transaction = db().transaction()
+
+        @firestore.transactional
+        def apply_weekly_success(txn):
+            current = txn.get(pending_ref)
+            if not current.exists:
+                return False
+            current_data = current.to_dict() or {}
+            if current_data.get("status") in ("success", "failed", "review_required"):
+                return False
+            existing_payment = txn.get(payment_ref)
+            if existing_payment.exists:
+                txn.update(pending_ref, {
+                    "status": "review_required",
+                    "failure_reason": "M-Pesa receipt already linked to another payment.",
+                    "updated_at": timestamp(),
+                })
+                return False
+            txn.set(payment_ref, {
+                "payment_id": payment_id,
+                "telegram_id": uid,
+                "amount": 25,
+                "currency": "KES",
+                "payment_type": "weekly_entry",
+                "provider": "mpesa",
+                "session_key": period_key,
+                "mpesa_receipt": receipt,
+                "checkout_request_id": checkout_id,
+                "phone": callback_phone or expected_phone,
+                "created_at": timestamp(),
+            })
+            txn.set(entry_ref, {
+                "entry_id": entry_id,
+                "telegram_id": uid,
+                "session_key": period_key,
+                "granted_at": timestamp(),
+                "granted_by": None,
+                "source": "mpesa",
+                "payment_id": payment_id,
+            }, merge=True)
+            txn.update(pending_ref, {
+                "status": "success",
+                "mpesa_receipt": receipt,
+                "callback_amount": paid_amount,
+                "callback_phone": callback_phone,
+                "paid_at": timestamp(),
+                "updated_at": timestamp(),
+            })
+            return True
+
+        applied = apply_weekly_success(transaction)
+        return {
+            "processed": bool(applied), "success": bool(applied),
+            "telegram_id": uid, "payment_type": "weekly_entry",
+            "session_key": period_key, "receipt": receipt,
+        }
+
+    membership_id = _monthly_membership_id(uid, period_key)
     membership_ref = _doc("monthly_memberships", membership_id)
     user_ref = _doc("users", uid)
     transaction = db().transaction()
@@ -812,7 +925,7 @@ def process_mpesa_callback(payload):
             "currency": "KES",
             "payment_type": "monthly_membership",
             "provider": "mpesa",
-            "month_key": month_key,
+            "month_key": period_key,
             "mpesa_receipt": receipt,
             "checkout_request_id": checkout_id,
             "phone": callback_phone or expected_phone,
