@@ -88,17 +88,13 @@ async def reconcile_stale_mpesa_payments(application=None):
                     if outcome.get("success") and application and outcome.get("telegram_id"):
                         try:
                             text = (
-                                "🎉 M-PESA PAYMENT CONFIRMED BY SAFARICOM!
-
-"
+                                "🎉 M-PESA PAYMENT CONFIRMED BY SAFARICOM!\\n\\n"
                                 + (
                                     "Your KSh 25 weekly tournament entry is now confirmed."
                                     if outcome.get("payment_type") == "weekly_entry"
                                     else "Your KSh 200 monthly membership is now active."
                                 )
-                                + "
-
-Your payment was recovered automatically. "
+                                + "\\n\\nYour payment was recovered automatically. "
                                 "If the receipt is not yet displayed, it will be attached when Safaricom's callback arrives."
                             )
                             await application.bot.send_message(
