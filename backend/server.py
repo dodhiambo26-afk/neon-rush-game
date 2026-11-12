@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 import database as db
 from bot import build_application
 from telegram import Update
+from mpesa import router as mpesa_router
 
 
 # ============================================================
@@ -497,6 +498,7 @@ async def lifespan(app: FastAPI):
     db.init_db()
 
     bot_application = build_application()
+    app.state.bot_application = bot_application
 
     await bot_application.initialize()
 
@@ -535,6 +537,8 @@ app = FastAPI(
     version="3.0",
     lifespan=lifespan,
 )
+
+app.include_router(mpesa_router)
 
 app.add_middleware(
     CORSMiddleware,
