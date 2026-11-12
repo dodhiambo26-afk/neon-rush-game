@@ -924,15 +924,16 @@ def process_mpesa_query_result(internal_id, query_result):
                 "reconciled_by": "daraja_stk_query",
                 "receipt_pending": True,
             }, merge=True)
-            txn.set(entry_ref, {
-                "entry_id": entry_id,
-                "telegram_id": uid,
-                "session_key": period_key,
-                "granted_at": timestamp(),
-                "granted_by": None,
-                "source": "mpesa_stk_query",
-                "payment_id": payment_id,
-            }, merge=True)
+            if existing_entry is None or not existing_entry.exists:
+                txn.set(entry_ref, {
+                    "entry_id": entry_id,
+                    "telegram_id": uid,
+                    "session_key": period_key,
+                    "granted_at": timestamp(),
+                    "granted_by": None,
+                    "source": "mpesa_stk_query",
+                    "payment_id": payment_id,
+                })
             txn.update(pending_ref, {
                 "status": "success",
                 "payment_id": payment_id,
@@ -972,16 +973,17 @@ def process_mpesa_query_result(internal_id, query_result):
                 "reconciled_by": "daraja_stk_query",
                 "receipt_pending": True,
             }, merge=True)
-            txn.set(membership_ref, {
-                "membership_id": membership_id,
-                "telegram_id": uid,
-                "month_key": period_key,
-                "price_kes": amount,
-                "granted_at": timestamp(),
-                "expires_at": expiry,
-                "source": "mpesa_stk_query",
-                "payment_id": payment_id,
-            }, merge=True)
+            if existing_membership is None or not existing_membership.exists:
+                txn.set(membership_ref, {
+                    "membership_id": membership_id,
+                    "telegram_id": uid,
+                    "month_key": period_key,
+                    "price_kes": amount,
+                    "granted_at": timestamp(),
+                    "expires_at": expiry,
+                    "source": "mpesa_stk_query",
+                    "payment_id": payment_id,
+                })
             txn.set(user_ref, {
                 "telegram_id": uid,
                 "premium_until": expiry,
