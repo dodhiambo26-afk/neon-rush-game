@@ -34,7 +34,10 @@ async def initiate_stk_push(telegram_id, phone, payment_type="monthly_membership
     key = os.getenv("MPESA_CONSUMER_KEY", "").strip()
     secret = os.getenv("MPESA_CONSUMER_SECRET", "").strip()
     passkey = os.getenv("MPESA_PASSKEY", "").strip()
+    # For Buy Goods, MPESA_SHORTCODE is the Safaricom-approved Store Number
+    # used for Daraja Go-Live; the customer-facing Till is configured separately.
     shortcode = os.getenv("MPESA_SHORTCODE", "").strip()
+    till_number = os.getenv("MPESA_TILL_NUMBER", "").strip()
     environment = os.getenv("MPESA_ENVIRONMENT", "sandbox").strip().lower()
     callback_secret = os.getenv("MPESA_CALLBACK_SECRET", "").strip()
     render_url = os.getenv("RENDER_EXTERNAL_URL", "").rstrip("/")
@@ -78,9 +81,19 @@ async def initiate_stk_push(telegram_id, phone, payment_type="monthly_membership
     password = base64.b64encode(
         f"{shortcode}{passkey}{now}".encode("utf-8")
     ).decode("utf-8")
+    # If a Till is configured, default to Buy Goods. Existing PayBill
+    # sandbox setups continue to default to CustomerPayBillOnline.
+    default_transaction_type = (
+        "CustomerBuyGoodsOnline" if till_number else "CustomerPayBillOnline"
+    )
     transaction_type = os.getenv(
-        "MPESA_TRANSACTION_TYPE", "CustomerPayBillOnline"
+        "MPESA_TRANSACTION_TYPE", default_transaction_type
     ).strip()
+    if transaction_type == "CustomerBuyGoodsOnline" and not till_number:
+        db.fail_mpesa_pending(internal_id, "Missing MPESA_TILL_NUMBER.")
+        raise RuntimeError(
+            "Buy Goods is selected but MPESA_TILL_NUMBER is missing in Render."
+        )
 
     try:
         async with httpx.AsyncClient(timeout=30) as client:
@@ -101,7 +114,11 @@ async def initiate_stk_push(telegram_id, phone, payment_type="monthly_membership
                 "TransactionType": transaction_type,
                 "Amount": amount,
                 "PartyA": phone,
-                "PartyB": shortcode,
+                "PartyB": (
+                    till_number
+                    if transaction_type == "CustomerBuyGoodsOnline"
+                    else shortcode
+                ),
                 "PhoneNumber": phone,
                 "CallBackURL": callback_url,
                 "AccountReference": reference,
