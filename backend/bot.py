@@ -23,6 +23,7 @@ from telegram.ext import (
 )
 
 import database as db
+from mpesa import initiate_stk_push
 
 
 # ============================================================
@@ -137,7 +138,7 @@ def player_keyboard(uid):
                 callback_data="weekly_info"
             ),
             InlineKeyboardButton(
-                "👑 MONTHLY TOURNAMENT — 300 STARS",
+                "👑 MONTHLY MEMBERSHIP",
                 callback_data="monthly_join"
             )
         ],
@@ -207,7 +208,7 @@ def main_text(user):
         "(Kenya time).\n"
         "Compete for Weekly leaderboard rewards.\n\n"
         "🌟 MONTHLY TOURNAMENT\n"
-        "Membership: 300 Telegram Stars.\n"
+        "Membership: KSh 200 by M-Pesa or 300 Telegram Stars.\n"
         "Compete for Monthly leaderboard rewards.\n\n"
         "Good luck, Racer!"
     )
@@ -288,6 +289,40 @@ async def weekly_information(update: Update, context):
 # MONTHLY TOURNAMENT
 # ============================================================
 
+async def monthly_join_options(update, context):
+    query = update.callback_query
+    await query.answer()
+    uid = query.from_user.id
+
+    if reject_banned(uid):
+        await query.message.reply_text("🚫 Your account has been suspended.")
+        return
+
+    month_key = current_month_session()
+    if db.has_monthly_access(uid, month_key):
+        await query.message.reply_text(
+            "✅ Your monthly tournament membership is already active.",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton(
+                    "🏆 PLAY MONTHLY TOURNAMENT",
+                    web_app=WebAppInfo(url=game_url("monthly"))
+                )
+            ]]),
+        )
+        return
+
+    await query.message.reply_text(
+        f"👑 MONTHLY MEMBERSHIP — {month_key}\\n\\n"
+        "Choose your payment method:\\n"
+        "• KSh 200 via M-Pesa STK Push\\n"
+        "• 300 Telegram Stars",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("📱 PAY KSh 200 WITH M-PESA", callback_data="monthly_mpesa")],
+            [InlineKeyboardButton("⭐ PAY 300 TELEGRAM STARS", callback_data="monthly_stars")],
+        ]),
+    )
+
+
 async def send_monthly_invoice(update, context):
     query = update.callback_query
     await query.answer()
@@ -338,6 +373,59 @@ async def send_monthly_invoice(update, context):
 # ============================================================
 # LEADERBOARDS
 # ============================================================
+
+async def request_mpesa_phone(update, context):
+    query = update.callback_query
+    await query.answer()
+    uid = query.from_user.id
+
+    if reject_banned(uid):
+        await query.message.reply_text("🚫 Your account has been suspended.")
+        return
+
+    if db.has_monthly_access(uid, current_month_session()):
+        await query.message.reply_text("✅ Your monthly membership is already active.")
+        return
+
+    context.user_data["awaiting_mpesa_phone"] = True
+    await query.message.reply_text(
+        "📱 M-PESA MONTHLY MEMBERSHIP\\n\\n"
+        "The fixed membership price is KSh 200.\\n"
+        "Send your Safaricom M-Pesa number in this chat (for example 0712345678).\\n\\n"
+        "You will receive an STK prompt on that phone. Enter your M-Pesa PIN only on your phone's Safaricom prompt — never send your PIN here."
+    )
+
+
+async def mpesa_phone_message(update, context):
+    if not context.user_data.get("awaiting_mpesa_phone"):
+        return
+
+    context.user_data["awaiting_mpesa_phone"] = False
+    uid = update.effective_user.id
+
+    if reject_banned(uid):
+        await update.message.reply_text("🚫 Your account has been suspended.")
+        return
+
+    try:
+        result = await initiate_stk_push(uid, update.message.text.strip())
+        if result.get("already_active"):
+            await update.message.reply_text("✅ Your monthly membership is already active.")
+        else:
+            await update.message.reply_text(
+                "📲 M-PESA request sent. " + result["customer_message"] + "\\n\\n"
+                "Your membership will activate only after Safaricom confirms the KSh 200 payment."
+            )
+    except ValueError as exc:
+        await update.message.reply_text(str(exc) + " Please send the number again.")
+        context.user_data["awaiting_mpesa_phone"] = True
+    except Exception:
+        logger.exception("M-Pesa STK Push initiation failed.")
+        await update.message.reply_text(
+            "❌ We could not start the M-Pesa request. No membership has been activated. "
+            "Please try again later or contact support."
+        )
+
 
 async def leaderboard_message(update, context, mode):
     query = update.callback_query
@@ -434,7 +522,13 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await weekly_information(update, context)
 
     elif query.data == "monthly_join":
+        await monthly_join_options(update, context)
+
+    elif query.data == "monthly_stars":
         await send_monthly_invoice(update, context)
+
+    elif query.data == "monthly_mpesa":
+        await request_mpesa_phone(update, context)
 
     elif query.data == "weekly_leaderboard":
         await leaderboard_message(update, context, "weekly")
@@ -794,6 +888,13 @@ def build_application():
         MessageHandler(
             filters.SUCCESSFUL_PAYMENT,
             successful_payment,
+        )
+    )
+
+    application.add_handler(
+        MessageHandler(
+            filters.TEXT & ~filters.COMMAND,
+            mpesa_phone_message,
         )
     )
 
