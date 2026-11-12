@@ -118,7 +118,7 @@ async def mpesa_reconciliation_loop(application=None):
             await reconcile_stale_mpesa_payments(application)
         except Exception:
             logger.exception("Unexpected M-Pesa reconciliation loop error.")
-        await asyncio.sleep(60)
+        await asyncio.sleep(300)
 
 
 async def initiate_stk_push(telegram_id, phone, payment_type="monthly_membership"):
