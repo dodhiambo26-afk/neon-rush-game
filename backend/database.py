@@ -840,21 +840,40 @@ def process_mpesa_callback(payload):
     expected_phone = str(pending.get("phone") or "").strip()
 
     expected_amount = 25 if is_weekly else 200
+
+    def mark_review_required(reason, fields):
+        """Move a still-pending payment to review atomically; never overwrite a terminal state."""
+        review_transaction = db().transaction()
+
+        @firestore.transactional
+        def apply_review(txn):
+            current = txn.get(pending_ref)
+            if not current.exists:
+                return False
+            current_data = current.to_dict() or {}
+            if current_data.get("status") not in ("pending", "initiated"):
+                return False
+            txn.update(pending_ref, {
+                **fields,
+                "status": "review_required",
+                "review_reason": reason,
+                "updated_at": timestamp(),
+            })
+            return True
+
+        return apply_review(review_transaction)
+
     if paid_amount_decimal != Decimal(expected_amount) or not receipt:
-        pending_ref.set({
-            "status": "review_required",
+        mark_review_required("amount_or_receipt_mismatch", {
             "result_code": result_code,
             "callback_amount": str(paid_amount_decimal),
-            "updated_at": timestamp(),
-        }, merge=True)
+        })
         return {"processed": False, "reason": "amount_or_receipt_mismatch"}
 
     if not callback_phone or not expected_phone or callback_phone != expected_phone:
-        pending_ref.set({
-            "status": "review_required",
+        mark_review_required("phone_mismatch", {
             "callback_phone": callback_phone,
-            "updated_at": timestamp(),
-        }, merge=True)
+        })
         return {"processed": False, "reason": "phone_mismatch"}
 
     payment_id = "mpesa_" + receipt
@@ -870,7 +889,7 @@ def process_mpesa_callback(payload):
             if not current.exists:
                 return False
             current_data = current.to_dict() or {}
-            if current_data.get("status") in ("success", "failed", "review_required"):
+            if current_data.get("status") not in ("pending", "initiated"):
                 return False
             existing_payment = txn.get(payment_ref)
             if existing_payment.exists:
@@ -930,9 +949,7 @@ def process_mpesa_callback(payload):
         if not current.exists:
             return False
         current_data = current.to_dict() or {}
-        if current_data.get("status") == "success":
-            return False
-        if current_data.get("status") in ("failed", "review_required"):
+        if current_data.get("status") not in ("pending", "initiated"):
             return False
 
         existing_payment = txn.get(payment_ref)
