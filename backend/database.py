@@ -793,6 +793,10 @@ def process_mpesa_callback(payload):
     if not callback_merchant_id or not expected_merchant_id or callback_merchant_id != expected_merchant_id:
         return {"processed": False, "reason": "merchant_request_mismatch"}
 
+    # Ignore all further callbacks for terminal transactions.
+    if pending.get("status") not in ("pending", "initiated"):
+        return {"processed": False, "reason": "payment_not_pending"}
+
     # Never let a delayed failure callback downgrade a completed or reviewed payment.
     if result_code != 0:
         transaction = db().transaction()
@@ -840,7 +844,7 @@ def process_mpesa_callback(payload):
         pending_ref.set({
             "status": "review_required",
             "result_code": result_code,
-            "callback_amount": int(paid_amount_decimal),
+            "callback_amount": str(paid_amount_decimal),
             "updated_at": timestamp(),
         }, merge=True)
         return {"processed": False, "reason": "amount_or_receipt_mismatch"}
