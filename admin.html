@@ -770,6 +770,10 @@ async function loadLeaderboardScores(){
 
    best_score:item.score,
 
+   run_duration:item.duration_seconds||"Not recorded",
+
+   score_rate:item.score_rate_per_second??"Legacy record",
+
    mode:item.mode||d.mode||mode,
 
    session:
@@ -788,6 +792,8 @@ async function loadLeaderboardScores(){
    ["telegram_id","Telegram ID"],
    ["player_name","Player"],
    ["best_score","Best score"],
+   ["run_duration","Run duration (seconds)"],
+   ["score_rate","Points per second"],
    ["mode","Tournament"],
    ["session","Tournament session"],
    ["created_at","Date recorded"]
@@ -819,6 +825,8 @@ async function loadPerformance(){
    telegram_id:item.telegram_id,
    player_name:item.username||item.display_name||item.name||("Player "+item.telegram_id),
    best_score:item.score,
+   run_duration:item.duration_seconds||"Not recorded",
+   score_rate:item.score_rate_per_second??"Legacy record",
    mode:item.mode||d.mode||mode,
    session:item.session_key||d.session?.key||"",
    created_at:item.created_at||""
@@ -829,6 +837,8 @@ async function loadPerformance(){
    ["telegram_id","Telegram ID"],
    ["player_name","Player"],
    ["best_score","Best score"],
+   ["run_duration","Run duration (seconds)"],
+   ["score_rate","Points per second"],
    ["mode","Mode"],
    ["session","Tournament session"],
    ["created_at","Date"]
