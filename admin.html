@@ -67,6 +67,7 @@ footer{text-align:center;color:#6f88a8;font-size:11px;padding:25px}
 <div class="notice">
 <strong>Administrator access</strong>
 <p>Private management panel. Only authorized Telegram administrators can access the information and controls.</p>
+<p class="muted">For security, administrator authentication expires after 15 minutes. If a request is rejected, reopen this dashboard from the Telegram bot.</p>
 </div>
 
 <div id="message"></div>
@@ -387,6 +388,15 @@ async function api(path,method="GET",body=null){
  const data=await response.json().catch(()=>({}));
 
  if(!response.ok){
+  if(response.status===401){
+   authorized=false;
+   const status=document.getElementById("status");
+   if(status){
+    status.textContent="ADMIN SESSION EXPIRED";
+    status.style.color="#ffd166";
+   }
+   showMessage("Your secure administrator session has expired. Close this page and reopen the Admin Dashboard from the NEON RUSH Telegram bot.");
+  }
   throw new Error(data.detail||data.message||"Request failed ("+response.status+")");
  }
 
