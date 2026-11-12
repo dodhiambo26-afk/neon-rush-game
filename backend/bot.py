@@ -312,9 +312,9 @@ async def monthly_join_options(update, context):
         return
 
     await query.message.reply_text(
-        f"👑 MONTHLY MEMBERSHIP — {month_key}\\n\\n"
-        "Choose your payment method:\\n"
-        "• KSh 200 via M-Pesa STK Push\\n"
+        f"👑 MONTHLY MEMBERSHIP — {month_key}\n\n"
+        "Choose your payment method:\n"
+        "• KSh 200 via M-Pesa STK Push\n"
         "• 300 Telegram Stars",
         reply_markup=InlineKeyboardMarkup([
             [InlineKeyboardButton("📱 PAY KSh 200 WITH M-PESA", callback_data="monthly_mpesa")],
@@ -389,9 +389,9 @@ async def request_mpesa_phone(update, context):
 
     context.user_data["awaiting_mpesa_phone"] = True
     await query.message.reply_text(
-        "📱 M-PESA MONTHLY MEMBERSHIP\\n\\n"
-        "The fixed membership price is KSh 200.\\n"
-        "Send your Safaricom M-Pesa number in this chat (for example 0712345678).\\n\\n"
+        "📱 M-PESA MONTHLY MEMBERSHIP\n\n"
+        "The fixed membership price is KSh 200.\n"
+        "Send your Safaricom M-Pesa number in this chat (for example 0712345678).\n\n"
         "You will receive an STK prompt on that phone. Enter your M-Pesa PIN only on your phone's Safaricom prompt — never send your PIN here."
     )
 
@@ -413,7 +413,7 @@ async def mpesa_phone_message(update, context):
             await update.message.reply_text("✅ Your monthly membership is already active.")
         else:
             await update.message.reply_text(
-                "📲 M-PESA request sent. " + result["customer_message"] + "\\n\\n"
+                "📲 M-PESA request sent. " + result["customer_message"] + "\n\n"
                 "Your membership will activate only after Safaricom confirms the KSh 200 payment."
             )
     except ValueError as exc:
