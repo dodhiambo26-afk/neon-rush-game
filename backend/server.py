@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 import database as db
 from bot import build_application
 from telegram import Update
+from mpesa import router as mpesa_router
 
 
 # ============================================================
@@ -281,6 +282,8 @@ def get_monthly_financial_summary():
     return {
         "month": session["key"],
         "stars_collected": collected,
+        "mpesa_collected_kes": int(finances.get("total_mpesa_kes", 0)),
+        "mpesa_payments_count": int(finances.get("mpesa_payments_count", 0)),
         "prize_percentage": MONTHLY_PRIZE_PERCENTAGE,
         "retained_percentage": MONTHLY_RETAINED_PERCENTAGE,
         "prize_pool_stars": prize_pool,
@@ -497,6 +500,7 @@ async def lifespan(app: FastAPI):
     db.init_db()
 
     bot_application = build_application()
+    app.state.bot_application = bot_application
 
     await bot_application.initialize()
 
@@ -535,6 +539,8 @@ app = FastAPI(
     version="3.0",
     lifespan=lifespan,
 )
+
+app.include_router(mpesa_router)
 
 app.add_middleware(
     CORSMiddleware,
