@@ -792,18 +792,18 @@ def process_mpesa_callback(payload):
             return False
         current_data = current.to_dict() or {}
         if current_data.get("status") == "success":
-            return True
-        if current_data.get("status") == "failed":
+            return False
+        if current_data.get("status") in ("failed", "review_required"):
             return False
 
         existing_payment = txn.get(payment_ref)
         if existing_payment.exists:
             txn.update(pending_ref, {
-                "status": "success",
-                "mpesa_receipt": receipt,
+                "status": "review_required",
+                "failure_reason": "M-Pesa receipt already linked to another payment.",
                 "updated_at": timestamp(),
             })
-            return True
+            return False
 
         txn.set(payment_ref, {
             "payment_id": payment_id,
