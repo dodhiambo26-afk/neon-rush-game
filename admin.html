@@ -80,6 +80,7 @@ footer{text-align:center;color:#6f88a8;font-size:11px;padding:25px}
 <button data-page="leaderboard">Leaderboard</button>
 <button data-page="grant">Add player</button>
 <button data-page="payments">Stars payments</button>
+<button data-page="mpesa">M-Pesa payments</button>
 <button data-page="performance">Performance</button>
 <button data-page="banned">Moderation</button>
 <button data-page="tournament">Tournament</button>
@@ -221,6 +222,19 @@ These actions do not charge Telegram Stars.
 <h2>Telegram Stars payments</h2>
 <button class="action" onclick="loadPayments()">Refresh payment records</button>
 <div id="paymentsList" class="panel">Loading payments...</div>
+</section>
+
+<section id="mpesa">
+<h2>M-Pesa payment monitoring</h2>
+<div class="notice">Read-only transaction monitoring. This panel never initiates a charge or changes payment status.</div>
+<button class="action" onclick="loadMpesaPayments()">Refresh M-Pesa transactions</button>
+<div id="mpesaSummary" class="grid">
+ <div class="stat"><small>Pending / initiated</small><strong id="mpesaPendingCount">—</strong></div>
+ <div class="stat"><small>Successful</small><strong id="mpesaSuccessCount">—</strong></div>
+ <div class="stat"><small>Failed</small><strong id="mpesaFailedCount">—</strong></div>
+ <div class="stat"><small>Needs review</small><strong id="mpesaReviewCount">—</strong></div>
+</div>
+<div id="mpesaPaymentsList" class="panel">Loading M-Pesa transactions...</div>
 </section>
 
 <section id="performance">
@@ -431,6 +445,7 @@ document.querySelectorAll("nav button").forEach(button=>{
    monthlyMembers:loadMonthlyMembers,
    leaderboard:loadLeaderboard,
    payments:loadPayments,
+   mpesa:loadMpesaPayments,
    performance:loadPerformance,
    banned:loadBanned,
    tournament:loadTournament,
@@ -614,6 +629,38 @@ async function loadPayments(){
   ]);
 
  }catch(e){
+  showMessage(e.message);
+ }
+}
+
+async function loadMpesaPayments(){
+ const el=document.getElementById("mpesaPaymentsList");
+ el.textContent="Loading M-Pesa transactions...";
+ try{
+  const d=await api("/api/admin/mpesa?limit=200");
+  const rows=d.transactions||[];
+  const count=status=>rows.filter(x=>x.status===status).length;
+  document.getElementById("mpesaPendingCount").textContent=
+   count("pending")+count("initiated");
+  document.getElementById("mpesaSuccessCount").textContent=count("success");
+  document.getElementById("mpesaFailedCount").textContent=count("failed");
+  document.getElementById("mpesaReviewCount").textContent=
+   count("review_required");
+  renderList("mpesaPaymentsList",rows,[
+   ["created_at","Created"],
+   ["telegram_id","Telegram ID"],
+   ["username","Username"],
+   ["amount","Amount (KES)"],
+   ["payment_type","Payment type"],
+   ["status","Status"],
+   ["reconciliation_status","Reconciliation"],
+   ["mpesa_receipt","M-Pesa receipt"],
+   ["phone_last4","Phone ending"],
+   ["review_reason","Review reason"],
+   ["failure_reason","Failure reason"]
+  ]);
+ }catch(e){
+  el.textContent="Could not load M-Pesa transactions: "+e.message;
   showMessage(e.message);
  }
 }

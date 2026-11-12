@@ -26,6 +26,7 @@ from mpesa import mpesa_reconciliation_loop, router as mpesa_router
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 MAX_AUTH_AGE = 86400
+MAX_ADMIN_AUTH_AGE = 900
 
 MONTHLY_STARS = 300
 MONTHLY_PRIZE_PERCENTAGE = 30
@@ -102,7 +103,7 @@ def json_safe(value):
 # TELEGRAM AUTHENTICATION
 # ============================================================
 
-def verify_telegram_data(init_data):
+def verify_telegram_data(init_data, max_age=MAX_AUTH_AGE):
     if not BOT_TOKEN or not init_data:
         return None
 
@@ -120,7 +121,7 @@ def verify_telegram_data(init_data):
         if auth_date > now + 60:
             return None
 
-        if now - auth_date > MAX_AUTH_AGE:
+        if now - auth_date > max_age:
             return None
 
         data_check_string = "\n".join(
@@ -222,7 +223,8 @@ def get_admin_ids():
 
 
 def require_admin(init_data):
-    user = verify_telegram_data(init_data)
+    # Admin actions require a fresh Telegram WebApp signature (15 minutes).
+    user = verify_telegram_data(init_data, max_age=MAX_ADMIN_AUTH_AGE)
 
     if not user:
         raise HTTPException(
@@ -1210,6 +1212,13 @@ def admin_grant(
         int(admin["id"]),
     )
 
+    record_admin_action(
+        admin["id"],
+        "GRANT_WEEKLY_ENTRY",
+        uid,
+        "Weekly tournament " + session["key"],
+    )
+
     return {
         "success": True,
         "message": "Weekly tournament access granted.",
@@ -1366,6 +1375,13 @@ def admin_monthly_grant(
         uid,
         session["key"],
         int(admin["id"]),
+    )
+
+    record_admin_action(
+        admin["id"],
+        "GRANT_MONTHLY_ACCESS",
+        uid,
+        "Monthly membership " + session["key"],
     )
 
     return {
@@ -1655,6 +1671,33 @@ def admin_performance(
         "top_scores": json_safe(scores),
         "top_five": json_safe(scores[:5]),
     }
+
+
+# ============================================================
+# ADMIN M-PESA TRANSACTIONS
+# ============================================================
+
+@app.get("/api/admin/mpesa")
+def admin_mpesa_transactions(
+    limit: int = Query(default=100, ge=1, le=500),
+    x_telegram_init_data: str = Header(
+        default="",
+        alias="X-Telegram-Init-Data",
+    ),
+):
+    require_admin(x_telegram_init_data)
+    rows = db.list_mpesa_transactions(limit)
+    result = []
+    for row in rows:
+        uid = row.get("telegram_id")
+        user = db.get_user(uid) or {}
+        result.append({
+            **row,
+            "username": user.get("username"),
+            "first_name": user.get("first_name"),
+            "last_name": user.get("last_name"),
+        })
+    return {"transactions": json_safe(result)}
 
 
 # ============================================================
