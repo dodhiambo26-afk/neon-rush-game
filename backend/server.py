@@ -282,6 +282,8 @@ def get_monthly_financial_summary():
     return {
         "month": session["key"],
         "stars_collected": collected,
+        "mpesa_collected_kes": int(finances.get("total_mpesa_kes", 0)),
+        "mpesa_payments_count": int(finances.get("mpesa_payments_count", 0)),
         "prize_percentage": MONTHLY_PRIZE_PERCENTAGE,
         "retained_percentage": MONTHLY_RETAINED_PERCENTAGE,
         "prize_pool_stars": prize_pool,
