@@ -869,7 +869,20 @@ def process_mpesa_query_result(internal_id, query_result):
     response_checkout = str(query_result.get("CheckoutRequestID") or "")
     response_merchant = str(query_result.get("MerchantRequestID") or "")
     expected_merchant = str(pending.get("merchant_request_id") or "")
-    # A final Daraja result must echo both identifiers exactly. Missing IDs
+    response_code = str(query_result.get("ResponseCode") or "").strip()
+    if response_code != "0":
+        pending_ref.set({
+            "reconciliation_status": "waiting",
+            "reconciliation_last_description": str(
+                query_result.get("ResponseDescription")
+                or query_result.get("errorMessage")
+                or "Safaricom has not accepted the status query yet."
+            )[:300],
+            "updated_at": timestamp(),
+        }, merge=True)
+        return {"processed": False, "reason": "query_not_accepted"}
+
+    # An accepted Daraja result must echo both identifiers exactly. Missing IDs
     # are not proof that this result belongs to the stored checkout.
     if not response_checkout or response_checkout != checkout_id:
         pending_ref.set({
@@ -887,19 +900,6 @@ def process_mpesa_query_result(internal_id, query_result):
             "updated_at": timestamp(),
         }, merge=True)
         return {"processed": False, "reason": "merchant_mismatch"}
-
-    response_code = str(query_result.get("ResponseCode") or "").strip()
-    if response_code != "0":
-        pending_ref.set({
-            "reconciliation_status": "waiting",
-            "reconciliation_last_description": str(
-                query_result.get("ResponseDescription")
-                or query_result.get("errorMessage")
-                or "Safaricom has not accepted the status query yet."
-            )[:300],
-            "updated_at": timestamp(),
-        }, merge=True)
-        return {"processed": False, "reason": "query_not_accepted"}
 
     raw_result_code = query_result.get("ResultCode")
     if raw_result_code is None or str(raw_result_code).strip() == "":
