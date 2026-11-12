@@ -678,8 +678,9 @@ async def successful_payment(
             await update.message.reply_text("Payment received, but entry activation needs support assistance.")
         return
 
-    if payment.total_amount != MONTHLY_PRICE:
-        await update.message.reply_text("❌ Invalid payment amount.")
+    expected_monthly = f"monthly_membership_{current_month_session()}"
+    if payment.invoice_payload != expected_monthly or payment.total_amount != MONTHLY_PRICE:
+        await update.message.reply_text("❌ Invalid or expired membership payment.")
         return
 
     try:
