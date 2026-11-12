@@ -163,15 +163,19 @@ async def mpesa_callback(secret: str, request: Request):
                     chat_id=int(result["telegram_id"]),
                     text=(
                         "🎉 M-PESA PAYMENT CONFIRMED!\n\n"
-                        (
-                        "Your KSh 25 weekly tournament entry is now confirmed "
-                        "for this week's session.\n\n"
-                        if result.get("payment_type") == "weekly_entry"
-                        else "Your KSh 200 NEON RUSH ARENA monthly membership "
-                        "is now active until the end of this month.\n\n"
-                    )
+                        + (
+                            "Your KSh 25 weekly tournament entry is now confirmed "
+                            "for this week's session.\n\n"
+                            if result.get("payment_type") == "weekly_entry"
+                            else "Your KSh 200 NEON RUSH ARENA monthly membership "
+                            "is now active until the end of this month.\n\n"
+                        )
                         + f"Receipt: {result.get('receipt', 'confirmed')}\n"
-                        + ("Good luck in the weekly tournament!" if result.get("payment_type") == "weekly_entry" else "Good luck in the monthly tournament!")
+                        + (
+                            "Good luck in the weekly tournament!"
+                            if result.get("payment_type") == "weekly_entry"
+                            else "Good luck in the monthly tournament!"
+                        )
                     ),
                 )
             except Exception:
