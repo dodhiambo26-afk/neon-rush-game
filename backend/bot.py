@@ -452,7 +452,7 @@ async def mpesa_phone_message(update, context):
             )
     except ValueError as exc:
         await update.message.reply_text(str(exc) + " Please send the number again.")
-        context.user_data["awaiting_mpesa_phone"] = True
+        context.user_data["awaiting_mpesa_phone"] = payment_type
     except Exception:
         logger.exception("M-Pesa STK Push initiation failed.")
         await update.message.reply_text(
@@ -667,7 +667,7 @@ async def successful_payment(
                 return
             await update.message.reply_text(
                 "🎉 PAYMENT SUCCESSFUL!\n\n"
-                "Your KSh equivalent 50-Star weekly tournament entry is now active.",
+                "Your 50-Star weekly tournament entry is now active.",
                 reply_markup=InlineKeyboardMarkup([[
                     InlineKeyboardButton("🏆 PLAY WEEKLY TOURNAMENT",
                                          web_app=WebAppInfo(url=game_url("weekly")))
