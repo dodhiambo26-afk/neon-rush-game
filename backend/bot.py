@@ -456,7 +456,7 @@ async def mpesa_phone_message(update, context):
     except Exception:
         logger.exception("M-Pesa STK Push initiation failed.")
         await update.message.reply_text(
-            "❌ We could not start the M-Pesa request. No membership has been activated. "
+            "❌ We could not start the M-Pesa request. No tournament access has been activated. "
             "Please try again later or contact support."
         )
 
@@ -596,17 +596,16 @@ async def precheckout(
     uid = query.from_user.id
 
     if reject_banned(uid):
-        await query.answer(
-            ok=False,
-            error_message="Your account is suspended.",
-        )
+        await query.answer(ok=False, error_message="Your account is suspended.")
         return
 
-    expected_payload = f"monthly_membership_{current_month_session()}"
+    if query.currency != "XTR":
+        await query.answer(ok=False, error_message="Invalid payment currency.")
+        return
 
     if query.invoice_payload.startswith("weekly_entry_"):
-        expected_weekly = f"weekly_entry_{current_weekly_session()}"
-        if query.invoice_payload != expected_weekly or query.currency != "XTR" or query.total_amount != 50:
+        expected = f"weekly_entry_{current_weekly_session()}"
+        if query.invoice_payload != expected or query.total_amount != 50:
             await query.answer(ok=False, error_message="This weekly entry invoice is invalid or expired.")
             return
         if db.has_weekly_entry(uid, current_weekly_session()):
@@ -615,39 +614,15 @@ async def precheckout(
         await query.answer(ok=True)
         return
 
-    if query.invoice_payload != expected_payload:
-        weekly_payload = f"weekly_entry_{current_weekly_session()}"
-        if query.invoice_payload != weekly_payload:
-            await query.answer(
-                ok=False,
-                error_message="This tournament invoice has expired.",
-            )
-            return
-        if query.currency != "XTR" or query.total_amount != 50:
-            await query.answer(ok=False, error_message="Invalid weekly entry price.")
-            return
-        if db.has_weekly_entry(uid, current_weekly_session()):
-            await query.answer(ok=False, error_message="You already have this week's entry.")
-            return
-        await query.answer(ok=True)
+    expected_monthly = f"monthly_membership_{current_month_session()}"
+    if query.invoice_payload != expected_monthly or query.total_amount != MONTHLY_PRICE:
+        await query.answer(ok=False, error_message="This membership invoice is invalid or expired.")
         return
-
-    if query.currency != MONTHLY_CURRENCY:
-        await query.answer(
-            ok=False,
-            error_message="Invalid payment currency.",
-        )
-        return
-
-    if query.total_amount != MONTHLY_PRICE:
-        await query.answer(
-            ok=False,
-            error_message="Invalid payment amount.",
-        )
+    if db.has_monthly_access(uid, current_month_session()):
+        await query.answer(ok=False, error_message="Your monthly membership is already active.")
         return
 
     await query.answer(ok=True)
-
 
 # ============================================================
 # SUCCESSFUL PAYMENT
