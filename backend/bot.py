@@ -576,7 +576,7 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data == "monthly_leaderboard":
         await leaderboard_message(update, context, "monthly")
 
-    elif query.data == "profile":
+    elif query.data == "my_profile":
         await profile_message(update, context)
 
     elif query.data == "support":
