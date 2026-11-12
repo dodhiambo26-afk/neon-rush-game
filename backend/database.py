@@ -787,14 +787,34 @@ def process_mpesa_callback(payload):
     is_weekly = payment_type == "weekly_entry"
     period_key = str(pending.get("session_key" if is_weekly else "month_key", ""))
 
+    # Daraja callbacks must match both identifiers saved for this STK request.
+    callback_merchant_id = str(callback.get("MerchantRequestID") or "")
+    expected_merchant_id = str(pending.get("merchant_request_id") or "")
+    if not callback_merchant_id or not expected_merchant_id or callback_merchant_id != expected_merchant_id:
+        return {"processed": False, "reason": "merchant_request_mismatch"}
+
+    # Never let a delayed failure callback downgrade a completed or reviewed payment.
     if result_code != 0:
-        pending_ref.set({
-            "status": "failed",
-            "result_code": result_code,
-            "result_description": str(callback.get("ResultDesc", ""))[:500],
-            "updated_at": timestamp(),
-        }, merge=True)
-        return {"processed": True, "success": False, "telegram_id": uid}
+        transaction = db().transaction()
+
+        @firestore.transactional
+        def apply_failure(txn):
+            current = txn.get(pending_ref)
+            if not current.exists:
+                return False
+            current_data = current.to_dict() or {}
+            if current_data.get("status") not in ("pending", "initiated"):
+                return False
+            txn.update(pending_ref, {
+                "status": "failed",
+                "result_code": result_code,
+                "result_description": str(callback.get("ResultDesc", ""))[:500],
+                "updated_at": timestamp(),
+            })
+            return True
+
+        applied = apply_failure(transaction)
+        return {"processed": bool(applied), "success": False, "telegram_id": uid}
 
     metadata_items = (
         callback.get("CallbackMetadata", {}).get("Item", [])
@@ -805,25 +825,27 @@ def process_mpesa_callback(payload):
         for item in metadata_items
         if isinstance(item, dict) and item.get("Name")
     }
+    from decimal import Decimal, InvalidOperation
+
     try:
-        paid_amount = int(float(metadata.get("Amount", 0)))
-    except (TypeError, ValueError):
-        paid_amount = 0
+        paid_amount_decimal = Decimal(str(metadata.get("Amount", "")))
+    except (InvalidOperation, TypeError, ValueError):
+        paid_amount_decimal = Decimal("-1")
     receipt = str(metadata.get("MpesaReceiptNumber") or "").strip()
     callback_phone = str(metadata.get("PhoneNumber") or "").strip()
     expected_phone = str(pending.get("phone") or "").strip()
 
     expected_amount = 25 if is_weekly else 200
-    if paid_amount != expected_amount or not receipt:
+    if paid_amount_decimal != Decimal(expected_amount) or not receipt:
         pending_ref.set({
             "status": "review_required",
             "result_code": result_code,
-            "callback_amount": paid_amount,
+            "callback_amount": int(paid_amount_decimal),
             "updated_at": timestamp(),
         }, merge=True)
         return {"processed": False, "reason": "amount_or_receipt_mismatch"}
 
-    if callback_phone and expected_phone and callback_phone != expected_phone:
+    if not callback_phone or not expected_phone or callback_phone != expected_phone:
         pending_ref.set({
             "status": "review_required",
             "callback_phone": callback_phone,
@@ -879,7 +901,7 @@ def process_mpesa_callback(payload):
             txn.update(pending_ref, {
                 "status": "success",
                 "mpesa_receipt": receipt,
-                "callback_amount": paid_amount,
+                "callback_amount": int(paid_amount_decimal),
                 "callback_phone": callback_phone,
                 "paid_at": timestamp(),
                 "updated_at": timestamp(),
@@ -949,7 +971,7 @@ def process_mpesa_callback(payload):
         txn.update(pending_ref, {
             "status": "success",
             "mpesa_receipt": receipt,
-            "callback_amount": paid_amount,
+            "callback_amount": int(paid_amount_decimal),
             "callback_phone": callback_phone,
             "paid_at": timestamp(),
             "updated_at": timestamp(),
