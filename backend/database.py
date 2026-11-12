@@ -803,8 +803,8 @@ def process_mpesa_callback(payload):
 
         @firestore.transactional
         def apply_failure(txn):
-            current = txn.get(pending_ref)
-            if not current.exists:
+            current = next(txn.get(pending_ref), None)
+            if current is None or not current.exists:
                 return False
             current_data = current.to_dict() or {}
             if current_data.get("status") not in ("pending", "initiated"):
@@ -847,8 +847,8 @@ def process_mpesa_callback(payload):
 
         @firestore.transactional
         def apply_review(txn):
-            current = txn.get(pending_ref)
-            if not current.exists:
+            current = next(txn.get(pending_ref), None)
+            if current is None or not current.exists:
                 return False
             current_data = current.to_dict() or {}
             if current_data.get("status") not in ("pending", "initiated"):
@@ -885,14 +885,14 @@ def process_mpesa_callback(payload):
 
         @firestore.transactional
         def apply_weekly_success(txn):
-            current = txn.get(pending_ref)
-            if not current.exists:
+            current = next(txn.get(pending_ref), None)
+            if current is None or not current.exists:
                 return False
             current_data = current.to_dict() or {}
             if current_data.get("status") not in ("pending", "initiated"):
                 return False
-            existing_payment = txn.get(payment_ref)
-            if existing_payment.exists:
+            existing_payment = next(txn.get(payment_ref), None)
+            if existing_payment is not None and existing_payment.exists:
                 txn.update(pending_ref, {
                     "status": "review_required",
                     "failure_reason": "M-Pesa receipt already linked to another payment.",
@@ -945,15 +945,15 @@ def process_mpesa_callback(payload):
 
     @firestore.transactional
     def apply_success(txn):
-        current = txn.get(pending_ref)
-        if not current.exists:
+        current = next(txn.get(pending_ref), None)
+        if current is None or not current.exists:
             return False
         current_data = current.to_dict() or {}
         if current_data.get("status") not in ("pending", "initiated"):
             return False
 
-        existing_payment = txn.get(payment_ref)
-        if existing_payment.exists:
+        existing_payment = next(txn.get(payment_ref), None)
+        if existing_payment is not None and existing_payment.exists:
             txn.update(pending_ref, {
                 "status": "review_required",
                 "failure_reason": "M-Pesa receipt already linked to another payment.",
