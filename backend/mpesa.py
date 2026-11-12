@@ -69,37 +69,43 @@ async def initiate_stk_push(telegram_id, phone):
         "MPESA_TRANSACTION_TYPE", "CustomerPayBillOnline"
     ).strip()
 
-    async with httpx.AsyncClient(timeout=30) as client:
-        token_response = await client.get(
-            f"{base_url}/oauth/v1/generate",
-            params={"grant_type": "client_credentials"},
-            auth=(key, secret),
-        )
-        token_response.raise_for_status()
-        access_token = token_response.json().get("access_token")
-        if not access_token:
-            raise RuntimeError("Daraja did not return an access token.")
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            token_response = await client.get(
+                f"{base_url}/oauth/v1/generate",
+                params={"grant_type": "client_credentials"},
+                auth=(key, secret),
+            )
+            token_response.raise_for_status()
+            access_token = token_response.json().get("access_token")
+            if not access_token:
+                raise RuntimeError("Daraja did not return an access token.")
 
-        payload = {
-            "BusinessShortCode": shortcode,
-            "Password": password,
-            "Timestamp": now,
-            "TransactionType": transaction_type,
-            "Amount": MONTHLY_MEMBERSHIP_KES,
-            "PartyA": phone,
-            "PartyB": shortcode,
-            "PhoneNumber": phone,
-            "CallBackURL": callback_url,
-            "AccountReference": "NEONRUSH",
-            "TransactionDesc": "Monthly Membership",
-        }
-        response = await client.post(
-            f"{base_url}/mpesa/stkpush/v1/processrequest",
-            json=payload,
-            headers={"Authorization": f"Bearer {access_token}"},
-        )
-        response.raise_for_status()
-        data = response.json()
+            payload = {
+                "BusinessShortCode": shortcode,
+                "Password": password,
+                "Timestamp": now,
+                "TransactionType": transaction_type,
+                "Amount": MONTHLY_MEMBERSHIP_KES,
+                "PartyA": phone,
+                "PartyB": shortcode,
+                "PhoneNumber": phone,
+                "CallBackURL": callback_url,
+                "AccountReference": "NEONRUSH",
+                "TransactionDesc": "Monthly Membership",
+            }
+            response = await client.post(
+                f"{base_url}/mpesa/stkpush/v1/processrequest",
+                json=payload,
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            response.raise_for_status()
+            data = response.json()
+    except Exception as exc:
+        db.fail_mpesa_pending(internal_id, type(exc).__name__)
+        raise RuntimeError(
+            "Safaricom could not be reached or rejected the request. Please try again."
+        ) from exc
 
     if str(data.get("ResponseCode", "")) != "0":
         db.fail_mpesa_pending(internal_id, data.get("ResponseDescription") or data)
