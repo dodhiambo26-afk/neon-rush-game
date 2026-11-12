@@ -444,7 +444,7 @@ def save_score(uid, score, mode="weekly", session_key=None, username=None, durat
         "score": score,
         "duration_seconds": _as_int(duration),
         "score_rate_per_second": round(score / max(1, _as_int(duration)), 2),
-        "verification_status": "accepted",
+        "verification_status": "screened",
         "mode": mode,
         "session_key": session_key,
         "created_at": timestamp(),
