@@ -844,6 +844,19 @@ def process_mpesa_query_result(internal_id, query_result):
         }, merge=True)
         return {"processed": False, "reason": "merchant_mismatch"}
 
+    response_code = str(query_result.get("ResponseCode") or "").strip()
+    if response_code != "0":
+        pending_ref.set({
+            "reconciliation_status": "waiting",
+            "reconciliation_last_description": str(
+                query_result.get("ResponseDescription")
+                or query_result.get("errorMessage")
+                or "Safaricom has not accepted the status query yet."
+            )[:300],
+            "updated_at": timestamp(),
+        }, merge=True)
+        return {"processed": False, "reason": "query_not_accepted"}
+
     raw_result_code = query_result.get("ResultCode")
     if raw_result_code is None or str(raw_result_code).strip() == "":
         pending_ref.set({
