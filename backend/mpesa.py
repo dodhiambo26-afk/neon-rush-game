@@ -30,7 +30,7 @@ def normalize_kenyan_phone(value):
     return digits
 
 
-async def initiate_stk_push(telegram_id, phone):
+async def initiate_stk_push(telegram_id, phone, payment_type="monthly_membership"):
     key = os.getenv("MPESA_CONSUMER_KEY", "").strip()
     secret = os.getenv("MPESA_CONSUMER_SECRET", "").strip()
     passkey = os.getenv("MPESA_PASSKEY", "").strip()
@@ -48,9 +48,22 @@ async def initiate_stk_push(telegram_id, phone):
         raise RuntimeError("MPESA_ENVIRONMENT must be sandbox or production.")
 
     phone = normalize_kenyan_phone(phone)
-    month_key = db.current_month_key()
-    if db.has_monthly_access(telegram_id, month_key):
-        return {"already_active": True}
+    if payment_type == "weekly_entry":
+        period_key = db.current_weekly_session()
+        if db.has_weekly_entry(telegram_id, period_key):
+            return {"already_active": True}
+        amount = 25
+        reference = "NRWEEKLY"
+        description = "Weekly Tournament Entry"
+    elif payment_type == "monthly_membership":
+        period_key = db.current_month_key()
+        if db.has_monthly_access(telegram_id, period_key):
+            return {"already_active": True}
+        amount = MONTHLY_MEMBERSHIP_KES
+        reference = "NEONRUSH"
+        description = "Monthly Membership"
+    else:
+        raise ValueError("Unsupported M-Pesa payment type.")
 
     base_url = (
         "https://sandbox.safaricom.co.ke"
@@ -59,7 +72,7 @@ async def initiate_stk_push(telegram_id, phone):
     )
     callback_url = f"{render_url}/api/mpesa/callback/{callback_secret}"
     internal_id = uuid.uuid4().hex
-    db.create_mpesa_pending(internal_id, telegram_id, phone, month_key)
+    db.create_mpesa_pending(internal_id, telegram_id, phone, period_key, payment_type)
 
     now = datetime.now(KENYA).strftime("%Y%m%d%H%M%S")
     password = base64.b64encode(
@@ -86,13 +99,13 @@ async def initiate_stk_push(telegram_id, phone):
                 "Password": password,
                 "Timestamp": now,
                 "TransactionType": transaction_type,
-                "Amount": MONTHLY_MEMBERSHIP_KES,
+                "Amount": amount,
                 "PartyA": phone,
                 "PartyB": shortcode,
                 "PhoneNumber": phone,
                 "CallBackURL": callback_url,
-                "AccountReference": "NEONRUSH",
-                "TransactionDesc": "Monthly Membership",
+                "AccountReference": reference,
+                "TransactionDesc": description,
             }
             response = await client.post(
                 f"{base_url}/mpesa/stkpush/v1/processrequest",
@@ -150,10 +163,19 @@ async def mpesa_callback(secret: str, request: Request):
                     chat_id=int(result["telegram_id"]),
                     text=(
                         "🎉 M-PESA PAYMENT CONFIRMED!\n\n"
-                        "Your KSh 200 NEON RUSH ARENA monthly membership "
-                        "is now active until the end of this month.\n\n"
-                        f"Receipt: {result.get('receipt', 'confirmed')}\n"
-                        "Good luck in the monthly tournament!"
+                        + (
+                            "Your KSh 25 weekly tournament entry is now confirmed "
+                            "for this week's session.\n\n"
+                            if result.get("payment_type") == "weekly_entry"
+                            else "Your KSh 200 NEON RUSH ARENA monthly membership "
+                            "is now active until the end of this month.\n\n"
+                        )
+                        + f"Receipt: {result.get('receipt', 'confirmed')}\n"
+                        + (
+                            "Good luck in the weekly tournament!"
+                            if result.get("payment_type") == "weekly_entry"
+                            else "Good luck in the monthly tournament!"
+                        )
                     ),
                 )
             except Exception:

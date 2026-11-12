@@ -202,8 +202,7 @@ def main_text(user):
         "🎮 FREE DAILY GAME\n"
         "Play free every day.\n\n"
         "🏆 WEEKLY TOURNAMENT\n"
-        "Entry: KES 25\n"
-        "Entry is approved by an administrator.\n"
+        "Entry: KES 25 by M-Pesa or 50 Telegram Stars.\n"
         "Weekly session: Sunday 6 PM to Sunday 6 PM "
         "(Kenya time).\n"
         "Compete for Weekly leaderboard rewards.\n\n"
@@ -269,18 +268,15 @@ async def weekly_information(update: Update, context):
         return
 
     await query.message.reply_text(
-        "🏆 WEEKLY TOURNAMENT\n\n"
-        "Entry fee: KES 25\n"
-        "Entries are approved manually by an administrator.\n\n"
-        "Session: Sunday 6 PM to Sunday 6 PM Kenya time.\n\n"
-        "Contact support or an administrator for entry approval.",
+        f"🏆 WEEKLY TOURNAMENT — {session_key}\n\n"
+        "Entry fee: KSh 25 by M-Pesa OR 50 Telegram Stars.\n\n"
+        "Choose your payment method below. Your entry activates only "
+        "after the payment is confirmed.\n\n"
+        "Session: Sunday 6 PM to Sunday 6 PM Kenya time.",
         reply_markup=InlineKeyboardMarkup([
-            [
-                InlineKeyboardButton(
-                    "📞 SUPPORT",
-                    callback_data="support"
-                )
-            ]
+            [InlineKeyboardButton("📱 PAY KSh 25 WITH M-PESA", callback_data="weekly_mpesa")],
+            [InlineKeyboardButton("⭐ PAY 50 TELEGRAM STARS", callback_data="weekly_stars")],
+            [InlineKeyboardButton("📞 SUPPORT", callback_data="support")],
         ]),
     )
 
@@ -370,11 +366,33 @@ async def send_monthly_invoice(update, context):
     )
 
 
+async def send_weekly_invoice(update, context):
+    query = update.callback_query
+    await query.answer()
+    uid = query.from_user.id
+    if reject_banned(uid):
+        await query.message.reply_text("🚫 Your account has been suspended.")
+        return
+    session_key = current_weekly_session()
+    if db.has_weekly_entry(uid, session_key):
+        await query.message.reply_text("✅ You already have access to this week's tournament.")
+        return
+    await context.bot.send_invoice(
+        chat_id=uid,
+        title="NEON RUSH ARENA Weekly Tournament Entry",
+        description=f"Weekly tournament entry for session {session_key}.",
+        payload=f"weekly_entry_{session_key}",
+        currency="XTR",
+        prices=[LabeledPrice(label="Weekly Tournament Entry", amount=50)],
+        provider_token="",
+    )
+
+
 # ============================================================
 # LEADERBOARDS
 # ============================================================
 
-async def request_mpesa_phone(update, context):
+async def request_mpesa_phone(update, context, payment_type="monthly_membership"):
     query = update.callback_query
     await query.answer()
     uid = query.from_user.id
@@ -383,21 +401,33 @@ async def request_mpesa_phone(update, context):
         await query.message.reply_text("🚫 Your account has been suspended.")
         return
 
-    if db.has_monthly_access(uid, current_month_session()):
-        await query.message.reply_text("✅ Your monthly membership is already active.")
-        return
+    if payment_type == "weekly_entry":
+        session_key = current_weekly_session()
+        if db.has_weekly_entry(uid, session_key):
+            await query.message.reply_text("✅ You already have access to this week's tournament.")
+            return
+        context.user_data["awaiting_mpesa_phone"] = "weekly_entry"
+        heading = "📱 M-PESA WEEKLY TOURNAMENT ENTRY"
+        price = "KSh 25"
+    else:
+        if db.has_monthly_access(uid, current_month_session()):
+            await query.message.reply_text("✅ Your monthly membership is already active.")
+            return
+        context.user_data["awaiting_mpesa_phone"] = "monthly_membership"
+        heading = "📱 M-PESA MONTHLY MEMBERSHIP"
+        price = "KSh 200"
 
-    context.user_data["awaiting_mpesa_phone"] = True
     await query.message.reply_text(
-        "📱 M-PESA MONTHLY MEMBERSHIP\n\n"
-        "The fixed membership price is KSh 200.\n"
+        heading + "\n\n"
+        f"The fixed payment price is {price}.\n"
         "Send your Safaricom M-Pesa number in this chat (for example 0712345678).\n\n"
         "You will receive an STK prompt on that phone. Enter your M-Pesa PIN only on your phone's Safaricom prompt — never send your PIN here."
     )
 
 
 async def mpesa_phone_message(update, context):
-    if not context.user_data.get("awaiting_mpesa_phone"):
+    payment_type = context.user_data.get("awaiting_mpesa_phone")
+    if not payment_type:
         return
 
     context.user_data["awaiting_mpesa_phone"] = False
@@ -408,21 +438,25 @@ async def mpesa_phone_message(update, context):
         return
 
     try:
-        result = await initiate_stk_push(uid, update.message.text.strip())
+        result = await initiate_stk_push(
+            uid, update.message.text.strip(), payment_type=payment_type
+        )
         if result.get("already_active"):
-            await update.message.reply_text("✅ Your monthly membership is already active.")
+            await update.message.reply_text("✅ You already have access to this tournament period.")
         else:
+            amount_text = "KSh 25" if payment_type == "weekly_entry" else "KSh 200"
+            access_text = "weekly tournament entry" if payment_type == "weekly_entry" else "monthly membership"
             await update.message.reply_text(
                 "📲 M-PESA request sent. " + result["customer_message"] + "\n\n"
-                "Your membership will activate only after Safaricom confirms the KSh 200 payment."
+                f"Your {access_text} will activate only after Safaricom confirms the {amount_text} payment."
             )
     except ValueError as exc:
         await update.message.reply_text(str(exc) + " Please send the number again.")
-        context.user_data["awaiting_mpesa_phone"] = True
+        context.user_data["awaiting_mpesa_phone"] = payment_type
     except Exception:
         logger.exception("M-Pesa STK Push initiation failed.")
         await update.message.reply_text(
-            "❌ We could not start the M-Pesa request. No membership has been activated. "
+            "❌ We could not start the M-Pesa request. No tournament access has been activated. "
             "Please try again later or contact support."
         )
 
@@ -521,6 +555,12 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if query.data == "weekly_info":
         await weekly_information(update, context)
 
+    elif query.data == "weekly_stars":
+        await send_weekly_invoice(update, context)
+
+    elif query.data == "weekly_mpesa":
+        await request_mpesa_phone(update, context, "weekly_entry")
+
     elif query.data == "monthly_join":
         await monthly_join_options(update, context)
 
@@ -556,39 +596,33 @@ async def precheckout(
     uid = query.from_user.id
 
     if reject_banned(uid):
-        await query.answer(
-            ok=False,
-            error_message="Your account is suspended.",
-        )
+        await query.answer(ok=False, error_message="Your account is suspended.")
         return
 
-    expected_payload = (
-        f"monthly_membership_{current_month_session()}"
-    )
-
-    if query.invoice_payload != expected_payload:
-        await query.answer(
-            ok=False,
-            error_message="This membership invoice has expired.",
-        )
+    if query.currency != "XTR":
+        await query.answer(ok=False, error_message="Invalid payment currency.")
         return
 
-    if query.currency != MONTHLY_CURRENCY:
-        await query.answer(
-            ok=False,
-            error_message="Invalid payment currency.",
-        )
+    if query.invoice_payload.startswith("weekly_entry_"):
+        expected = f"weekly_entry_{current_weekly_session()}"
+        if query.invoice_payload != expected or query.total_amount != 50:
+            await query.answer(ok=False, error_message="This weekly entry invoice is invalid or expired.")
+            return
+        if db.has_weekly_entry(uid, current_weekly_session()):
+            await query.answer(ok=False, error_message="You already have this week's entry.")
+            return
+        await query.answer(ok=True)
         return
 
-    if query.total_amount != MONTHLY_PRICE:
-        await query.answer(
-            ok=False,
-            error_message="Invalid payment amount.",
-        )
+    expected_monthly = f"monthly_membership_{current_month_session()}"
+    if query.invoice_payload != expected_monthly or query.total_amount != MONTHLY_PRICE:
+        await query.answer(ok=False, error_message="This membership invoice is invalid or expired.")
+        return
+    if db.has_monthly_access(uid, current_month_session()):
+        await query.answer(ok=False, error_message="Your monthly membership is already active.")
         return
 
     await query.answer(ok=True)
-
 
 # ============================================================
 # SUCCESSFUL PAYMENT
@@ -609,16 +643,44 @@ async def successful_payment(
         )
         return
 
-    if payment.currency != MONTHLY_CURRENCY:
-        await update.message.reply_text(
-            "❌ Invalid payment currency."
-        )
+    if payment.currency != "XTR":
+        await update.message.reply_text("❌ Invalid payment currency.")
         return
 
-    if payment.total_amount != MONTHLY_PRICE:
-        await update.message.reply_text(
-            "❌ Invalid payment amount."
-        )
+    if payment.invoice_payload.startswith("weekly_entry_"):
+        session_key = current_weekly_session()
+        expected = f"weekly_entry_{session_key}"
+        if payment.invoice_payload != expected or payment.total_amount != 50:
+            await update.message.reply_text("❌ Invalid or expired weekly entry payment.")
+            return
+        try:
+            recorded = db.record_weekly_stars_payment(
+                uid=uid,
+                telegram_charge_id=payment.telegram_payment_charge_id,
+                provider_charge_id=payment.provider_payment_charge_id,
+                amount=payment.total_amount,
+                currency=payment.currency,
+                session_key=session_key,
+            )
+            if not recorded:
+                await update.message.reply_text("This payment has already been processed.")
+                return
+            await update.message.reply_text(
+                "🎉 PAYMENT SUCCESSFUL!\n\n"
+                "Your 50-Star weekly tournament entry is now active.",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("🏆 PLAY WEEKLY TOURNAMENT",
+                                         web_app=WebAppInfo(url=game_url("weekly")))
+                ]]),
+            )
+        except Exception:
+            logger.exception("Weekly Stars payment processing failed")
+            await update.message.reply_text("Payment received, but entry activation needs support assistance.")
+        return
+
+    expected_monthly = f"monthly_membership_{current_month_session()}"
+    if payment.invoice_payload != expected_monthly or payment.total_amount != MONTHLY_PRICE:
+        await update.message.reply_text("❌ Invalid or expired membership payment.")
         return
 
     try:
