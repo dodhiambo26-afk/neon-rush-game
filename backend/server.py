@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field
 import database as db
 from bot import build_application
 from telegram import Update
-from mpesa import router as mpesa_router
+from mpesa import mpesa_reconciliation_loop, router as mpesa_router
 
 
 # ============================================================
@@ -514,12 +514,20 @@ async def lifespan(app: FastAPI):
     await bot_application.start()
 
     print("NEON RUSH ARENA Telegram bot started successfully.")
+    reconciliation_task = asyncio.create_task(
+        mpesa_reconciliation_loop(bot_application)
+    )
 
     try:
         yield
 
     finally:
         print("Stopping NEON RUSH ARENA Telegram bot...")
+        reconciliation_task.cancel()
+        try:
+            await reconciliation_task
+        except asyncio.CancelledError:
+            pass
 
         if bot_application.updater.running:
             await bot_application.updater.stop()
