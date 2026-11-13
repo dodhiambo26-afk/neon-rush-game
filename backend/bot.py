@@ -1,6 +1,7 @@
 import os
 import asyncio
 import logging
+import html
 
 from datetime import datetime, timezone
 
@@ -194,7 +195,7 @@ def player_keyboard(uid):
 
 
 def main_text(user):
-    name = user.first_name or "Player"
+    name = html.escape(user.first_name or "Player")
 
     return (
         f"🚀 Welcome to NEON RUSH ARENA, {name}!\n\n"
@@ -205,11 +206,17 @@ def main_text(user):
         "Entry: KES 25 by M-Pesa or 50 Telegram Stars.\n"
         "Weekly session: Sunday 6 PM to Sunday 6 PM "
         "(Kenya time).\n"
-        "🏆 The top 5 players receive rewards in every weekly tournament.\n\n"
+        "\n<b>━━━━━━━━━━━━━━━━━━━━</b>\n"
+        "🏆 <b>TOP 5 PLAYERS WIN REWARDS!</b> 🏆\n"
+        "<b>In EVERY weekly tournament.</b>\n"
+        "<b>━━━━━━━━━━━━━━━━━━━━</b>\n\n"
         "🌟 MONTHLY TOURNAMENT\n"
         "Membership: KSh 200 by M-Pesa or 300 Telegram Stars.\n"
-        "🏆 The top 5 players receive rewards in every monthly tournament.\n"
-        "Final standings are reviewed before awards are confirmed. Cash payouts are handled separately and are not automatic.\n\n"
+        "\n<b>━━━━━━━━━━━━━━━━━━━━</b>\n"
+        "🏆 <b>TOP 5 PLAYERS WIN REWARDS!</b> 🏆\n"
+        "<b>In EVERY monthly tournament.</b>\n"
+        "<b>━━━━━━━━━━━━━━━━━━━━</b>\n"
+        "<i>Final standings are reviewed before awards are confirmed. Cash payouts are handled separately and are not automatic.</i>\n\n"
         "Good luck, Racer!"
     )
 
@@ -233,6 +240,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         photo=LOGO_URL,
         caption=main_text(user),
         reply_markup=player_keyboard(user.id),
+        parse_mode="HTML",
     )
 
 # ============================================================
@@ -274,7 +282,11 @@ async def weekly_information(update: Update, context):
         "Choose your payment method below. Your entry activates only "
         "after the payment is confirmed.\n\n"
         "Session: Sunday 6 PM to Sunday 6 PM Kenya time.\n\n"
-        "🏆 The top 5 finishers receive tournament rewards. Final standings are reviewed before awards are confirmed. Cash payouts are not automatic.",
+        "\n━━━━━━━━━━━━━━━━━━━━\n"
+        "🏆 <b>TOP 5 PLAYERS WIN REWARDS!</b> 🏆\n"
+        "<b>Every weekly tournament.</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "<i>Final standings are reviewed before awards are confirmed. Cash payouts are not automatic.</i>",
         reply_markup=InlineKeyboardMarkup([
             [InlineKeyboardButton("📱 PAY KSh 25 WITH M-PESA", callback_data="weekly_mpesa")],
             [InlineKeyboardButton("⭐ PAY 50 TELEGRAM STARS", callback_data="weekly_stars")],
@@ -314,7 +326,11 @@ async def monthly_join_options(update, context):
         "Choose your payment method:\n"
         "• KSh 200 via M-Pesa STK Push\n"
         "• 300 Telegram Stars\n\n"
-        "🏆 The top 5 finishers receive monthly tournament rewards. Final standings are reviewed before awards are confirmed. Cash payouts are not automatic.",
+        "\n━━━━━━━━━━━━━━━━━━━━\n"
+        "🏆 <b>TOP 5 PLAYERS WIN REWARDS!</b> 🏆\n"
+        "<b>Every monthly tournament.</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "<i>Final standings are reviewed before awards are confirmed. Cash payouts are not automatic.</i>",
         reply_markup=InlineKeyboardMarkup([
             [InlineKeyboardButton("📱 PAY KSh 200 WITH M-PESA", callback_data="monthly_mpesa")],
             [InlineKeyboardButton("⭐ PAY 300 TELEGRAM STARS", callback_data="monthly_stars")],
@@ -499,21 +515,23 @@ async def leaderboard_message(update, context, mode):
     lines = [
         title,
         "",
-        "🏆 TOP 5 FINISHERS RECEIVE TOURNAMENT REWARDS.",
-        "Final standings are reviewed before awards are confirmed.",
-        "Cash payouts are handled separately and are not automatic.",
+        "━━━━━━━━━━━━━━━━━━━━",
+        "🏆 <b>TOP 5 PLAYERS WIN REWARDS!</b> 🏆",
+        "<b>Final standings are reviewed before awards are confirmed.</b>",
+        "<i>Cash payouts are handled separately and are not automatic.</i>",
+        "━━━━━━━━━━━━━━━━━━━━",
         "",
     ]
 
     for position, item in enumerate(scores, start=1):
-        username = item.get("username") or item.get("telegram_id")
+        username = html.escape(str(item.get("username") or item.get("telegram_id")))
         score = item.get("score", 0)
 
         lines.append(
             f"{position}. {username} — {score} points"
         )
 
-    await query.message.reply_text("\n".join(lines))
+    await query.message.reply_text("\n".join(lines), parse_mode="HTML")
 
 
 # ============================================================
