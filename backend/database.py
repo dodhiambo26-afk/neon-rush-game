@@ -1843,9 +1843,6 @@ def get_performance(mode="weekly", session_key=None):
     }
 
 
-# ============================================================
-# INITIALIZE
-# ============================================================
-
-init_db()
+# Database initialization is lazy; the preview service can import this module
+# without connecting to any Firebase project. Production initializes at startup.
 
