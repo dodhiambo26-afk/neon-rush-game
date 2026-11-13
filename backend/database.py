@@ -412,10 +412,55 @@ def list_monthly_members(month_key=None):
 
 
 # ============================================================
+# RACE SESSION SECURITY
+# ============================================================
+
+def create_race_session(race_id, uid, mode, session_key):
+    """Persist a one-use race ticket bound to one player and tournament."""
+    uid = _user_id(uid)
+    started = timestamp()
+    expires = started + timedelta(hours=2)
+    _doc("race_sessions", race_id).create({
+        "race_id": race_id,
+        "telegram_id": uid,
+        "mode": mode,
+        "session_key": str(session_key),
+        "status": "active",
+        "started_at": started,
+        "expires_at": expires,
+        "created_at": started,
+    })
+    return {"started_at": started, "expires_at": expires}
+
+
+def get_race_session(race_id):
+    return _get("race_sessions", race_id)
+
+
+def consume_race_session(race_id, uid):
+    """Atomically mark a race ticket as used; a ticket can only score once."""
+    ref = _doc("race_sessions", race_id)
+    transaction = db().transaction()
+
+    @firestore.transactional
+    def _consume(txn):
+        snapshot = ref.get(transaction=txn)
+        if not snapshot.exists:
+            return False
+        data = snapshot.to_dict() or {}
+        if str(data.get("telegram_id")) != str(uid) or data.get("status") != "active":
+            return False
+        txn.update(ref, {"status": "consumed", "consumed_at": timestamp()})
+        return True
+
+    return _consume(transaction)
+
+
+# ============================================================
 # SCORES AND LEADERBOARDS
 # ============================================================
 
-def save_score(uid, score, mode="weekly", session_key=None, username=None, duration=0):
+def save_score(uid, score, mode="weekly", session_key=None, username=None, duration=0, race_id=None):
     uid = _user_id(uid)
     score = _as_int(score)
 
@@ -435,7 +480,11 @@ def save_score(uid, score, mode="weekly", session_key=None, username=None, durat
     else:
         return False
 
-    score_id = f"{mode}_{session_key}_{uid}_{int(now_utc().timestamp() * 1000)}"
+    score_id = (
+        f"{mode}_{session_key}_{uid}_{race_id}"
+        if race_id else
+        f"{mode}_{session_key}_{uid}_{int(now_utc().timestamp() * 1000)}"
+    )
 
     _doc("scores", score_id).set({
         "score_id": score_id,
@@ -444,7 +493,8 @@ def save_score(uid, score, mode="weekly", session_key=None, username=None, durat
         "score": score,
         "duration_seconds": _as_int(duration),
         "score_rate_per_second": round(score / max(1, _as_int(duration)), 2),
-        "verification_status": "screened",
+        "verification_status": "server_session_screened" if race_id else "screened",
+        "race_id": race_id,
         "mode": mode,
         "session_key": session_key,
         "created_at": timestamp(),
