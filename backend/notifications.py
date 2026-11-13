@@ -53,7 +53,7 @@ def set_preferences(uid, preferences):
     return current
 
 
-def _eligible_users(preference=None):
+def _eligible_users(preference=None, inactive_days=None):
     rows = db.db().collection("users").stream()
     result = []
     for snap in rows:
@@ -68,6 +68,14 @@ def _eligible_users(preference=None):
             continue
         if preference and not _user_preferences(user).get(preference, False):
             continue
+        if inactive_days is not None:
+            last_active = user.get("updated_at") or user.get("created_at")
+            if not isinstance(last_active, datetime):
+                continue
+            if last_active.tzinfo is None:
+                last_active = last_active.replace(tzinfo=timezone.utc)
+            if last_active > _now() - timedelta(days=inactive_days):
+                continue
         result.append(uid)
     return result
 
@@ -113,11 +121,11 @@ def _finish_event(event_id, status, sent=0, failed=0, detail=None):
     }, merge=True)
 
 
-async def _deliver(application, event_id, text, preference=None, user_ids=None):
+async def _deliver(application, event_id, text, preference=None, user_ids=None, inactive_days=None):
     if not _claim_event(event_id, "scheduled" if preference else "broadcast"):
         return {"skipped": True, "sent": 0, "failed": 0}
 
-    recipients = user_ids if user_ids is not None else _eligible_users(preference)
+    recipients = user_ids if user_ids is not None else _eligible_users(preference, inactive_days)
     sent = failed = 0
     for uid in recipients:
         try:
