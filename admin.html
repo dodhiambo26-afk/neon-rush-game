@@ -1399,7 +1399,7 @@ async function loadPrizeAwards(){
   el.innerHTML=d.awards.map(a=>{
    const id=escapeHTML(a.award_id);
    const status=escapeHTML(a.status||"pending");
-   const phone=escapeHTML(a.payout_phone||"Not submitted");
+   const phone=escapeHTML(a.payout_phone_masked||"Not verified");
    const receipt=escapeHTML(a.b2c_receipt||"");
    const canSend=a.status==="pending";
    return '<div class="item"><strong>#'+escapeHTML(a.position)+' • '+escapeHTML(a.amount)+' '+escapeHTML(a.currency||"KES")+'</strong><br>Player: '+escapeHTML(a.telegram_id)+'<br>Period: '+escapeHTML(a.period_type)+' / '+escapeHTML(a.period_key)+'<br>Status: '+status+'<br>Payout phone: '+phone+(receipt?'<br>M-Pesa receipt: '+receipt:'')+(canSend?'<button class="action" onclick="sendPrizePayout(\''+id+'\')">Send M-Pesa payout</button>':'')+'</div>';
