@@ -4,6 +4,7 @@ The scheduler runs inside the existing FastAPI lifespan, so no second Render
 service or external cron subscription is required.
 """
 import asyncio
+import html
 import logging
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
@@ -208,7 +209,7 @@ async def _run_scheduled_checks(application):
 
     for hours_before, label in ((24, "24-hour"), (1, "1-hour")):
         target = next_start - timedelta(hours=hours_before)
-        if target <= now < next_start:
+        if target <= now < target + timedelta(minutes=20):
             event_id = f"weekly_{next_start.strftime('%Y%m%d%H%M')}_{hours_before}h"
             await _deliver(
                 application,
