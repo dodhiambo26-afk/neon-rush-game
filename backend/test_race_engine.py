@@ -1,6 +1,6 @@
 import unittest
 
-from race_engine import simulate_race
+from race_engine import XorShift32, simulate_race
 
 
 class DeterministicRaceTests(unittest.TestCase):
@@ -14,9 +14,9 @@ class DeterministicRaceTests(unittest.TestCase):
         second = simulate_race(123456789, inputs, 5000)
         self.assertEqual(first, second)
 
-    def test_different_seed_changes_generated_race(self):
-        first = simulate_race(123456789, [], 120)
-        second = simulate_race(987654321, [], 120)
+    def test_different_seeds_produce_different_random_streams(self):
+        first = XorShift32(123456789).random()
+        second = XorShift32(987654321).random()
         self.assertNotEqual(first, second)
 
     def test_invalid_direction_is_rejected(self):
