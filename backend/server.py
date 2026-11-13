@@ -22,6 +22,7 @@ from bot import build_application
 from telegram import Update
 from telegram.error import TelegramError
 from mpesa import mpesa_reconciliation_loop, router as mpesa_router
+from b2c_payouts import router as b2c_payouts_router
 from preview_races import router as preview_races_router
 import notifications as notification_service
 
@@ -596,6 +597,7 @@ async def preview_isolation_middleware(request: Request, call_next):
     return await call_next(request)
 
 app.include_router(mpesa_router)
+app.include_router(b2c_payouts_router)
 app.include_router(preview_races_router)
 
 app.add_middleware(
@@ -1790,14 +1792,20 @@ def admin_prizes(
             detail="Invalid prize period.",
         )
 
-    return {
-        "awards": json_safe(
-            db.list_prize_awards(
-                period_type or None,
-                period_key or None,
-            )
-        ),
-    }
+    awards = db.list_prize_awards(
+        period_type or None,
+        period_key or None,
+    )
+    for award in awards:
+        player = db.get_user(award.get("telegram_id")) or {}
+        phone = str(player.get("mpesa_payout_phone") or "")
+        award["payout_phone_verified"] = bool(
+            player.get("mpesa_phone_verified") and phone
+        )
+        award["payout_phone_masked"] = (
+            "••••••" + phone[-4:] if phone else "Not verified"
+        )
+    return {"awards": json_safe(awards)}
 
 
 @app.post("/api/admin/prizes")

@@ -1403,6 +1403,7 @@ def process_mpesa_callback(payload):
     if is_weekly:
         entry_id = _weekly_entry_id(uid, period_key)
         entry_ref = _doc("weekly_entries", entry_id)
+        user_ref = _doc("users", uid)
         transaction = db().transaction()
 
         @firestore.transactional
@@ -1451,6 +1452,11 @@ def process_mpesa_callback(payload):
                 "paid_at": timestamp(),
                 "updated_at": timestamp(),
             })
+            txn.set(user_ref, {
+                "mpesa_payout_phone": callback_phone,
+                "mpesa_phone_verified": True,
+                "mpesa_phone_verified_at": timestamp(),
+            }, merge=True)
             return True
 
         applied = apply_weekly_success(transaction)
@@ -1519,6 +1525,11 @@ def process_mpesa_callback(payload):
             "paid_at": timestamp(),
             "updated_at": timestamp(),
         })
+        txn.set(user_ref, {
+            "mpesa_payout_phone": callback_phone,
+            "mpesa_phone_verified": True,
+            "mpesa_phone_verified_at": timestamp(),
+        }, merge=True)
         return True
 
     applied = apply_success(transaction)

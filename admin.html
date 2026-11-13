@@ -82,6 +82,7 @@ footer{text-align:center;color:#6f88a8;font-size:11px;padding:25px}
 <button data-page="grant">Add player</button>
 <button data-page="payments">Stars payments</button>
 <button data-page="mpesa">M-Pesa payments</button>
+<button data-page="prizes">Prizes &amp; payouts</button>
 <button data-page="performance">Performance</button>
 <button data-page="banned">Moderation</button>
 <button data-page="tournament">Tournament</button>
@@ -246,6 +247,27 @@ These actions do not charge Telegram Stars.
  <div class="stat"><small>Needs review</small><strong id="mpesaReviewCount">—</strong></div>
 </div>
 <div id="mpesaPaymentsList" class="panel">Loading M-Pesa transactions...</div>
+</section>
+
+
+<section id="prizes">
+<h2>Prize awards &amp; M-Pesa payouts</h2>
+<div class="notice">Create awards only after checking and finalizing the official tournament results. Payouts go only to a player's M-Pesa number verified by a successful NEON RUSH STK payment. Sending a payout is a real cash transfer.</div>
+<h3>Create a prize award</h3>
+<label>Tournament type</label>
+<select id="prizePeriodType"><option value="weekly">Weekly</option><option value="monthly">Monthly</option></select>
+<label>Exact tournament period key</label>
+<input id="prizePeriodKey" placeholder="e.g. 2026-11-08T18:00">
+<label>Position (1–5)</label>
+<select id="prizePosition"><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option></select>
+<label>Winner Telegram ID</label>
+<input id="prizeTelegramId" type="number" placeholder="Telegram user ID">
+<label>Prize amount (KES)</label>
+<input id="prizeAmount" type="number" min="1" step="1" placeholder="Amount in KES">
+<button class="action" onclick="createPrizeAward()">Save approved prize award</button>
+<h3>Existing awards</h3>
+<button class="action" onclick="loadPrizeAwards()">Refresh prize awards</button>
+<div id="prizeAwardsList" class="panel">Load prize awards to review status.</div>
 </section>
 
 <section id="performance">
@@ -1361,6 +1383,55 @@ async function unbanPlayer(){
  }catch(e){
   showMessage(e.message);
  }
+}
+
+
+async function loadPrizeAwards(){
+ try{
+  const type=document.getElementById("prizePeriodType").value;
+  const key=document.getElementById("prizePeriodKey").value.trim();
+  const query=new URLSearchParams();
+  if(type) query.set("period_type",type);
+  if(key) query.set("period_key",key);
+  const d=await api("/api/admin/prizes?"+query.toString());
+  const el=document.getElementById("prizeAwardsList");
+  if(!d.awards?.length){el.textContent="No prize awards found for this filter.";return;}
+  el.innerHTML=d.awards.map(a=>{
+   const id=escapeHTML(a.award_id);
+   const status=escapeHTML(a.status||"pending");
+   const phone=escapeHTML(a.payout_phone_masked||"Not verified");
+   const receipt=escapeHTML(a.b2c_receipt||"");
+   const canSend=a.status==="pending";
+   return '<div class="item"><strong>#'+escapeHTML(a.position)+' • '+escapeHTML(a.amount)+' '+escapeHTML(a.currency||"KES")+'</strong><br>Player: '+escapeHTML(a.telegram_id)+'<br>Period: '+escapeHTML(a.period_type)+' / '+escapeHTML(a.period_key)+'<br>Status: '+status+'<br>Payout phone: '+phone+(receipt?'<br>M-Pesa receipt: '+receipt:'')+(canSend?'<button class="action" onclick="sendPrizePayout(\''+id+'\')">Send M-Pesa payout</button>':'')+'</div>';
+  }).join("");
+ }catch(e){showMessage(e.message);}
+}
+async function createPrizeAward(){
+ const payload={
+  period_type:document.getElementById("prizePeriodType").value,
+  period_key:document.getElementById("prizePeriodKey").value.trim(),
+  position:Number(document.getElementById("prizePosition").value),
+  telegram_id:Number(document.getElementById("prizeTelegramId").value),
+  amount:Number(document.getElementById("prizeAmount").value),
+  currency:"KES"
+ };
+ if(!payload.period_key||!payload.telegram_id||!Number.isInteger(payload.amount)||payload.amount<1){
+  return showMessage("Enter the exact period key, winner Telegram ID and a whole-number KES prize.");
+ }
+ if(!confirm("Save this prize award for player "+payload.telegram_id+"? Confirm the official result and amount first."))return;
+ try{
+  await api("/api/admin/prizes","POST",payload);
+  showMessage("Prize award saved. Review the award and verified payout number before sending.");
+  await loadPrizeAwards();
+ }catch(e){showMessage(e.message);}
+}
+async function sendPrizePayout(id){
+ if(!confirm("SEND REAL M-PESA CASH NOW? This will transfer the saved prize amount to the player's verified M-Pesa number. Do not proceed unless results and amount are final."))return;
+ try{
+  const d=await api("/api/admin/prizes/"+encodeURIComponent(id)+"/send-mpesa","POST",{});
+  showMessage(d.message||"Payout submitted. Wait for Safaricom's final result callback.");
+  await loadPrizeAwards();
+ }catch(e){showMessage(e.message);await loadPrizeAwards();}
 }
 
 checkAdmin();
