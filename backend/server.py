@@ -11,7 +11,8 @@ from urllib.parse import parse_qsl
 from contextlib import asynccontextmanager
 from zoneinfo import ZoneInfo
 
-from fastapi import FastAPI, HTTPException, Header, Query, Request\nfrom fastapi.responses import JSONResponse
+from fastapi import FastAPI, HTTPException, Header, Query, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -26,7 +27,8 @@ from mpesa import mpesa_reconciliation_loop, router as mpesa_router
 # CONFIGURATION
 # ============================================================
 
-BOT_TOKEN = os.getenv("BOT_TOKEN", "")\nPREVIEW_MODE = os.getenv("PREVIEW_MODE", "").strip().lower() in {"1", "true", "yes", "on"}
+BOT_TOKEN = os.getenv("BOT_TOKEN", "")
+PREVIEW_MODE = os.getenv("PREVIEW_MODE", "").strip().lower() in {"1", "true", "yes", "on"}
 MAX_AUTH_AGE = 86400
 MAX_ADMIN_AUTH_AGE = 900
 
