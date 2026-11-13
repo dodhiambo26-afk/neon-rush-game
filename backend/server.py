@@ -2346,11 +2346,11 @@ def admin_notification_logs(
 @app.post("/api/admin/notifications/broadcast")
 async def admin_notification_broadcast(
     action: NotificationBroadcastAction,
+    request: Request,
     x_telegram_init_data: str = Header(
         default="",
         alias="X-Telegram-Init-Data",
     ),
-    request: Request = None,
 ):
     admin = require_admin(x_telegram_init_data)
     category = action.category.strip().lower()
