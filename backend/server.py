@@ -21,6 +21,7 @@ from race_engine import simulate_race
 from bot import build_application
 from telegram import Update
 from mpesa import mpesa_reconciliation_loop, router as mpesa_router
+from preview_races import router as preview_races_router
 
 
 # ============================================================
@@ -575,14 +576,20 @@ app = FastAPI(
 
 @app.middleware("http")
 async def preview_isolation_middleware(request: Request, call_next):
-    if PREVIEW_MODE and request.url.path not in {"/", "/health"}:
+    allowed_preview_paths = {
+        "/", "/health",
+        "/api/preview/races/start",
+        "/api/preview/races/submit",
+    }
+    if PREVIEW_MODE and request.url.path not in allowed_preview_paths:
         return JSONResponse(
             status_code=503,
-            content={"status": "preview_only", "detail": "Integrations are disabled in preview mode."},
+            content={"status": "preview_only", "detail": "This integration is disabled in preview mode."},
         )
     return await call_next(request)
 
 app.include_router(mpesa_router)
+app.include_router(preview_races_router)
 
 app.add_middleware(
     CORSMiddleware,
@@ -594,6 +601,7 @@ app.add_middleware(
     allow_headers=[
         "Content-Type",
         "X-Telegram-Init-Data",
+        "X-Preview-Test-Key",
     ],
 )
 
