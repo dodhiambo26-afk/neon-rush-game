@@ -643,6 +643,7 @@ let score=0;
 let coins=0;
 let lives=3;
 let raceStartedAt=0;
+let raceSessionId=null;
 
 let difficulty="easy";
 let leaderboardLoaded=false;
@@ -1438,6 +1439,24 @@ $("closeLeaderboard").addEventListener("click",()=>{
  $("leaderboardPanel").style.display="none";
 });
 
+/* SERVER-ISSUED TOURNAMENT RACE SESSION */
+
+async function createRaceSession(){
+ if(gameMode==="free")return null;
+ if(!initData||!verifiedPlayer)throw new Error("Telegram verification is required.");
+
+ const response=await fetch(BACKEND_URL+"/api/races/start",{
+  method:"POST",
+  headers:{"Content-Type":"application/json","X-Telegram-Init-Data":initData},
+  body:JSON.stringify({mode:gameMode})
+ });
+ const data=await response.json();
+ if(!response.ok)throw new Error(data.detail||"Could not start a verified race.");
+ if(!data.race_id)throw new Error("The server did not issue a race session.");
+ raceSessionId=data.race_id;
+ return raceSessionId;
+}
+
 /* SAVE TOURNAMENT SCORE */
 
 async function submitScore(){
@@ -1468,6 +1487,7 @@ async function submitScore(){
    body:JSON.stringify({
     score:score,
     mode:gameMode,
+    race_id:raceSessionId,
     duration:duration
    })
   });
@@ -1556,6 +1576,7 @@ function resetGame(){
  distanceTimer=0;
 
  scoreSubmitted=false;
+ raceSessionId=null;
  gameOver=false;
  active=false;
 
@@ -1760,7 +1781,7 @@ function finishRace(){
 
 /* START BUTTON */
 
-startBtn.addEventListener("click",e=>{
+startBtn.addEventListener("click",async e=>{
  e.preventDefault();
 
  if(!authReady){
@@ -1781,9 +1802,23 @@ startBtn.addEventListener("click",e=>{
  if(gameOver)resetGame();
  if(active)return;
 
+ if(gameMode!=="free"){
+  startBtn.disabled=true;
+  setAuthMessage("Requesting a secure race session...");
+  try{
+   await createRaceSession();
+  }catch(error){
+   console.error("Race session:",error);
+   setAuthMessage(error.message||"Could not start a verified race. Please try again.");
+   startBtn.disabled=false;
+   return;
+  }
+ }
+
  active=true;
  gameOver=false;
  scoreSubmitted=false;
+ if(gameMode==="free")raceSessionId=null;
  raceStartedAt=Date.now();
 
  startEngineSound();
