@@ -16,6 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 import database as db
+from race_engine import simulate_race
 from bot import build_application
 from telegram import Update
 from mpesa import mpesa_reconciliation_loop, router as mpesa_router
@@ -587,11 +588,18 @@ class RaceStartRequest(BaseModel):
     mode: str
 
 
+class RaceInput(BaseModel):
+    tick: int = Field(ge=1, le=432000)
+    direction: int = Field(ge=-1, le=1)
+
+
 class ScoreSubmission(BaseModel):
-    score: int = Field(ge=0, le=100000)
+    score: int = Field(default=0, ge=0, le=100000)  # Client value is informational only.
     mode: str
     race_id: str | None = Field(default=None, min_length=20, max_length=128)
-    duration: int = Field(default=0, ge=0, le=3600)
+    duration: int = Field(default=0, ge=0, le=7200)
+    ticks: int = Field(default=0, ge=1, le=432000)
+    inputs: list[RaceInput] = Field(default_factory=list, max_length=10000)
 
 
 class AdminPlayerAction(BaseModel):
@@ -802,9 +810,12 @@ def start_race(
         raise HTTPException(status_code=400, detail="Race sessions are only available for weekly or monthly tournaments.")
 
     race_id = secrets.token_urlsafe(32)
-    timing = db.create_race_session(race_id, uid, mode, session["key"])
+    seed = secrets.randbits(32) or 1
+    timing = db.create_race_session(race_id, uid, mode, session["key"], seed=seed)
     return {
         "race_id": race_id,
+        "seed": seed,
+        "simulation": {"width": 390, "height": 844, "tick_rate": 60, "version": 1},
         "mode": mode,
         "started_at": timing["started_at"].isoformat(),
         "expires_in_seconds": 7200,
@@ -884,7 +895,29 @@ def submit_score(
     if server_duration > 7200:
         raise HTTPException(status_code=410, detail="This race session has expired. Please start a new race.")
 
-    validate_score_plausibility(submission.score, server_duration)
+    if server_duration < 5:
+        raise HTTPException(status_code=422, detail="Race duration is too short to qualify for a tournament score.")
+
+    if not race_session.get("seed"):
+        raise HTTPException(status_code=409, detail="This race session does not support verified scoring. Please start a new race.")
+
+    try:
+        replay = simulate_race(
+            int(race_session["seed"]),
+            [item.model_dump() for item in submission.inputs],
+            submission.ticks,
+        )
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+    if not replay["ended"] or replay["ticks"] != submission.ticks:
+        raise HTTPException(status_code=422, detail="Race history is incomplete or does not match a completed race.")
+
+    if abs(server_duration - (submission.ticks / 60.0)) > 180:
+        raise HTTPException(status_code=422, detail="Race timing could not be verified. Please play a new race.")
+
+    verified_score = replay["score"]
+    verified_duration = max(1, round(submission.ticks / 60))
 
     if mode == "weekly":
         session = weekly_session()
@@ -913,21 +946,23 @@ def submit_score(
     if race_session.get("session_key") != session["key"]:
         raise HTTPException(status_code=409, detail="This race belongs to a different tournament period.")
 
+    # Consume the one-use ticket before writing the verified score. This
+    # prevents simultaneous submissions from creating competing results.
+    if not db.consume_race_session(submission.race_id, uid):
+        raise HTTPException(status_code=409, detail="This race result was already submitted. It will not be counted twice.")
+
     saved = db.save_score(
         uid=uid,
-        score=submission.score,
+        score=verified_score,
         mode=mode,
         session_key=session["key"],
         username=display_name(user),
-        duration=server_duration,
+        duration=verified_duration,
         race_id=submission.race_id,
     )
 
     if not saved:
-        raise HTTPException(status_code=403, detail="Score could not be saved. Check your tournament access.")
-
-    if not db.consume_race_session(submission.race_id, uid):
-        raise HTTPException(status_code=409, detail="This race result was already submitted. It will not be counted twice.")
+        raise HTTPException(status_code=403, detail="Verified score could not be saved. Contact support if this persists.")
 
     leaderboard_data = build_leaderboard(
         mode,
@@ -943,8 +978,9 @@ def submit_score(
 
     return {
         "saved": True,
-        "score": submission.score,
-        "duration": server_duration,
+        "score": verified_score,
+        "duration": verified_duration,
+        "verification_status": "server_replayed",
         "mode": mode,
         "leaderboard": leaderboard_data,
         "player": player,
