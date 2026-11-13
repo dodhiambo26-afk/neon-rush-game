@@ -218,7 +218,7 @@ def main_text(user):
         "<b>In EVERY monthly tournament.</b>\n"
         "<b>━━━━━━━━━━━━━━━━━━━━</b>\n"
         "<i>Final standings are reviewed before awards are confirmed. Cash payouts are handled separately and are not automatic.</i>\n\n"
-        "Good luck, Racer!"
+        "Use /alerts or the notification settings button to control your alerts.\\n\\n"\n        "Good luck, Racer!"
     )
 
 
@@ -1061,7 +1061,7 @@ def build_application():
     application.add_handler(CommandHandler("ban", ban))
     application.add_handler(CommandHandler("unban", unban))
 
-    application.add_handler(CallbackQueryHandler(notification_preference_callback, pattern=r"^alerts_toggle_"))
+    application.add_handler(CallbackQueryHandler(notification_preference_callback, pattern=r"^alerts_(open|toggle_)"))
     application.add_handler(CallbackQueryHandler(buttons))
 
     application.add_handler(
