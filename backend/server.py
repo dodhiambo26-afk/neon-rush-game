@@ -913,7 +913,9 @@ def submit_score(
     if not replay["ended"] or replay["ticks"] != submission.ticks:
         raise HTTPException(status_code=422, detail="Race history is incomplete or does not match a completed race.")
 
-    if abs(server_duration - (submission.ticks / 60.0)) > 180:
+    # A replay must not run materially faster than real time. Pauses caused
+    # by a hidden Telegram WebView are allowed, up to the ticket expiry.
+    if server_duration + 5 < (submission.ticks / 60.0):
         raise HTTPException(status_code=422, detail="Race timing could not be verified. Please play a new race.")
 
     verified_score = replay["score"]
