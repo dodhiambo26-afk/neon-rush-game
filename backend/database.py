@@ -415,13 +415,14 @@ def list_monthly_members(month_key=None):
 # RACE SESSION SECURITY
 # ============================================================
 
-def create_race_session(race_id, uid, mode, session_key):
+def create_race_session(race_id, uid, mode, session_key, seed=None):
     """Persist a one-use race ticket bound to one player and tournament."""
     uid = _user_id(uid)
     started = timestamp()
     expires = started + timedelta(hours=2)
     _doc("race_sessions", race_id).create({
         "race_id": race_id,
+        "seed": int(seed or 0),
         "telegram_id": uid,
         "mode": mode,
         "session_key": str(session_key),
@@ -437,30 +438,97 @@ def get_race_session(race_id):
     return _get("race_sessions", race_id)
 
 
-def consume_race_session(race_id, uid):
-    """Atomically mark a race ticket as used; a ticket can only score once."""
-    ref = _doc("race_sessions", race_id)
+def save_verified_score_with_race_session(
+    race_id,
+    uid,
+    score,
+    mode,
+    session_key,
+    username=None,
+    duration=0,
+):
+    """
+    Atomically consume a verified race ticket and create its score record.
+
+    If the score write fails, Firestore rolls back the ticket update too,
+    allowing the player to retry. The deterministic score ID also makes
+    transaction retries safe and prevents duplicate records for one race.
+    """
+    uid = _user_id(uid)
+    mode = str(mode)
+    session_key = str(session_key)
+    score = _as_int(score)
+
+    if mode not in ("weekly", "monthly") or not race_id:
+        return False
+
+    race_ref = _doc("race_sessions", race_id)
+    score_id = f"{mode}_{session_key}_{uid}_{race_id}"
+    score_ref = _doc("scores", score_id)
+    created_at = timestamp()
+    duration = _as_int(duration)
+
+    score_data = {
+        "score_id": score_id,
+        "telegram_id": uid,
+        "username": username,
+        "score": score,
+        "duration_seconds": duration,
+        "score_rate_per_second": round(score / max(1, duration), 2),
+        "verification_status": "server_replayed",
+        "race_id": race_id,
+        "mode": mode,
+        "session_key": session_key,
+        "created_at": created_at,
+    }
+
     transaction = db().transaction()
 
     @firestore.transactional
-    def _consume(txn):
-        snapshot = ref.get(transaction=txn)
-        if not snapshot.exists:
+    def _save(txn):
+        # All transaction reads must happen before any writes.
+        race_snapshot = race_ref.get(transaction=txn)
+        score_snapshot = score_ref.get(transaction=txn)
+
+        if not race_snapshot.exists:
             return False
-        data = snapshot.to_dict() or {}
-        if str(data.get("telegram_id")) != str(uid) or data.get("status") != "active":
+
+        race = race_snapshot.to_dict() or {}
+        if (
+            str(race.get("telegram_id")) != uid
+            or race.get("mode") != mode
+            or str(race.get("session_key")) != session_key
+        ):
             return False
-        txn.update(ref, {"status": "consumed", "consumed_at": timestamp()})
+
+        # An existing score for this race is an idempotent success. This
+        # also safely repairs a ticket left active by an older deployment.
+        if score_snapshot.exists:
+            if race.get("status") == "active":
+                txn.update(race_ref, {
+                    "status": "consumed",
+                    "consumed_at": timestamp(),
+                })
+            return True
+
+        if race.get("status") != "active":
+            return False
+
+        txn.create(score_ref, score_data)
+        txn.update(race_ref, {
+            "status": "consumed",
+            "consumed_at": timestamp(),
+        })
         return True
 
-    return _consume(transaction)
+    return _save(transaction)
 
 
 # ============================================================
 # SCORES AND LEADERBOARDS
 # ============================================================
 
-def save_score(uid, score, mode="weekly", session_key=None, username=None, duration=0, race_id=None):
+def save_score(uid, score, mode="weekly", session_key=None, username=None, duration=0, race_id=None, verification_status=None):
     uid = _user_id(uid)
     score = _as_int(score)
 
@@ -493,7 +561,7 @@ def save_score(uid, score, mode="weekly", session_key=None, username=None, durat
         "score": score,
         "duration_seconds": _as_int(duration),
         "score_rate_per_second": round(score / max(1, _as_int(duration)), 2),
-        "verification_status": "server_session_screened" if race_id else "screened",
+        "verification_status": verification_status or ("server_session_screened" if race_id else "screened"),
         "race_id": race_id,
         "mode": mode,
         "session_key": session_key,
@@ -1842,9 +1910,6 @@ def get_performance(mode="weekly", session_key=None):
     }
 
 
-# ============================================================
-# INITIALIZE
-# ============================================================
-
-init_db()
+# Database initialization is lazy; the preview service can import this module
+# without connecting to any Firebase project. Production initializes at startup.
 

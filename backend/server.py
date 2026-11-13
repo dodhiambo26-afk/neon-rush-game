@@ -11,14 +11,17 @@ from urllib.parse import parse_qsl
 from contextlib import asynccontextmanager
 from zoneinfo import ZoneInfo
 
-from fastapi import FastAPI, HTTPException, Header, Query
+from fastapi import FastAPI, HTTPException, Header, Query, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 import database as db
+from race_engine import simulate_race
 from bot import build_application
 from telegram import Update
 from mpesa import mpesa_reconciliation_loop, router as mpesa_router
+from preview_races import router as preview_races_router
 
 
 # ============================================================
@@ -26,6 +29,7 @@ from mpesa import mpesa_reconciliation_loop, router as mpesa_router
 # ============================================================
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
+PREVIEW_MODE = os.getenv("PREVIEW_MODE", "").strip().lower() in {"1", "true", "yes", "on"}
 MAX_AUTH_AGE = 86400
 MAX_ADMIN_AUTH_AGE = 900
 
@@ -512,6 +516,13 @@ def player_rank_data(uid, mode, session_key):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    if PREVIEW_MODE:
+        # Isolated preview: do not initialize Firestore, start Telegram polling,
+        # or run payment reconciliation against production resources.
+        print("NEON RUSH preview-safe mode enabled; integrations are disabled.")
+        yield
+        return
+
     db.init_db()
 
     bot_application = build_application()
@@ -563,7 +574,22 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+@app.middleware("http")
+async def preview_isolation_middleware(request: Request, call_next):
+    allowed_preview_paths = {
+        "/", "/health",
+        "/api/preview/races/start",
+        "/api/preview/races/submit",
+    }
+    if PREVIEW_MODE and request.url.path not in allowed_preview_paths:
+        return JSONResponse(
+            status_code=503,
+            content={"status": "preview_only", "detail": "This integration is disabled in preview mode."},
+        )
+    return await call_next(request)
+
 app.include_router(mpesa_router)
+app.include_router(preview_races_router)
 
 app.add_middleware(
     CORSMiddleware,
@@ -575,6 +601,7 @@ app.add_middleware(
     allow_headers=[
         "Content-Type",
         "X-Telegram-Init-Data",
+        "X-Preview-Test-Key",
     ],
 )
 
@@ -587,11 +614,18 @@ class RaceStartRequest(BaseModel):
     mode: str
 
 
+class RaceInput(BaseModel):
+    tick: int = Field(ge=1, le=432000)
+    direction: int = Field(ge=-1, le=1)
+
+
 class ScoreSubmission(BaseModel):
-    score: int = Field(ge=0, le=100000)
+    score: int = Field(default=0, ge=0, le=100000)  # Client value is informational only.
     mode: str
     race_id: str | None = Field(default=None, min_length=20, max_length=128)
-    duration: int = Field(default=0, ge=0, le=3600)
+    duration: int = Field(default=0, ge=0, le=7200)
+    ticks: int = Field(default=0, ge=1, le=432000)
+    inputs: list[RaceInput] = Field(default_factory=list)
 
 
 class AdminPlayerAction(BaseModel):
@@ -658,6 +692,15 @@ class ContactSettingsAction(BaseModel):
 
 @app.get("/")
 def home():
+    if PREVIEW_MODE:
+        return {
+            "status": "online",
+            "game": "NEON RUSH ARENA",
+            "version": "3.0",
+            "mode": "isolated_preview",
+            "integrations": "disabled",
+        }
+
     weekly = weekly_session()
     monthly = monthly_session()
 
@@ -802,9 +845,12 @@ def start_race(
         raise HTTPException(status_code=400, detail="Race sessions are only available for weekly or monthly tournaments.")
 
     race_id = secrets.token_urlsafe(32)
-    timing = db.create_race_session(race_id, uid, mode, session["key"])
+    seed = secrets.randbits(32) or 1
+    timing = db.create_race_session(race_id, uid, mode, session["key"], seed=seed)
     return {
         "race_id": race_id,
+        "seed": seed,
+        "simulation": {"width": 390, "height": 844, "tick_rate": 60, "version": 1},
         "mode": mode,
         "started_at": timing["started_at"].isoformat(),
         "expires_in_seconds": 7200,
@@ -884,7 +930,31 @@ def submit_score(
     if server_duration > 7200:
         raise HTTPException(status_code=410, detail="This race session has expired. Please start a new race.")
 
-    validate_score_plausibility(submission.score, server_duration)
+    if server_duration < 5:
+        raise HTTPException(status_code=422, detail="Race duration is too short to qualify for a tournament score.")
+
+    if not race_session.get("seed"):
+        raise HTTPException(status_code=409, detail="This race session does not support verified scoring. Please start a new race.")
+
+    try:
+        replay = simulate_race(
+            int(race_session["seed"]),
+            [item.dict() for item in submission.inputs],
+            submission.ticks,
+        )
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+    if not replay["ended"] or replay["ticks"] != submission.ticks:
+        raise HTTPException(status_code=422, detail="Race history is incomplete or does not match a completed race.")
+
+    # A replay must not run materially faster than real time. Pauses caused
+    # by a hidden Telegram WebView are allowed, up to the ticket expiry.
+    if server_duration + 5 < (submission.ticks / 60.0):
+        raise HTTPException(status_code=422, detail="Race timing could not be verified. Please play a new race.")
+
+    verified_score = replay["score"]
+    verified_duration = max(1, round(submission.ticks / 60))
 
     if mode == "weekly":
         session = weekly_session()
@@ -913,21 +983,24 @@ def submit_score(
     if race_session.get("session_key") != session["key"]:
         raise HTTPException(status_code=409, detail="This race belongs to a different tournament period.")
 
-    saved = db.save_score(
+    # Save the verified score and consume its one-use ticket atomically.
+    # If Firestore cannot save the score, the transaction rolls back and
+    # the player can retry with this same race ticket.
+    saved = db.save_verified_score_with_race_session(
+        race_id=submission.race_id,
         uid=uid,
-        score=submission.score,
+        score=verified_score,
         mode=mode,
         session_key=session["key"],
         username=display_name(user),
-        duration=server_duration,
-        race_id=submission.race_id,
+        duration=verified_duration,
     )
 
     if not saved:
-        raise HTTPException(status_code=403, detail="Score could not be saved. Check your tournament access.")
-
-    if not db.consume_race_session(submission.race_id, uid):
-        raise HTTPException(status_code=409, detail="This race result was already submitted. It will not be counted twice.")
+        raise HTTPException(
+            status_code=409,
+            detail="This race session is invalid or has already been submitted. Please start a new race.",
+        )
 
     leaderboard_data = build_leaderboard(
         mode,
@@ -943,8 +1016,9 @@ def submit_score(
 
     return {
         "saved": True,
-        "score": submission.score,
-        "duration": server_duration,
+        "score": verified_score,
+        "duration": verified_duration,
+        "verification_status": "server_replayed",
         "mode": mode,
         "leaderboard": leaderboard_data,
         "player": player,

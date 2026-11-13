@@ -856,16 +856,19 @@ soundBtn.addEventListener("click",()=>{
 let W=0;
 let H=0;
 let dpr=1;
+let viewportW=0;
+let viewportH=0;
 
 function resizeCanvas(){
- W=window.innerWidth;
- H=window.innerHeight;
+ viewportW=window.innerWidth;
+ viewportH=window.innerHeight;
  dpr=Math.min(window.devicePixelRatio||1,1.2);
+ canvas.width=Math.round(viewportW*dpr);
+ canvas.height=Math.round(viewportH*dpr);
 
- canvas.width=Math.round(W*dpr);
- canvas.height=Math.round(H*dpr);
-
- ctx.setTransform(dpr,0,0,dpr,0,0);
+ W=gameMode==="free"?viewportW:390;
+ H=gameMode==="free"?viewportH:844;
+ ctx.setTransform(dpr*viewportW/W,0,0,dpr*viewportH/H,0,0);
  drawGame();
 }
 
@@ -888,7 +891,12 @@ let crashEffectX=0;
 let crashEffectY=0;
 let animationRunning=false;
 let lastTime=0;
+let accumulator=0;
 let swipeStartX=null;
+let raceSeed=0;
+let raceRandomState=0;
+let raceTick=0;
+let raceInputs=[];
 
 const MAX_TRAFFIC=4;
 const MAX_PICKUPS=4;
@@ -1474,6 +1482,11 @@ async function createRaceSession(){
  if(!response.ok)throw new Error(data.detail||"Could not start a verified race.");
  if(!data.race_id)throw new Error("The server did not issue a race session.");
  raceSessionId=data.race_id;
+ if(!Number.isInteger(data.seed)||data.seed===0)throw new Error("The server did not provide a valid race seed.");
+ raceSeed=data.seed>>>0;
+ raceRandomState=raceSeed;
+ raceTick=0;
+ raceInputs=[];
  return raceSessionId;
 }
 
@@ -1508,7 +1521,9 @@ async function submitScore(){
     score:score,
     mode:gameMode,
     race_id:raceSessionId,
-    duration:duration
+    duration:duration,
+    ticks:raceTick,
+    inputs:raceInputs
    })
   });
 
@@ -1547,30 +1562,35 @@ $("retrySave").addEventListener("click",submitScore);
 
 /* GAME OBJECTS */
 
+function raceRandom(){
+ if(gameMode==="free")return Math.random();
+ let x=raceRandomState>>>0;
+ x^=(x<<13)>>>0;
+ x^=x>>>17;
+ x^=(x<<5)>>>0;
+ raceRandomState=x>>>0;
+ return raceRandomState/4294967296;
+}
+
 function spawnTraffic(){
  if(traffic.length>=MAX_TRAFFIC)return;
-
  const colors=["#ff3355","#ffb52e","#9b59ff","#36e27b"];
-
  traffic.push({
-  lane:Math.floor(Math.random()*3),
+  lane:Math.floor(raceRandom()*3),
   y:-80,
-  color:colors[Math.floor(Math.random()*colors.length)]
+  color:colors[Math.floor(raceRandom()*4)]
  });
 }
 
 function spawnPickup(){
  if(pickups.length>=MAX_PICKUPS)return;
-
- const roll=Math.random();
+ const roll=raceRandom();
  let type="coin";
-
  if(roll<.12)type="heart";
  else if(roll<.30)type="diamond";
-
  pickups.push({
   type:type,
-  lane:Math.floor(Math.random()*3),
+  lane:Math.floor(raceRandom()*3),
   y:-35
  });
 }
@@ -1597,6 +1617,11 @@ function resetGame(){
 
  scoreSubmitted=false;
  raceSessionId=null;
+ raceSeed=0;
+ raceRandomState=0;
+ raceTick=0;
+ raceInputs=[];
+ accumulator=0;
  gameOver=false;
  active=false;
 
@@ -1624,6 +1649,7 @@ function startGameLoop(){
 
  animationRunning=true;
  lastTime=0;
+ accumulator=0;
 
  animationId=requestAnimationFrame(gameLoop);
 }
@@ -1634,13 +1660,23 @@ function gameLoop(time){
   return;
  }
 
- const delta=lastTime?
-  Math.min((time-lastTime)/16.67,2):1;
-
+ const elapsed=lastTime?Math.min(time-lastTime,250):16.6667;
  lastTime=time;
 
  try{
-  updateGame(delta);
+  if(gameMode==="free"){
+   updateGame(Math.min(elapsed/16.6667,2));
+  }else{
+   accumulator+=elapsed;
+   const step=1000/60;
+   let steps=0;
+   while(accumulator>=step&&steps<10&&active){
+    raceTick++;
+    updateGame(1);
+    accumulator-=step;
+    steps++;
+   }
+  }
   drawGame();
  }catch(e){
   console.error("Game loop error:",e);
@@ -1838,7 +1874,13 @@ startBtn.addEventListener("click",async e=>{
  active=true;
  gameOver=false;
  scoreSubmitted=false;
- if(gameMode==="free")raceSessionId=null;
+ if(gameMode==="free"){
+  raceSessionId=null;
+ }else{
+  raceRandomState=raceSeed;
+  raceTick=0;
+  raceInputs=[];
+ }
  raceStartedAt=Date.now();
 
  startEngineSound();
@@ -1908,7 +1950,12 @@ if(gameMode==="free"){
 
 function moveLane(dir){
  if(!active)return;
- lane=Math.max(0,Math.min(2,lane+dir));
+ const nextLane=Math.max(0,Math.min(2,lane+dir));
+ if(nextLane===lane)return;
+ lane=nextLane;
+ if(gameMode!=="free"){
+  raceInputs.push({tick:raceTick+1,direction:dir});
+ }
 }
 
 $("left").addEventListener("pointerdown",e=>{
