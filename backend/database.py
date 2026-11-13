@@ -415,13 +415,14 @@ def list_monthly_members(month_key=None):
 # RACE SESSION SECURITY
 # ============================================================
 
-def create_race_session(race_id, uid, mode, session_key):
+def create_race_session(race_id, uid, mode, session_key, seed=None):
     """Persist a one-use race ticket bound to one player and tournament."""
     uid = _user_id(uid)
     started = timestamp()
     expires = started + timedelta(hours=2)
     _doc("race_sessions", race_id).create({
         "race_id": race_id,
+        "seed": int(seed or 0),
         "telegram_id": uid,
         "mode": mode,
         "session_key": str(session_key),
