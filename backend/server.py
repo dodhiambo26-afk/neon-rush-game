@@ -4,6 +4,7 @@ import hmac
 import json
 import hashlib
 import asyncio
+import secrets
 
 from datetime import datetime, timedelta, timezone
 from urllib.parse import parse_qsl
@@ -582,9 +583,14 @@ app.add_middleware(
 # REQUEST MODELS
 # ============================================================
 
+class RaceStartRequest(BaseModel):
+    mode: str
+
+
 class ScoreSubmission(BaseModel):
     score: int = Field(ge=0, le=100000)
     mode: str
+    race_id: str | None = Field(default=None, min_length=20, max_length=128)
     duration: int = Field(default=0, ge=0, le=3600)
 
 
@@ -775,6 +781,36 @@ def telegram_auth(
 # GAME SCORE SUBMISSION
 # ============================================================
 
+@app.post("/api/races/start")
+def start_race(
+    request: RaceStartRequest,
+    x_telegram_init_data: str = Header(default="", alias="X-Telegram-Init-Data"),
+):
+    user = authenticate(x_telegram_init_data)
+    uid = int(user["id"])
+    mode = request.mode.lower().strip()
+
+    if mode == "weekly":
+        session = weekly_session()
+        if not db.has_weekly_entry(uid, session["key"]):
+            raise HTTPException(status_code=403, detail="Weekly tournament access is required.")
+    elif mode == "monthly":
+        session = monthly_session()
+        if not db.has_monthly_access(uid, session["key"]):
+            raise HTTPException(status_code=403, detail="An active monthly membership is required.")
+    else:
+        raise HTTPException(status_code=400, detail="Race sessions are only available for weekly or monthly tournaments.")
+
+    race_id = secrets.token_urlsafe(32)
+    timing = db.create_race_session(race_id, uid, mode, session["key"])
+    return {
+        "race_id": race_id,
+        "mode": mode,
+        "started_at": timing["started_at"].isoformat(),
+        "expires_in_seconds": 7200,
+    }
+
+
 def validate_score_plausibility(score, duration):
     """
     Conservative sanity check for the current client game mechanics.
@@ -828,10 +864,27 @@ def submit_score(
             detail="Invalid game mode. Use free, weekly or monthly.",
         )
 
-    validate_score_plausibility(
-        submission.score,
-        submission.duration,
-    )
+    if not submission.race_id:
+        raise HTTPException(status_code=422, detail="A server-issued race session is required. Please start a new race.")
+
+    race_session = db.get_race_session(submission.race_id)
+    if (
+        not race_session
+        or str(race_session.get("telegram_id")) != str(uid)
+        or race_session.get("mode") != mode
+        or race_session.get("status") != "active"
+    ):
+        raise HTTPException(status_code=409, detail="This race session is invalid or has already been submitted. Please start a new race.")
+
+    started_at = race_session.get("started_at")
+    if not isinstance(started_at, datetime):
+        raise HTTPException(status_code=409, detail="Race start time could not be verified.")
+
+    server_duration = int((utc_now() - started_at).total_seconds())
+    if server_duration > 7200:
+        raise HTTPException(status_code=410, detail="This race session has expired. Please start a new race.")
+
+    validate_score_plausibility(submission.score, server_duration)
 
     if mode == "weekly":
         session = weekly_session()
@@ -857,20 +910,24 @@ def submit_score(
                 ),
             )
 
+    if race_session.get("session_key") != session["key"]:
+        raise HTTPException(status_code=409, detail="This race belongs to a different tournament period.")
+
     saved = db.save_score(
         uid=uid,
         score=submission.score,
         mode=mode,
         session_key=session["key"],
         username=display_name(user),
-        duration=submission.duration,
+        duration=server_duration,
+        race_id=submission.race_id,
     )
 
     if not saved:
-        raise HTTPException(
-            status_code=403,
-            detail="Score could not be saved. Check your tournament access.",
-        )
+        raise HTTPException(status_code=403, detail="Score could not be saved. Check your tournament access.")
+
+    if not db.consume_race_session(submission.race_id, uid):
+        raise HTTPException(status_code=409, detail="This race result was already submitted. It will not be counted twice.")
 
     leaderboard_data = build_leaderboard(
         mode,
@@ -887,6 +944,7 @@ def submit_score(
     return {
         "saved": True,
         "score": submission.score,
+        "duration": server_duration,
         "mode": mode,
         "leaderboard": leaderboard_data,
         "player": player,
