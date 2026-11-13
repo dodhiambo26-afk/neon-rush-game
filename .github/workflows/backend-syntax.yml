@@ -26,7 +26,7 @@ jobs:
         with:
           node-version: "22"
       - name: Check Python syntax
-        run: python -m compileall -q backend
+        run: python -m compileall backend
       - name: Test deterministic race replay
         run: python -m unittest discover -s backend -p 'test_*.py'
       - name: Check game JavaScript syntax
