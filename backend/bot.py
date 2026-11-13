@@ -156,6 +156,12 @@ def player_keyboard(uid):
         ],
         [
             InlineKeyboardButton(
+                "🔔 NOTIFICATION SETTINGS",
+                callback_data="alerts_open"
+            )
+        ],
+        [
+            InlineKeyboardButton(
                 "👤 MY PROFILE",
                 callback_data="my_profile"
             )
@@ -687,6 +693,14 @@ async def notification_preference_callback(update: Update, context: ContextTypes
     query = update.callback_query
     await query.answer()
     uid = query.from_user.id
+    if query.data == "alerts_open":
+        preferences = notification_service.get_preferences(uid)
+        await query.message.reply_text(
+            "🔔 <b>NEON RUSH ARENA ALERT SETTINGS</b>\\n\\nChoose which messages you want to receive.",
+            reply_markup=notification_preferences_keyboard(preferences),
+            parse_mode="HTML",
+        )
+        return
     key = str(query.data or "").replace("alerts_toggle_", "", 1)
     allowed = {"tournament_alerts", "winner_alerts", "daily_reminders", "announcements"}
     if key not in allowed:
