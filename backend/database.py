@@ -1403,6 +1403,7 @@ def process_mpesa_callback(payload):
     if is_weekly:
         entry_id = _weekly_entry_id(uid, period_key)
         entry_ref = _doc("weekly_entries", entry_id)
+        user_ref = _doc("users", uid)
         transaction = db().transaction()
 
         @firestore.transactional
