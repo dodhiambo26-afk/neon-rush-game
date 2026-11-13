@@ -74,6 +74,7 @@ async def send_prize_mpesa(
     shortcode = _required("MPESA_B2C_SHORTCODE")
     callback_secret = _required("MPESA_B2C_CALLBACK_SECRET")
     render_url = _required("RENDER_EXTERNAL_URL").rstrip("/")
+    base = _base_url()
     result_url = f"{render_url}/api/mpesa/b2c/result/{callback_secret}"
     timeout_url = f"{render_url}/api/mpesa/b2c/timeout/{callback_secret}"
 
@@ -104,7 +105,6 @@ async def send_prize_mpesa(
     if not reserve(transaction):
         raise HTTPException(409, "This prize has already been claimed for payout.")
 
-    base = _base_url()
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             token_response = await client.get(
@@ -151,6 +151,13 @@ async def send_prize_mpesa(
             "payout_response_at": datetime.now(timezone.utc),
         }, merge=True)
         raise HTTPException(502, str(data.get("ResponseDescription") or "Daraja rejected the B2C request."))
+    if not data.get("ConversationID") or not data.get("OriginatorConversationID"):
+        award_ref.set({
+            "status": "review_required",
+            "payout_response": data,
+            "payout_error": "Daraja accepted request without callback identifiers.",
+        }, merge=True)
+        raise HTTPException(502, "Daraja response lacked callback identifiers. Prize moved to review; do not retry.")
 
     award_ref.set({
         "b2c_conversation_id": data.get("ConversationID"),
