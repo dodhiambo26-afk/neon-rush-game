@@ -172,7 +172,8 @@ async def send_admin_broadcast(application, message, category="announcement", ad
 
 
 def _format_winners(mode, period_key):
-    rows = db.get_tournament_ranking(mode, period_key, 5)
+    ranked_rows = db.get_tournament_ranking(mode, period_key, 100)
+    rows = [\n        row for row in ranked_rows\n        if not db.is_banned(row.get("telegram_id"))\n    ][:5]
     if not rows:
         return None
     title = "WEEKLY" if mode == "weekly" else "MONTHLY"
