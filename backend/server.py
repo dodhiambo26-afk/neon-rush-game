@@ -983,24 +983,24 @@ def submit_score(
     if race_session.get("session_key") != session["key"]:
         raise HTTPException(status_code=409, detail="This race belongs to a different tournament period.")
 
-    # Consume the one-use ticket before writing the verified score. This
-    # prevents simultaneous submissions from creating competing results.
-    if not db.consume_race_session(submission.race_id, uid):
-        raise HTTPException(status_code=409, detail="This race result was already submitted. It will not be counted twice.")
-
-    saved = db.save_score(
+    # Save the verified score and consume its one-use ticket atomically.
+    # If Firestore cannot save the score, the transaction rolls back and
+    # the player can retry with this same race ticket.
+    saved = db.save_verified_score_with_race_session(
+        race_id=submission.race_id,
         uid=uid,
         score=verified_score,
         mode=mode,
         session_key=session["key"],
         username=display_name(user),
         duration=verified_duration,
-        race_id=submission.race_id,
-        verification_status="server_replayed",
     )
 
     if not saved:
-        raise HTTPException(status_code=403, detail="Verified score could not be saved. Contact support if this persists.")
+        raise HTTPException(
+            status_code=409,
+            detail="This race session is invalid or has already been submitted. Please start a new race.",
+        )
 
     leaderboard_data = build_leaderboard(
         mode,
