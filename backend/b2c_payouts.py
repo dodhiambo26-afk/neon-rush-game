@@ -129,7 +129,7 @@ async def send_prize_mpesa(
                 "Occasion": str(award_id)[:64],
             }
             response = await client.post(
-                f"{base}/mpesa/b2c/v3/paymentrequest",
+                f"{base}/mpesa/b2c/v1/paymentrequest",
                 json=payload,
                 headers={"Authorization": f"Bearer {token}"},
             )
