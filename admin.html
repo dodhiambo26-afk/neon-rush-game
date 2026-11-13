@@ -36,7 +36,7 @@ h3{font-size:15px;color:#dcecff}
 .stat,.panel{background:#101c35;border:1px solid #203858;border-radius:12px;padding:14px;margin-bottom:10px;min-width:0}
 .stat small{color:#91a9c9;font-size:12px}
 .stat strong{display:block;font-size:25px;margin-top:8px;color:#fff;overflow-wrap:anywhere}
-input,select{width:100%;padding:12px;background:#09152a;color:white;border:1px solid #34506e;border-radius:8px;margin:6px 0 12px;font-size:14px}
+input,select,textarea{width:100%;padding:12px;background:#09152a;color:white;border:1px solid #34506e;border-radius:8px;margin:6px 0 12px;font-size:14px}
 .action{background:#063b50;border-color:#37eaff;color:#37eaff;width:100%;margin:5px 0;cursor:pointer}
 .danger{background:#451e2b;border-color:#ff617c;color:#ff9aaa}
 .item{padding:11px 0;border-bottom:1px solid #263b58;font-size:13px;overflow-wrap:anywhere}
@@ -114,6 +114,15 @@ footer{text-align:center;color:#6f88a8;font-size:11px;padding:25px}
 <input id="playerSearch" placeholder="Search by Telegram ID or username">
 <button class="action" onclick="loadPlayers()">Search players</button>
 <div id="playersList" class="panel">Search for players.</div>
+<div id="contactPlayerPanel" class="panel" style="display:none">
+ <h3>Contact player privately</h3>
+ <p>Telegram User ID: <strong id="contactPlayerId"></strong></p>
+ <label for="contactPlayerMessage">Message to player</label>
+ <textarea id="contactPlayerMessage" rows="5" maxlength="3500" placeholder="Write a private message to this player..."></textarea>
+ <button class="action" onclick="sendPlayerMessage()">Send private message</button>
+ <button class="action" onclick="closePlayerContact()">Cancel</button>
+ <div id="contactPlayerStatus" class="muted">Messages are sent directly through the NEON RUSH ARENA Telegram bot.</div>
+</div>
 </section>
 
 <section id="entries">
@@ -541,21 +550,54 @@ async function loadOverview(){
 }
 
 async function loadPlayers(){
+ const el=document.getElementById("playersList");
  try{
   const q=document.getElementById("playerSearch").value;
   const d=await api("/api/admin/players?q="+encodeURIComponent(q));
+  const players=d.players||d.results||[];
+  if(!players.length){el.textContent="No records found.";return;}
+  el.innerHTML=players.map(player=>{
+   const id=Number(player.telegram_id);
+   return '<div class="item">'+
+    '<div><span class="muted">Telegram ID: </span>'+escapeHTML(id)+'</div>'+
+    '<div><span class="muted">Username: </span>'+escapeHTML(player.username||"")+'</div>'+
+    '<div><span class="muted">First name: </span>'+escapeHTML(player.first_name||"")+'</div>'+
+    '<div><span class="muted">Banned: </span>'+escapeHTML(player.banned)+'</div>'+
+    '<div><span class="muted">Registered: </span>'+escapeHTML(player.created_at||"")+'</div>'+
+    '<button class="action" onclick="openPlayerContact('+id+')">CONTACT PLAYER</button>'+
+    '</div>';
+  }).join("");
+ }catch(e){el.textContent="Could not load players: "+e.message;showMessage(e.message);}
+}
 
-  renderList("playersList",d.players||d.results,[
-   ["telegram_id","Telegram ID"],
-   ["username","Username"],
-   ["first_name","First name"],
-   ["banned","Banned"],
-   ["created_at","Registered"]
-  ]);
+function openPlayerContact(telegramId){
+ const id=Number(telegramId);
+ if(!Number.isSafeInteger(id)||id<=0)return showMessage("Invalid Telegram User ID.");
+ document.getElementById("contactPlayerId").textContent=String(id);
+ document.getElementById("contactPlayerMessage").value="";
+ document.getElementById("contactPlayerStatus").textContent="Messages are sent directly through the NEON RUSH ARENA Telegram bot.";
+ document.getElementById("contactPlayerPanel").style.display="block";
+ document.getElementById("contactPlayerMessage").focus();
+}
 
- }catch(e){
-  showMessage(e.message);
- }
+function closePlayerContact(){document.getElementById("contactPlayerPanel").style.display="none";}
+
+async function sendPlayerMessage(){
+ const id=Number(document.getElementById("contactPlayerId").textContent);
+ const message=document.getElementById("contactPlayerMessage").value.trim();
+ const status=document.getElementById("contactPlayerStatus");
+ if(!Number.isSafeInteger(id)||id<=0)return showMessage("Select a valid player first.");
+ if(!message)return showMessage("Write a message before sending.");
+ if(message.length>3500)return showMessage("Message is too long. Maximum 3500 characters.");
+ if(!confirm("Send this private message to Telegram User ID "+id+"?"))return;
+ status.textContent="Sending message...";
+ try{
+  const d=await api("/api/admin/players/contact","POST",{telegram_id:id,message});
+  status.textContent="Message sent successfully to player "+id+".";
+  document.getElementById("contactPlayerMessage").value="";
+  showMessage(d.message||"Private message sent.");
+  await loadActivity();
+ }catch(e){status.textContent="Message could not be sent: "+e.message;showMessage(e.message);}
 }
 
 async function loadEntries(){
