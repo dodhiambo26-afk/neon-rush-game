@@ -20,6 +20,7 @@ import database as db
 from race_engine import simulate_race
 from bot import build_application
 from telegram import Update
+from telegram.error import TelegramError
 from mpesa import mpesa_reconciliation_loop, router as mpesa_router
 from preview_races import router as preview_races_router
 import notifications as notification_service
@@ -636,6 +637,11 @@ class ScoreSubmission(BaseModel):
 
 class AdminPlayerAction(BaseModel):
     telegram_id: int = Field(gt=0)
+
+
+class AdminContactPlayerAction(BaseModel):
+    telegram_id: int = Field(gt=0)
+    message: str = Field(min_length=1, max_length=3500)
 
 
 class WeeklyLockAction(BaseModel):
@@ -1274,6 +1280,71 @@ def admin_players(
         })
 
     return {"players": json_safe(result)}
+
+
+# ============================================================
+# ADMIN CONTACT INDIVIDUAL PLAYER
+# ============================================================
+
+@app.post("/api/admin/players/contact")
+async def admin_contact_player(
+    action: AdminContactPlayerAction,
+    request: Request,
+    x_telegram_init_data: str = Header(
+        default="",
+        alias="X-Telegram-Init-Data",
+    ),
+):
+    admin = require_admin(x_telegram_init_data)
+    uid = int(action.telegram_id)
+    message = action.message.strip()
+
+    if not message:
+        raise HTTPException(status_code=422, detail="Message cannot be empty.")
+
+    player = db.get_user(uid)
+    if not player:
+        raise HTTPException(
+            status_code=404,
+            detail="Player not found. Ask the player to open the bot first.",
+        )
+
+    bot_application = getattr(request.app.state, "bot_application", None)
+    if not bot_application or not bot_application.bot:
+        raise HTTPException(
+            status_code=503,
+            detail="Telegram bot is not currently available. Please try again later.",
+        )
+
+    try:
+        await bot_application.bot.send_message(
+            chat_id=uid,
+            text=message,
+            disable_web_page_preview=True,
+        )
+    except TelegramError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                "Telegram could not deliver this message. The player may not "
+                "have started the bot or may have blocked it. "
+                "Please verify the User ID and try again."
+            ),
+        ) from exc
+
+    record_admin_action(
+        admin["id"],
+        "CONTACT_PLAYER",
+        uid,
+        f"Private Telegram message sent ({len(message)} characters).",
+    )
+
+    return {
+        "success": True,
+        "sent": True,
+        "telegram_id": uid,
+        "message": "Private message sent successfully.",
+    }
 
 
 # ============================================================
