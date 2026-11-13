@@ -1792,14 +1792,20 @@ def admin_prizes(
             detail="Invalid prize period.",
         )
 
-    return {
-        "awards": json_safe(
-            db.list_prize_awards(
-                period_type or None,
-                period_key or None,
-            )
-        ),
-    }
+    awards = db.list_prize_awards(
+        period_type or None,
+        period_key or None,
+    )
+    for award in awards:
+        player = db.get_user(award.get("telegram_id")) or {}
+        phone = str(player.get("mpesa_payout_phone") or "")
+        award["payout_phone_verified"] = bool(
+            player.get("mpesa_phone_verified") and phone
+        )
+        award["payout_phone_masked"] = (
+            "••••••" + phone[-4:] if phone else "Not verified"
+        )
+    return {"awards": json_safe(awards)}
 
 
 @app.post("/api/admin/prizes")
