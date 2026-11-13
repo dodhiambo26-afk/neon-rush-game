@@ -224,7 +224,8 @@ def main_text(user):
         "<b>In EVERY monthly tournament.</b>\n"
         "<b>━━━━━━━━━━━━━━━━━━━━</b>\n"
         "<i>Final standings are reviewed before awards are confirmed. Cash payouts are handled separately and are not automatic.</i>\n\n"
-        "Use /alerts or the notification settings button to control your alerts.\\n\\n"\n        "Good luck, Racer!"
+        "Use /alerts or the notification settings button to control your alerts.\n\n"
+        "Good luck, Racer!"
     )
 
 
