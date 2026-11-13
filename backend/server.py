@@ -599,7 +599,7 @@ class ScoreSubmission(BaseModel):
     race_id: str | None = Field(default=None, min_length=20, max_length=128)
     duration: int = Field(default=0, ge=0, le=7200)
     ticks: int = Field(default=0, ge=1, le=432000)
-    inputs: list[RaceInput] = Field(default_factory=list, max_length=10000)
+    inputs: list[RaceInput] = Field(default_factory=list)
 
 
 class AdminPlayerAction(BaseModel):
@@ -904,7 +904,7 @@ def submit_score(
     try:
         replay = simulate_race(
             int(race_session["seed"]),
-            [item.model_dump() for item in submission.inputs],
+            [item.dict() for item in submission.inputs],
             submission.ticks,
         )
     except (TypeError, ValueError) as exc:
@@ -961,6 +961,7 @@ def submit_score(
         username=display_name(user),
         duration=verified_duration,
         race_id=submission.race_id,
+        verification_status="server_replayed",
     )
 
     if not saved:
