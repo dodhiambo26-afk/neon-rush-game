@@ -22,6 +22,7 @@ from bot import build_application
 from telegram import Update
 from mpesa import mpesa_reconciliation_loop, router as mpesa_router
 from preview_races import router as preview_races_router
+import notifications as notification_service
 
 
 # ============================================================
@@ -543,6 +544,9 @@ async def lifespan(app: FastAPI):
     reconciliation_task = asyncio.create_task(
         mpesa_reconciliation_loop(bot_application)
     )
+    notification_task = asyncio.create_task(
+        notification_service.notification_scheduler(bot_application)
+    )
 
     try:
         yield
@@ -550,10 +554,12 @@ async def lifespan(app: FastAPI):
     finally:
         print("Stopping NEON RUSH ARENA Telegram bot...")
         reconciliation_task.cancel()
-        try:
-            await reconciliation_task
-        except asyncio.CancelledError:
-            pass
+        notification_task.cancel()
+        for task in (reconciliation_task, notification_task):
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
 
         if bot_application.updater.running:
             await bot_application.updater.stop()
@@ -2265,3 +2271,107 @@ def admin_update_contact(
         "whatsapp": action.whatsapp.strip(),
         "email": action.email.strip(),
     }
+
+
+# ============================================================
+# PLAYER NOTIFICATION PREFERENCES AND ADMIN BROADCASTS
+# ============================================================
+
+class NotificationPreferencesAction(BaseModel):
+    tournament_alerts: bool
+    winner_alerts: bool
+    daily_reminders: bool
+    announcements: bool
+
+
+class NotificationBroadcastAction(BaseModel):
+    message: str = Field(min_length=1, max_length=3500)
+    category: str = Field(default="announcement", max_length=20)
+
+
+@app.get("/api/notifications/preferences")
+def player_notification_preferences(
+    x_telegram_init_data: str = Header(
+        default="",
+        alias="X-Telegram-Init-Data",
+    ),
+):
+    user = authenticate(x_telegram_init_data)
+    return {
+        "preferences": notification_service.get_preferences(int(user["id"])),
+    }
+
+
+@app.post("/api/notifications/preferences")
+def update_player_notification_preferences(
+    action: NotificationPreferencesAction,
+    x_telegram_init_data: str = Header(
+        default="",
+        alias="X-Telegram-Init-Data",
+    ),
+):
+    user = authenticate(x_telegram_init_data)
+    preferences = notification_service.set_preferences(
+        int(user["id"]),
+        action.model_dump(),
+    )
+    if preferences is None:
+        raise HTTPException(status_code=404, detail="Player profile not found.")
+    return {"success": True, "preferences": preferences}
+
+
+@app.get("/api/admin/notifications")
+def admin_notification_logs(
+    limit: int = Query(default=50, ge=1, le=200),
+    x_telegram_init_data: str = Header(
+        default="",
+        alias="X-Telegram-Init-Data",
+    ),
+):
+    require_admin(x_telegram_init_data)
+    rows = list(
+        db.db().collection("notification_events")
+        .order_by("updated_at", direction="DESCENDING")
+        .limit(limit)
+        .stream()
+    )
+    return {
+        "events": json_safe([
+            {"id": row.id, **(row.to_dict() or {})}
+            for row in rows
+        ]),
+    }
+
+
+@app.post("/api/admin/notifications/broadcast")
+async def admin_notification_broadcast(
+    action: NotificationBroadcastAction,
+    x_telegram_init_data: str = Header(
+        default="",
+        alias="X-Telegram-Init-Data",
+    ),
+    request: Request = None,
+):
+    admin = require_admin(x_telegram_init_data)
+    category = action.category.strip().lower()
+    if category not in ("announcement", "service"):
+        raise HTTPException(
+            status_code=400,
+            detail="Category must be announcement or service.",
+        )
+    application = getattr(request.app.state, "bot_application", None) if request else None
+    if application is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Telegram bot is not running. Try again when the service is online.",
+        )
+    try:
+        result = await notification_service.send_admin_broadcast(
+            application,
+            action.message.strip(),
+            category,
+            int(admin["id"]),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"success": True, **result}
