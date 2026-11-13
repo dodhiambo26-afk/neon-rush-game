@@ -205,10 +205,11 @@ def main_text(user):
         "Entry: KES 25 by M-Pesa or 50 Telegram Stars.\n"
         "Weekly session: Sunday 6 PM to Sunday 6 PM "
         "(Kenya time).\n"
-        "Compete for Weekly leaderboard rewards.\n\n"
+        "🏆 The top 5 players receive rewards in every weekly tournament.\n\n"
         "🌟 MONTHLY TOURNAMENT\n"
         "Membership: KSh 200 by M-Pesa or 300 Telegram Stars.\n"
-        "Compete for Monthly leaderboard rewards.\n\n"
+        "🏆 The top 5 players receive rewards in every monthly tournament.\n"
+        "Final standings are reviewed before awards are confirmed. Cash payouts are handled separately and are not automatic.\n\n"
         "Good luck, Racer!"
     )
 
@@ -272,7 +273,8 @@ async def weekly_information(update: Update, context):
         "Entry fee: KSh 25 by M-Pesa OR 50 Telegram Stars.\n\n"
         "Choose your payment method below. Your entry activates only "
         "after the payment is confirmed.\n\n"
-        "Session: Sunday 6 PM to Sunday 6 PM Kenya time.",
+        "Session: Sunday 6 PM to Sunday 6 PM Kenya time.\n\n"
+        "🏆 The top 5 finishers receive tournament rewards. Final standings are reviewed before awards are confirmed. Cash payouts are not automatic.",
         reply_markup=InlineKeyboardMarkup([
             [InlineKeyboardButton("📱 PAY KSh 25 WITH M-PESA", callback_data="weekly_mpesa")],
             [InlineKeyboardButton("⭐ PAY 50 TELEGRAM STARS", callback_data="weekly_stars")],
@@ -311,7 +313,8 @@ async def monthly_join_options(update, context):
         f"👑 MONTHLY MEMBERSHIP — {month_key}\n\n"
         "Choose your payment method:\n"
         "• KSh 200 via M-Pesa STK Push\n"
-        "• 300 Telegram Stars",
+        "• 300 Telegram Stars\n\n"
+        "🏆 The top 5 finishers receive monthly tournament rewards. Final standings are reviewed before awards are confirmed. Cash payouts are not automatic.",
         reply_markup=InlineKeyboardMarkup([
             [InlineKeyboardButton("📱 PAY KSh 200 WITH M-PESA", callback_data="monthly_mpesa")],
             [InlineKeyboardButton("⭐ PAY 300 TELEGRAM STARS", callback_data="monthly_stars")],
@@ -493,7 +496,14 @@ async def leaderboard_message(update, context, mode):
         )
         return
 
-    lines = [title, ""]
+    lines = [
+        title,
+        "",
+        "🏆 TOP 5 FINISHERS RECEIVE TOURNAMENT REWARDS.",
+        "Final standings are reviewed before awards are confirmed.",
+        "Cash payouts are handled separately and are not automatic.",
+        "",
+    ]
 
     for position, item in enumerate(scores, start=1):
         username = item.get("username") or item.get("telegram_id")
