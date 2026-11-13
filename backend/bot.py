@@ -24,6 +24,7 @@ from telegram.ext import (
 )
 
 import database as db
+import notifications as notification_service
 from mpesa import initiate_stk_push
 
 
@@ -155,6 +156,12 @@ def player_keyboard(uid):
         ],
         [
             InlineKeyboardButton(
+                "🔔 NOTIFICATION SETTINGS",
+                callback_data="alerts_open"
+            )
+        ],
+        [
+            InlineKeyboardButton(
                 "👤 MY PROFILE",
                 callback_data="my_profile"
             )
@@ -217,6 +224,7 @@ def main_text(user):
         "<b>In EVERY monthly tournament.</b>\n"
         "<b>━━━━━━━━━━━━━━━━━━━━</b>\n"
         "<i>Final standings are reviewed before awards are confirmed. Cash payouts are handled separately and are not automatic.</i>\n\n"
+        "Use /alerts or the notification settings button to control your alerts.\n\n"
         "Good luck, Racer!"
     )
 
@@ -645,6 +653,72 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.reply_text(support_text())
 
 
+
+# ============================================================
+# PLAYER NOTIFICATION PREFERENCES
+# ============================================================
+
+def notification_preferences_keyboard(preferences):
+    labels = {
+        "tournament_alerts": "🏆 Tournament reminders",
+        "winner_alerts": "🥇 Winner announcements",
+        "daily_reminders": "🎮 Daily free-game reminders",
+        "announcements": "📢 News and promotions",
+    }
+    rows = []
+    for key, label in labels.items():
+        state = "ON ✅" if preferences.get(key) else "OFF 🔕"
+        rows.append([
+            InlineKeyboardButton(
+                f"{label}: {state}",
+                callback_data=f"alerts_toggle_{key}",
+            )
+        ])
+    return InlineKeyboardMarkup(rows)
+
+
+async def alerts(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    ensure_user(update)
+    uid = update.effective_user.id
+    preferences = notification_service.get_preferences(uid)
+    await update.effective_message.reply_text(
+        "🔔 <b>NEON RUSH ARENA ALERT SETTINGS</b>\\n\\n"
+        "Choose which messages you want to receive. You can change these settings at any time.\\n\\n"
+        "Tournament and winner alerts are on by default. Daily reminders and promotional announcements are off until you enable them.",
+        reply_markup=notification_preferences_keyboard(preferences),
+        parse_mode="HTML",
+    )
+
+
+async def notification_preference_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    uid = query.from_user.id
+    if query.data == "alerts_open":
+        preferences = notification_service.get_preferences(uid)
+        await query.message.reply_text(
+            "🔔 <b>NEON RUSH ARENA ALERT SETTINGS</b>\\n\\nChoose which messages you want to receive.",
+            reply_markup=notification_preferences_keyboard(preferences),
+            parse_mode="HTML",
+        )
+        return
+    key = str(query.data or "").replace("alerts_toggle_", "", 1)
+    allowed = {"tournament_alerts", "winner_alerts", "daily_reminders", "announcements"}
+    if key not in allowed:
+        return
+    current = notification_service.get_preferences(uid)
+    updated = notification_service.set_preferences(
+        uid,
+        {key: not current.get(key, False)},
+    )
+    if updated is None:
+        await query.answer("Please start the bot first.", show_alert=True)
+        return
+    await query.edit_message_reply_markup(
+        reply_markup=notification_preferences_keyboard(updated)
+    )
+
+
 # ============================================================
 # TELEGRAM STARS PRE-CHECKOUT
 # ============================================================
@@ -995,12 +1069,14 @@ def build_application():
     application.add_handler(CommandHandler("myid", myid))
     application.add_handler(CommandHandler("leaderboard", command_leaderboard))
     application.add_handler(CommandHandler("paysupport", paysupport))
+    application.add_handler(CommandHandler("alerts", alerts))
     application.add_handler(CommandHandler("admin", admin))
     application.add_handler(CommandHandler("grant", grant))
     application.add_handler(CommandHandler("revoke", revoke))
     application.add_handler(CommandHandler("ban", ban))
     application.add_handler(CommandHandler("unban", unban))
 
+    application.add_handler(CallbackQueryHandler(notification_preference_callback, pattern=r"^alerts_(open|toggle_)"))
     application.add_handler(CallbackQueryHandler(buttons))
 
     application.add_handler(

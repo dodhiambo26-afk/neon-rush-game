@@ -86,6 +86,7 @@ footer{text-align:center;color:#6f88a8;font-size:11px;padding:25px}
 <button data-page="banned">Moderation</button>
 <button data-page="tournament">Tournament</button>
 <button data-page="history">Game history</button>
+<button data-page="notifications">Notifications</button>
 <button data-page="activity">Admin activity</button>
 <button data-page="settings">Settings</button>
 <button data-page="support">Support</button>
@@ -303,6 +304,28 @@ Select a tournament period to view its archived details.
 <div id="historyList" class="panel">Loading game records...</div>
 </section>
 
+
+<section id="notifications">
+<h2>Player notifications</h2>
+<div class="notice">
+<strong>Automated alerts are scheduled in Kenya time (EAT).</strong>
+<p>Weekly tournament reminders are sent 24 hours and 1 hour before the Sunday 6:00 PM start. Daily free-game reminders are sent at 6:00 PM only to players who enable them. Winner announcements are sent after the weekly or monthly period closes.</p>
+<p>Promotional announcements go only to players who enabled announcements. Service notices can be sent to all registered, non-banned players.</p>
+</div>
+<h3>Send an announcement</h3>
+<label for="notificationCategory">Message type</label>
+<select id="notificationCategory">
+<option value="announcement">Announcement (opted-in players only)</option>
+<option value="service">Important service notice (all registered players)</option>
+</select>
+<textarea id="notificationMessage" rows="5" maxlength="3500" placeholder="Write your NEON RUSH ARENA message here..."></textarea>
+<button class="action" onclick="sendNotificationBroadcast()">Send notification</button>
+<div id="notificationSendStatus" class="panel">No notification sent yet.</div>
+<h3>Recent notification delivery log</h3>
+<button class="action" onclick="loadNotifications()">Refresh notification log</button>
+<div id="notificationLogs" class="panel">Loading notification history...</div>
+</section>
+
 <section id="activity">
 <h2>Administrator activity log</h2>
 <button class="action" onclick="loadActivity()">Refresh activity</button>
@@ -460,7 +483,7 @@ document.querySelectorAll("nav button").forEach(button=>{
    banned:loadBanned,
    tournament:loadTournament,
    history:loadHistoryDashboard,
-   activity:loadActivity,
+   notifications:loadNotifications,\n   activity:loadActivity,
    settings:loadSettings
   };
 
@@ -1051,6 +1074,60 @@ async function loadHistory(){
   ]);
 
  }catch(e){
+  showMessage(e.message);
+ }
+}
+
+
+/* PLAYER NOTIFICATIONS */
+
+async function loadNotifications(){
+ const el=document.getElementById("notificationLogs");
+ el.textContent="Loading notification history...";
+ try{
+  const d=await api("/api/admin/notifications?limit=50");
+  renderList("notificationLogs",d.events||[],[
+   ["event_type","Type"],
+   ["status","Status"],
+   ["sent","Delivered"],
+   ["failed","Failed"],
+   ["updated_at","Last updated"],
+   ["event_id","Event ID"]
+  ]);
+ }catch(e){
+  el.textContent="Could not load notification history: "+e.message;
+  showMessage(e.message);
+ }
+}
+
+async function sendNotificationBroadcast(){
+ const message=document.getElementById("notificationMessage").value.trim();
+ const category=document.getElementById("notificationCategory").value;
+ const status=document.getElementById("notificationSendStatus");
+ if(!message){
+  return showMessage("Write a message before sending.");
+ }
+ const audience=category==="service"
+  ?"all registered, non-banned players"
+  :"players who opted in to announcements";
+ if(!confirm("Send this message to "+audience+"? This cannot be recalled.")){
+  return;
+ }
+ status.textContent="Sending notification...";
+ try{
+  const d=await api("/api/admin/notifications/broadcast","POST",{
+   message,
+   category
+  });
+  status.textContent=
+   "Completed. Recipients: "+d.recipients+
+   " • Delivered: "+d.sent+
+   " • Failed: "+d.failed;
+  document.getElementById("notificationMessage").value="";
+  await loadNotifications();
+  showMessage("Notification delivery finished.");
+ }catch(e){
+  status.textContent="Notification failed: "+e.message;
   showMessage(e.message);
  }
 }
