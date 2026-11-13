@@ -11,7 +11,7 @@ from urllib.parse import parse_qsl
 from contextlib import asynccontextmanager
 from zoneinfo import ZoneInfo
 
-from fastapi import FastAPI, HTTPException, Header, Query
+from fastapi import FastAPI, HTTPException, Header, Query, Request\nfrom fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -26,7 +26,7 @@ from mpesa import mpesa_reconciliation_loop, router as mpesa_router
 # CONFIGURATION
 # ============================================================
 
-BOT_TOKEN = os.getenv("BOT_TOKEN", "")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "")\nPREVIEW_MODE = os.getenv("PREVIEW_MODE", "").strip().lower() in {"1", "true", "yes", "on"}
 MAX_AUTH_AGE = 86400
 MAX_ADMIN_AUTH_AGE = 900
 
@@ -513,6 +513,13 @@ def player_rank_data(uid, mode, session_key):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    if PREVIEW_MODE:
+        # Isolated preview: do not initialize Firestore, start Telegram polling,
+        # or run payment reconciliation against production resources.
+        print("NEON RUSH preview-safe mode enabled; integrations are disabled.")
+        yield
+        return
+
     db.init_db()
 
     bot_application = build_application()
@@ -563,6 +570,15 @@ app = FastAPI(
     version="3.0",
     lifespan=lifespan,
 )
+
+@app.middleware("http")
+async def preview_isolation_middleware(request: Request, call_next):
+    if PREVIEW_MODE and request.url.path not in {"/", "/health"}:
+        return JSONResponse(
+            status_code=503,
+            content={"status": "preview_only", "detail": "Integrations are disabled in preview mode."},
+        )
+    return await call_next(request)
 
 app.include_router(mpesa_router)
 
@@ -666,6 +682,15 @@ class ContactSettingsAction(BaseModel):
 
 @app.get("/")
 def home():
+    if PREVIEW_MODE:
+        return {
+            "status": "online",
+            "game": "NEON RUSH ARENA",
+            "version": "3.0",
+            "mode": "isolated_preview",
+            "integrations": "disabled",
+        }
+
     weekly = weekly_session()
     monthly = monthly_session()
 
