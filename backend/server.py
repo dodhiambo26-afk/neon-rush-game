@@ -22,6 +22,7 @@ from bot import build_application
 from telegram import Update
 from telegram.error import TelegramError
 from mpesa import mpesa_reconciliation_loop, router as mpesa_router
+from b2c_payouts import router as b2c_payouts_router
 from preview_races import router as preview_races_router
 import notifications as notification_service
 
@@ -596,6 +597,7 @@ async def preview_isolation_middleware(request: Request, call_next):
     return await call_next(request)
 
 app.include_router(mpesa_router)
+app.include_router(b2c_payouts_router)
 app.include_router(preview_races_router)
 
 app.add_middleware(
