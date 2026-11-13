@@ -160,7 +160,7 @@ async def send_admin_broadcast(application, message, category="announcement", ad
     result = await _deliver(
         application,
         event_id,
-        "📢 <b>NEON RUSH ARENA</b>\n\n" + message,
+        "📢 <b>NEON RUSH ARENA</b>\n\n" + html.escape(message),
         preference=preference,
         user_ids=recipients,
     )
