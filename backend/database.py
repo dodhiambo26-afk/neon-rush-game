@@ -1451,6 +1451,11 @@ def process_mpesa_callback(payload):
                 "paid_at": timestamp(),
                 "updated_at": timestamp(),
             })
+            txn.set(user_ref, {
+                "mpesa_payout_phone": callback_phone,
+                "mpesa_phone_verified": True,
+                "mpesa_phone_verified_at": timestamp(),
+            }, merge=True)
             return True
 
         applied = apply_weekly_success(transaction)
@@ -1519,6 +1524,11 @@ def process_mpesa_callback(payload):
             "paid_at": timestamp(),
             "updated_at": timestamp(),
         })
+        txn.set(user_ref, {
+            "mpesa_payout_phone": callback_phone,
+            "mpesa_phone_verified": True,
+            "mpesa_phone_verified_at": timestamp(),
+        }, merge=True)
         return True
 
     applied = apply_success(transaction)
