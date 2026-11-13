@@ -461,7 +461,7 @@ def consume_race_session(race_id, uid):
 # SCORES AND LEADERBOARDS
 # ============================================================
 
-def save_score(uid, score, mode="weekly", session_key=None, username=None, duration=0, race_id=None):
+def save_score(uid, score, mode="weekly", session_key=None, username=None, duration=0, race_id=None, verification_status=None):
     uid = _user_id(uid)
     score = _as_int(score)
 
@@ -494,7 +494,7 @@ def save_score(uid, score, mode="weekly", session_key=None, username=None, durat
         "score": score,
         "duration_seconds": _as_int(duration),
         "score_rate_per_second": round(score / max(1, _as_int(duration)), 2),
-        "verification_status": "server_session_screened" if race_id else "screened",
+        "verification_status": verification_status or ("server_session_screened" if race_id else "screened"),
         "race_id": race_id,
         "mode": mode,
         "session_key": session_key,
