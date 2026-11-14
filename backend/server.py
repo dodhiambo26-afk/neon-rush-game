@@ -1775,6 +1775,55 @@ def admin_monthly_financials(
 # ADMIN PRIZES
 # ============================================================
 
+
+@app.get("/api/admin/prize-pool/preview")
+def admin_prize_pool_preview(
+    period_type: str = Query(default="weekly"),
+    period_key: str = Query(..., min_length=1, max_length=40),
+    x_telegram_init_data: str = Header(default="", alias="X-Telegram-Init-Data"),
+):
+    require_admin(x_telegram_init_data)
+    period_type = period_type.lower().strip()
+    if period_type not in ("weekly", "monthly"):
+        raise HTTPException(status_code=400, detail="Invalid tournament type.")
+    current = db.current_weekly_session() if period_type == "weekly" else db.current_month_key()
+    calculation = db.calculate_prize_pool(period_type, period_key)
+    existing = db.list_prize_awards(period_type, period_key)
+    return json_safe({
+        **calculation,
+        "is_closed": period_key != current,
+        "already_generated": bool(existing),
+        "existing_awards": existing,
+        "eligible_currency": "KES",
+        "eligible_provider": "mpesa",
+        "note": "Only settled M-Pesa receipts are included. Telegram Stars and complimentary entries are excluded from the KES pool.",
+    })
+
+
+@app.post("/api/admin/prize-pool/generate")
+def admin_generate_prize_pool(
+    period_type: str = Query(...),
+    period_key: str = Query(..., min_length=1, max_length=40),
+    x_telegram_init_data: str = Header(default="", alias="X-Telegram-Init-Data"),
+):
+    admin = require_admin(x_telegram_init_data)
+    period_type = period_type.lower().strip()
+    if period_type not in ("weekly", "monthly"):
+        raise HTTPException(status_code=400, detail="Invalid tournament type.")
+    current = db.current_weekly_session() if period_type == "weekly" else db.current_month_key()
+    if period_key == current:
+        raise HTTPException(status_code=409, detail="The tournament period is still active.")
+    try:
+        calculation = db.create_calculated_prize_awards(period_type, period_key, admin["id"])
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    record_admin_action(
+        admin["id"], "GENERATE_PRIZE_AWARDS", None,
+        f"{period_type} {period_key}: {calculation['prize_pool_kes']} KES prize pool"
+    )
+    return json_safe({"success": True, **calculation})
+
+
 @app.get("/api/admin/prizes")
 def admin_prizes(
     period_type: str = Query(default=""),
