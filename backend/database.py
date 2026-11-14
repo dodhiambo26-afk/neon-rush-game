@@ -1707,7 +1707,11 @@ def calculate_prize_pool(period_type, period_key):
         and str(p.get("mpesa_receipt") or "").strip()
     ]
     total = sum(_as_int(p.get("amount")) for p in eligible)
-    rankings = list_tournament_player_rankings(period_type, period_key, 5)
+    # Only server-replayed scores can determine cash-prize rankings.
+    rankings = [
+        row for row in list_tournament_player_rankings(period_type, period_key, 10000)
+        if row.get("verification_status") == "server_replayed"
+    ][:5]
     shares = (10, 5, 3, 2, 1)
     awards = []
     for position, (winner, percent) in enumerate(zip(rankings, shares), start=1):
