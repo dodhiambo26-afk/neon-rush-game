@@ -251,7 +251,7 @@ These actions do not charge Telegram Stars.
 
 
 <section id="prizes">
-<h2>Automatic prize pool &amp; M-Pesa payouts</h2>
+<h2>Automatic prize pool &amp; pending awards</h2>
 <div class="notice">The system calculates the prize pool from successful, settled M-Pesa payments for the selected closed tournament. Telegram Stars and complimentary entries are excluded from the KES pool. Review the official top five, then generate the awards. Generating awards does not send money.</div>
 <label>Tournament type</label>
 <select id="prizePeriodType"><option value="weekly">Weekly</option><option value="monthly">Monthly</option></select>
@@ -260,7 +260,7 @@ These actions do not charge Telegram Stars.
 <button class="action" onclick="previewPrizePool()">Calculate prize pool &amp; preview winners</button>
 <div id="prizePoolPreview" class="panel">Enter a closed tournament period and calculate the pool.</div>
 <button class="action" id="generatePrizeAwardsButton" onclick="generatePrizeAwards()" disabled>Generate the five pending awards</button>
-<h3>Existing awards &amp; payouts</h3>
+<h3>Generated prize awards</h3>
 <button class="action" onclick="loadPrizeAwards()">Refresh prize awards</button>
 <div id="prizeAwardsList" class="panel">Load prize awards to review status.</div>
 </section>
@@ -1392,12 +1392,7 @@ async function loadPrizeAwards(){
   const el=document.getElementById("prizeAwardsList");
   if(!d.awards?.length){el.textContent="No prize awards found for this filter.";return;}
   el.innerHTML=d.awards.map(a=>{
-   const id=escapeHTML(a.award_id);
-   const status=escapeHTML(a.status||"pending");
-   const phone=escapeHTML(a.payout_phone_masked||"Not verified");
-   const receipt=escapeHTML(a.b2c_receipt||"");
-   const canSend=a.status==="pending";
-   return '<div class="item"><strong>#'+escapeHTML(a.position)+' • '+escapeHTML(a.amount)+' '+escapeHTML(a.currency||"KES")+'</strong><br>Player: '+escapeHTML(a.telegram_id)+'<br>Period: '+escapeHTML(a.period_type)+' / '+escapeHTML(a.period_key)+'<br>Status: '+status+'<br>Payout phone: '+phone+(receipt?'<br>M-Pesa receipt: '+receipt:'')+(canSend?'<button class="action" onclick="sendPrizePayout(\''+id+'\')">Send M-Pesa payout</button>':'')+'</div>';
+   return '<div class="item"><strong>#'+escapeHTML(a.position)+' • '+escapeHTML(a.amount)+' '+escapeHTML(a.currency||"KES")+'</strong><br>Player: '+escapeHTML(a.telegram_id)+'<br>Period: '+escapeHTML(a.period_type)+' / '+escapeHTML(a.period_key)+'<br>Status: '+escapeHTML(a.status||"pending")+'</div>';
   }).join("");
  }catch(e){showMessage(e.message);}
 }
@@ -1435,14 +1430,6 @@ async function generatePrizeAwards(){
   await loadPrizeAwards();
   await previewPrizePool();
  }catch(e){showMessage(e.message);await previewPrizePool();}
-}
-async function sendPrizePayout(id){
- if(!confirm("SEND REAL M-PESA CASH NOW? This will transfer the saved prize amount to the player's verified M-Pesa number. Do not proceed unless results and amount are final."))return;
- try{
-  const d=await api("/api/admin/prizes/"+encodeURIComponent(id)+"/send-mpesa","POST",{});
-  showMessage(d.message||"Payout submitted. Wait for Safaricom's final result callback.");
-  await loadPrizeAwards();
- }catch(e){showMessage(e.message);await loadPrizeAwards();}
 }
 
 checkAdmin();
