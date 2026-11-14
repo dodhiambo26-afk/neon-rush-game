@@ -5,6 +5,7 @@ import json
 import hashlib
 import asyncio
 import secrets
+import logging
 
 from datetime import datetime, timedelta, timezone
 from urllib.parse import parse_qsl
@@ -25,6 +26,10 @@ from mpesa import mpesa_reconciliation_loop, router as mpesa_router
 from b2c_payouts import router as b2c_payouts_router
 from preview_races import router as preview_races_router
 import notifications as notification_service
+
+# Never expose Telegram bot tokens through HTTP client request URL logs.
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 
 # ============================================================
