@@ -1721,13 +1721,17 @@ def calculate_prize_pool(period_type, period_key):
             "amount": amount,
             "currency": "KES",
         })
+    prize_pool = total * 21 // 100
+    awards_total = sum(a["amount"] for a in awards)
     return {
         "period_type": period_type,
         "period_key": period_key,
         "payment_count": len(eligible),
         "collected_kes": total,
-        "prize_pool_kes": total * 21 // 100,
-        "retained_kes": total - (total * 21 // 100),
+        "prize_pool_kes": prize_pool,
+        "awards_total_kes": awards_total,
+        "rounding_remainder_kes": max(0, prize_pool - awards_total),
+        "retained_kes": total - prize_pool,
         "awards": awards,
         "eligible_payment_ids": sorted(str(p.get("payment_id")) for p in eligible),
     }
@@ -1736,6 +1740,8 @@ def calculate_prize_pool(period_type, period_key):
 def create_calculated_prize_awards(period_type, period_key, admin_id):
     """Freeze the calculated pool and create five pending awards exactly once."""
     calculation = calculate_prize_pool(period_type, period_key)
+    if list_prize_awards(period_type, period_key):
+        raise ValueError("Prize awards already exist for this period. Review them instead of generating duplicates.")
     if len(calculation["awards"]) != 5:
         raise ValueError("Five ranked winners are required before awards can be generated.")
     if any(a["amount"] < 1 for a in calculation["awards"]):
