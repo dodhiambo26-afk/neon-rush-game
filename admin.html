@@ -251,21 +251,16 @@ These actions do not charge Telegram Stars.
 
 
 <section id="prizes">
-<h2>Prize awards &amp; M-Pesa payouts</h2>
-<div class="notice">Create awards only after checking and finalizing the official tournament results. Payouts go only to a player's M-Pesa number verified by a successful NEON RUSH STK payment. Sending a payout is a real cash transfer.</div>
-<h3>Create a prize award</h3>
+<h2>Automatic prize pool &amp; M-Pesa payouts</h2>
+<div class="notice">The system calculates the prize pool from successful, settled M-Pesa payments for the selected closed tournament. Telegram Stars and complimentary entries are excluded from the KES pool. Review the official top five, then generate the awards. Generating awards does not send money.</div>
 <label>Tournament type</label>
 <select id="prizePeriodType"><option value="weekly">Weekly</option><option value="monthly">Monthly</option></select>
 <label>Exact tournament period key</label>
-<input id="prizePeriodKey" placeholder="e.g. 2026-11-08T18:00">
-<label>Position (1–5)</label>
-<select id="prizePosition"><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option></select>
-<label>Winner Telegram ID</label>
-<input id="prizeTelegramId" type="number" placeholder="Telegram user ID">
-<label>Prize amount (KES)</label>
-<input id="prizeAmount" type="number" min="1" step="1" placeholder="Amount in KES">
-<button class="action" onclick="createPrizeAward()">Save approved prize award</button>
-<h3>Existing awards</h3>
+<input id="prizePeriodKey" placeholder="e.g. 2026-11-08T18:00 or 2026-11">
+<button class="action" onclick="previewPrizePool()">Calculate prize pool &amp; preview winners</button>
+<div id="prizePoolPreview" class="panel">Enter a closed tournament period and calculate the pool.</div>
+<button class="action" id="generatePrizeAwardsButton" onclick="generatePrizeAwards()" disabled>Generate the five pending awards</button>
+<h3>Existing awards &amp; payouts</h3>
 <button class="action" onclick="loadPrizeAwards()">Refresh prize awards</button>
 <div id="prizeAwardsList" class="panel">Load prize awards to review status.</div>
 </section>
@@ -1406,24 +1401,40 @@ async function loadPrizeAwards(){
   }).join("");
  }catch(e){showMessage(e.message);}
 }
-async function createPrizeAward(){
- const payload={
-  period_type:document.getElementById("prizePeriodType").value,
-  period_key:document.getElementById("prizePeriodKey").value.trim(),
-  position:Number(document.getElementById("prizePosition").value),
-  telegram_id:Number(document.getElementById("prizeTelegramId").value),
-  amount:Number(document.getElementById("prizeAmount").value),
-  currency:"KES"
- };
- if(!payload.period_key||!payload.telegram_id||!Number.isInteger(payload.amount)||payload.amount<1){
-  return showMessage("Enter the exact period key, winner Telegram ID and a whole-number KES prize.");
- }
- if(!confirm("Save this prize award for player "+payload.telegram_id+"? Confirm the official result and amount first."))return;
+let latestPrizePoolPreview=null;
+async function previewPrizePool(){
+ const type=document.getElementById("prizePeriodType").value;
+ const key=document.getElementById("prizePeriodKey").value.trim();
+ const panel=document.getElementById("prizePoolPreview");
+ const button=document.getElementById("generatePrizeAwardsButton");
+ button.disabled=true;
+ latestPrizePoolPreview=null;
+ if(!key){panel.textContent="Enter the exact tournament period key.";return;}
+ panel.textContent="Calculating collected M-Pesa payments and official leaderboard...";
  try{
-  await api("/api/admin/prizes","POST",payload);
-  showMessage("Prize award saved. Review the award and verified payout number before sending.");
+  const q=new URLSearchParams({period_type:type,period_key:key});
+  const d=await api("/api/admin/prize-pool/preview?"+q.toString());
+  latestPrizePoolPreview=d;
+  const rows=(d.awards||[]).map(x=>'<div class="item"><strong>#'+escapeHTML(x.position)+' — '+escapeHTML(x.percent)+'%</strong><br>Player: '+escapeHTML(x.username||x.telegram_id)+' (ID '+escapeHTML(x.telegram_id)+')<br>Score: '+escapeHTML(x.score)+'<br>Prize: KES '+escapeHTML(x.amount)+'</div>').join("");
+  panel.innerHTML='<strong>Collected eligible M-Pesa payments: KES '+escapeHTML(d.collected_kes)+'</strong><br>Successful receipts counted: '+escapeHTML(d.payment_count)+'<br><strong>Prize pool (21%): KES '+escapeHTML(d.prize_pool_kes)+'</strong><br>Remaining 79%: KES '+escapeHTML(d.retained_kes)+'<br><br>'+rows+'<div class="notice">'+escapeHTML(d.note)+'</div>';
+  button.disabled=!(d.is_closed&&!d.already_generated&&d.awards?.length===5&&d.awards.every(x=>x.amount>=1));
+  if(!d.is_closed) panel.innerHTML+='<p><strong>This tournament is still active. Awards cannot be generated yet.</strong></p>';
+  if(d.already_generated) panel.innerHTML+='<p><strong>Awards have already been generated for this period.</strong></p>';
+  if(d.awards?.length!==5) panel.innerHTML+='<p><strong>Five ranked winners are required.</strong></p>';
+  if(d.awards?.some(x=>x.amount<1)) panel.innerHTML+='<p><strong>One or more calculated prizes are below KES 1.</strong></p>';
+ }catch(e){panel.textContent="Could not calculate prize pool: "+e.message;showMessage(e.message);}
+}
+async function generatePrizeAwards(){
+ if(!latestPrizePoolPreview||!latestPrizePoolPreview.is_closed||latestPrizePoolPreview.already_generated)return;
+ const d=latestPrizePoolPreview;
+ if(!confirm("Generate five pending awards for "+d.period_type+" "+d.period_key+"? Total collected: KES "+d.collected_kes+". Prize pool: KES "+d.prize_pool_kes+". This does NOT send payments."))return;
+ const q=new URLSearchParams({period_type:d.period_type,period_key:d.period_key});
+ try{
+  await api("/api/admin/prize-pool/generate?"+q.toString(),"POST",{});
+  showMessage("Five calculated prize awards have been generated. Review verified phone numbers before making any real payouts.");
   await loadPrizeAwards();
- }catch(e){showMessage(e.message);}
+  await previewPrizePool();
+ }catch(e){showMessage(e.message);await previewPrizePool();}
 }
 async function sendPrizePayout(id){
  if(!confirm("SEND REAL M-PESA CASH NOW? This will transfer the saved prize amount to the player's verified M-Pesa number. Do not proceed unless results and amount are final."))return;
