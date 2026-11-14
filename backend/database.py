@@ -1689,6 +1689,108 @@ def mark_prize_paid(award_id, payment_reference=None, notes=None):
     return True
 
 
+
+def calculate_prize_pool(period_type, period_key):
+    """Calculate a KES pool from settled M-Pesa receipts for one closed period."""
+    period_type = str(period_type)
+    period_key = str(period_key)
+    if period_type not in ("weekly", "monthly"):
+        raise ValueError("Period type must be weekly or monthly.")
+    key_field = "session_key" if period_type == "weekly" else "month_key"
+    payment_type = "weekly_entry" if period_type == "weekly" else "monthly_membership"
+    eligible = [
+        p for p in _all("payments")
+        if p.get("provider") == "mpesa"
+        and p.get("currency") == "KES"
+        and p.get("payment_type") == payment_type
+        and str(p.get(key_field) or "") == period_key
+        and str(p.get("mpesa_receipt") or "").strip()
+    ]
+    total = sum(_as_int(p.get("amount")) for p in eligible)
+    rankings = list_tournament_player_rankings(period_type, period_key, 5)
+    shares = (10, 5, 3, 2, 1)
+    awards = []
+    for position, (winner, percent) in enumerate(zip(rankings, shares), start=1):
+        amount = total * percent // 100
+        awards.append({
+            "position": position,
+            "telegram_id": str(winner.get("telegram_id")),
+            "username": winner.get("username"),
+            "score": _as_int(winner.get("score")),
+            "percent": percent,
+            "amount": amount,
+            "currency": "KES",
+        })
+    return {
+        "period_type": period_type,
+        "period_key": period_key,
+        "payment_count": len(eligible),
+        "collected_kes": total,
+        "prize_pool_kes": total * 21 // 100,
+        "retained_kes": total - (total * 21 // 100),
+        "awards": awards,
+        "eligible_payment_ids": sorted(str(p.get("payment_id")) for p in eligible),
+    }
+
+
+def create_calculated_prize_awards(period_type, period_key, admin_id):
+    """Freeze the calculated pool and create five pending awards exactly once."""
+    calculation = calculate_prize_pool(period_type, period_key)
+    if len(calculation["awards"]) != 5:
+        raise ValueError("Five ranked winners are required before awards can be generated.")
+    if any(a["amount"] < 1 for a in calculation["awards"]):
+        raise ValueError("At least one calculated award is below KES 1.")
+    refs = [
+        _doc("prize_awards", f"{period_type}_{period_key}_{a['position']}_{a['telegram_id']}")
+        for a in calculation["awards"]
+    ]
+    pool_ref = _doc("prize_pool_snapshots", f"{period_type}_{period_key}")
+    txn = db().transaction()
+
+    @firestore.transactional
+    def apply(tx):
+        # Firestore requires all reads before writes.
+        pool_snap = pool_ref.get(transaction=tx)
+        award_snaps = [ref.get(transaction=tx) for ref in refs]
+        if pool_snap.exists or any(s.exists for s in award_snaps):
+            return False
+        now = timestamp()
+        tx.create(pool_ref, {
+            **{k: v for k, v in calculation.items() if k != "eligible_payment_ids"},
+            "eligible_payment_ids": calculation["eligible_payment_ids"],
+            "generated_by": str(admin_id),
+            "generated_at": now,
+            "status": "approved_for_review",
+        })
+        for ref, award in zip(refs, calculation["awards"]):
+            tx.create(ref, {
+                "award_id": ref.id,
+                "period_type": period_type,
+                "period_key": period_key,
+                "position": award["position"],
+                "telegram_id": award["telegram_id"],
+                "amount": award["amount"],
+                "currency": "KES",
+                "status": "pending",
+                "source": "automatic_mpesa_pool",
+                "pool_snapshot_id": pool_ref.id,
+                "notes": f"Automatically calculated at {award['percent']}% of {calculation['collected_kes']} KES collected",
+                "created_at": now,
+                "paid_at": None,
+                "payment_reference": None,
+            })
+        return True
+
+    if not apply(txn):
+        raise ValueError("Prize awards or a pool snapshot already exist for this period.")
+    record_admin_activity(
+        admin_id, "GENERATE_AUTOMATIC_PRIZE_POOL", None,
+        {"period_type": period_type, "period_key": period_key,
+         "collected_kes": calculation["collected_kes"],
+         "prize_pool_kes": calculation["prize_pool_kes"]}
+    )
+    return calculation
+
 def list_prize_awards(period_type=None, period_key=None):
     awards = _all("prize_awards")
 
