@@ -4,7 +4,7 @@ from firebase_admin import firestore
 import database as db
 
 TARGET = 100000
-ENTRY_KES = 30
+ENTRY_KES = 35
 SESSION_KEY = "mega-100k-v1"
 PRIZES = [
     {"position": 1, "amount_kes": 750000},
@@ -78,7 +78,8 @@ def confirm_mpesa_payment(internal_id, payment_id, receipt, checkout_id, source)
         current_data = current.to_dict() or {}
         if current_data.get("status") not in ("pending", "initiated"):
             return {"processed": False, "reason": "payment_not_pending"}
-        if int(current_data.get("amount", 0)) != ENTRY_KES:
+        paid_amount = int(current_data.get("amount", 0))
+        if paid_amount not in (30, ENTRY_KES):
             txn.update(pending_ref, {"status": "review_required", "review_reason": "Mega tournament payment amount mismatch."})
             return {"processed": False, "reason": "amount_mismatch"}
         if existing_payment is not None and existing_payment.exists:
@@ -102,7 +103,7 @@ def confirm_mpesa_payment(internal_id, payment_id, receipt, checkout_id, source)
                 "telegram_id": uid,
                 "payment_id": payment_id,
                 "mpesa_receipt": receipt,
-                "amount_kes": ENTRY_KES,
+                "amount_kes": paid_amount,
                 "source": "mpesa",
                 "paid_at": now,
                 "joined_at": now,
@@ -122,7 +123,7 @@ def confirm_mpesa_payment(internal_id, payment_id, receipt, checkout_id, source)
         txn.set(payment_ref, {
             "payment_id": payment_id,
             "telegram_id": uid,
-            "amount": ENTRY_KES,
+            "amount": paid_amount,
             "currency": "KES",
             "payment_type": "mega_tournament",
             "provider": "mpesa",
