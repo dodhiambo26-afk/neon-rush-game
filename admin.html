@@ -548,8 +548,9 @@ async function loadOverview(){
   const d=await api("/api/admin/overview");
   const s=d.stats||d;
 
-  const weekly=Number(s.weekly_entries||0);
-  const monthly=Number(s.monthly_members||0);
+  // Use current-session counts from the overview API, not lifetime totals.
+  const weekly=Number(d.weekly?.entries ?? 0);
+  const monthly=Number(d.monthly?.members ?? 0);
 
   document.getElementById("playersCount").textContent=s.players??"—";
   document.getElementById("weeklyCount").textContent=weekly;
