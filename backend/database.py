@@ -459,7 +459,7 @@ def save_verified_score_with_race_session(
     session_key = str(session_key)
     score = _as_int(score)
 
-    if mode not in ("weekly", "monthly") or not race_id:
+    if mode not in ("weekly", "monthly", "mega") or not race_id:
         return False
 
     race_ref = _doc("race_sessions", race_id)
