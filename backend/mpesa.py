@@ -92,7 +92,11 @@ async def reconcile_stale_mpesa_payments(application=None):
                                 + (
                                     "Your KSh 25 weekly tournament entry is now confirmed."
                                     if outcome.get("payment_type") == "weekly_entry"
-                                    else "Your KSh 200 monthly membership is now active."
+                                    else (
+                                        "Your KSh 30 Mega Tournament membership is confirmed and counted toward the 100,000 target."
+                                        if outcome.get("payment_type") == "mega_tournament"
+                                        else "Your KSh 200 monthly membership is now active."
+                                    )
                                 )
                                 + "\\n\\nYour payment was recovered automatically. "
                                 "If the receipt is not yet displayed, it will be attached when Safaricom's callback arrives."
@@ -283,17 +287,23 @@ async def mpesa_callback(secret: str, request: Request):
                     text=(
                         "🎉 M-PESA PAYMENT CONFIRMED!\n\n"
                         + (
-                            "Your KSh 25 weekly tournament entry is now confirmed "
-                            "for this week's session.\n\n"
+                            "Your KSh 25 weekly tournament entry is now confirmed for this week's session.\n\n"
                             if result.get("payment_type") == "weekly_entry"
-                            else "Your KSh 200 NEON RUSH ARENA monthly membership "
-                            "is now active until the end of this month.\n\n"
+                            else (
+                                "Your KSh 30 Mega Tournament payment is confirmed. Your unique paid membership has been counted toward the 100,000 target.\n\n"
+                                if result.get("payment_type") == "mega_tournament"
+                                else "Your KSh 200 NEON RUSH ARENA monthly membership is now active until the end of this month.\n\n"
+                            )
                         )
                         + f"Receipt: {result.get('receipt', 'confirmed')}\n"
                         + (
                             "Good luck in the weekly tournament!"
                             if result.get("payment_type") == "weekly_entry"
-                            else "Good luck in the monthly tournament!"
+                            else (
+                                "The Mega Tournament will unlock when the 100,000 paid-member target is reached."
+                                if result.get("payment_type") == "mega_tournament"
+                                else "Good luck in the monthly tournament!"
+                            )
                         )
                     ),
                 )
