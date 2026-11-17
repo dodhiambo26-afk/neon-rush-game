@@ -202,10 +202,12 @@ def _member_collection():
     return db.db().collection("mega_tournament_members")
 
 def leaderboard(limit=10):
-    rows = db.db().collection("scores").where("mode", "==", "mega").where("session_key", "==", SESSION_KEY).stream()
+    rows = db.db().collection("scores").stream()
     best = {}
     for snap in rows:
         item = snap.to_dict() or {}
+        if item.get("mode") != "mega" or str(item.get("session_key")) != SESSION_KEY:
+            continue
         uid = str(item.get("telegram_id") or "")
         if not uid:
             continue
