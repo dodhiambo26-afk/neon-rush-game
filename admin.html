@@ -86,6 +86,7 @@ footer{text-align:center;color:#6f88a8;font-size:11px;padding:25px}
 <button data-page="performance">Performance</button>
 <button data-page="banned">Moderation</button>
 <button data-page="tournament">Tournament</button>
+<button data-page="megaTournament">100K Mega Tournament</button>
 <button data-page="history">Game history</button>
 <button data-page="notifications">Notifications</button>
 <button data-page="activity">Admin activity</button>
@@ -292,6 +293,24 @@ These actions do not charge Telegram Stars.
 <h2>Tournament management</h2>
 <button class="action" onclick="loadTournament()">Refresh tournament information</button>
 <div id="tournamentInfo" class="panel">Loading...</div>
+</section>
+
+<section id="megaTournament">
+<h2>100K Mega Tournament</h2>
+<div class="notice">
+<strong>Automatic launch rule</strong>
+<p>The tournament starts automatically when 100,000 unique KSh 30 M-Pesa payments are confirmed. Pending, failed, duplicate and complimentary entries do not count. Players may continue joining while the tournament is active. There is no manual start button.</p>
+</div>
+<div id="megaTournamentStatus" class="panel">Loading Mega Tournament status...</div>
+<h3>Set tournament duration before automatic launch</h3>
+<label for="megaDurationHours">Tournament duration (hours)</label>
+<input id="megaDurationHours" type="number" min="1" max="720" value="24">
+<button class="action" onclick="saveMegaDuration()">Save initial duration</button>
+<h3>Extend an active tournament</h3>
+<label for="megaExtensionHours">Add time (hours)</label>
+<input id="megaExtensionHours" type="number" min="1" max="720" value="24">
+<button class="action" onclick="extendMegaTournament()">Add time to tournament</button>
+<p class="muted">Time controls are available only in the appropriate status: initial duration before launch; extensions while active. The start itself is automatic.</p>
 </section>
 
 <section id="history">
@@ -508,6 +527,7 @@ document.querySelectorAll("nav button").forEach(button=>{
    performance:loadPerformance,
    banned:loadBanned,
    tournament:loadTournament,
+   megaTournament:loadMegaTournament,
    history:loadHistoryDashboard,
    notifications:loadNotifications,
    activity:loadActivity,
@@ -950,6 +970,40 @@ async function loadBanned(){
  }catch(e){
   showMessage("Could not load banned players: "+e.message);
  }
+}
+
+async function loadMegaTournament(){
+ const el=document.getElementById("megaTournamentStatus");
+ el.textContent="Loading Mega Tournament...";
+ try{
+  const d=await api("/api/admin/mega-tournament");
+  const prizes=(d.prizes||[]).map(p=>"<div class='item'><strong>Position "+escapeHTML(p.position)+": KSh "+Number(p.amount_kes).toLocaleString("en-KE")+"</strong></div>").join("");
+  const started=d.started_at?new Date(d.started_at).toLocaleString("en-KE",{timeZone:"Africa/Nairobi"}):"Not started";
+  const ends=d.ends_at?new Date(d.ends_at).toLocaleString("en-KE",{timeZone:"Africa/Nairobi"}):"Not set";
+  el.innerHTML="<strong>Status: "+escapeHTML(String(d.status||"waiting").toUpperCase())+"</strong><br>Confirmed paid members: "+Number(d.confirmed_members||0).toLocaleString("en-KE")+" / 100,000<br>Remaining to launch: "+Number(d.remaining_members||0).toLocaleString("en-KE")+"<br>Entry price: KSh 30<br>Configured duration: "+escapeHTML(d.duration_hours||24)+" hours<br>Started: "+escapeHTML(started)+"<br>Ends: "+escapeHTML(ends)+"<br><br><strong>Fixed cash prizes (total KSh 1,450,000)</strong>"+prizes;
+  if(d.duration_hours) document.getElementById("megaDurationHours").value=d.duration_hours;
+ }catch(e){
+  el.textContent="Could not load Mega Tournament: "+e.message;
+ }
+}
+async function saveMegaDuration(){
+ const hours=Number(document.getElementById("megaDurationHours").value);
+ if(!Number.isInteger(hours)||hours<1||hours>720)return showMessage("Enter a duration from 1 to 720 hours.");
+ try{
+  await api("/api/admin/mega-tournament/duration","POST",{hours});
+  showMessage("Initial Mega Tournament duration saved.");
+  await loadMegaTournament();
+ }catch(e){showMessage("Could not save duration: "+e.message);}
+}
+async function extendMegaTournament(){
+ const hours=Number(document.getElementById("megaExtensionHours").value);
+ if(!Number.isInteger(hours)||hours<1||hours>720)return showMessage("Enter an extension from 1 to 720 hours.");
+ if(!confirm("Add "+hours+" hours to the active 100K Mega Tournament?"))return;
+ try{
+  await api("/api/admin/mega-tournament/extend","POST",{hours});
+  showMessage("Mega Tournament end time extended by "+hours+" hours.");
+  await loadMegaTournament();
+ }catch(e){showMessage("Could not extend tournament: "+e.message);}
 }
 
 async function loadTournament(){
