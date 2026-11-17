@@ -99,3 +99,32 @@ async def capture_and_grant(order_id):
         return True
     if not apply(tx): raise ValueError("Payment could not be safely applied. Contact support with your PayPal transaction ID.")
     return {"success":True,"capture_id":capture_id,"payment_type":kind}
+
+async def verify_webhook(headers, event):
+    webhook_id = os.getenv("PAYPAL_WEBHOOK_ID", "").strip()
+    if not webhook_id:
+        raise RuntimeError("PAYPAL_WEBHOOK_ID is not configured.")
+    required = {
+        "auth_algo": headers.get("paypal-auth-algo"),
+        "cert_url": headers.get("paypal-cert-url"),
+        "transmission_id": headers.get("paypal-transmission-id"),
+        "transmission_sig": headers.get("paypal-transmission-sig"),
+        "transmission_time": headers.get("paypal-transmission-time"),
+    }
+    if not all(required.values()):
+        raise ValueError("PayPal webhook signature headers are incomplete.")
+    body = {
+        **required,
+        "webhook_id": webhook_id,
+        "webhook_event": event,
+    }
+    async with httpx.AsyncClient(timeout=25) as client:
+        token = await access_token(client)
+        response = await client.post(
+            base_url() + "/v1/notifications/verify-webhook-signature",
+            json=body,
+            headers={"Authorization": "Bearer " + token},
+        )
+        response.raise_for_status()
+        result = response.json()
+    return result.get("verification_status") == "SUCCESS"
