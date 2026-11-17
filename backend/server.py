@@ -18,6 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 import database as db
+import mega_tournament
 from race_engine import simulate_race
 from bot import build_application
 from telegram import Update
@@ -696,6 +697,10 @@ class PrizePaidAction(BaseModel):
 
 class MonthlyGrantAction(BaseModel):
     telegram_id: int = Field(gt=0)
+
+
+class MegaTournamentDurationAction(BaseModel):
+    hours: int = Field(ge=1, le=720)
 
 
 class ContactSettingsAction(BaseModel):
@@ -2332,6 +2337,55 @@ def admin_tournament(
             "winners": 5,
         },
     }
+
+
+# ============================================================
+# ADMIN 100K MEGA TOURNAMENT
+# ============================================================
+
+@app.get("/api/admin/mega-tournament")
+def admin_mega_tournament(
+    x_telegram_init_data: str = Header(default="", alias="X-Telegram-Init-Data"),
+):
+    require_admin(x_telegram_init_data)
+    status = mega_tournament.get_status()
+    return json_safe({
+        **status,
+        "target_members": mega_tournament.TARGET,
+        "entry_price_kes": mega_tournament.ENTRY_KES,
+        "prizes": mega_tournament.PRIZES,
+        "remaining_members": max(0, mega_tournament.TARGET - int(status.get("confirmed_members", 0))),
+        "automatic_start": True,
+        "manual_start_enabled": False,
+    })
+
+
+@app.post("/api/admin/mega-tournament/duration")
+def admin_set_mega_duration(
+    action: MegaTournamentDurationAction,
+    x_telegram_init_data: str = Header(default="", alias="X-Telegram-Init-Data"),
+):
+    admin = require_admin(x_telegram_init_data)
+    try:
+        status = mega_tournament.set_duration(action.hours, admin["id"])
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    record_admin_action(admin["id"], "SET_MEGA_TOURNAMENT_DURATION", None, f"{action.hours} hours")
+    return json_safe({"success": True, **status})
+
+
+@app.post("/api/admin/mega-tournament/extend")
+def admin_extend_mega_tournament(
+    action: MegaTournamentDurationAction,
+    x_telegram_init_data: str = Header(default="", alias="X-Telegram-Init-Data"),
+):
+    admin = require_admin(x_telegram_init_data)
+    try:
+        result = mega_tournament.extend_time(action.hours, admin["id"])
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    record_admin_action(admin["id"], "EXTEND_MEGA_TOURNAMENT", None, f"{action.hours} hours")
+    return json_safe({"success": True, **result})
 
 
 # ============================================================
