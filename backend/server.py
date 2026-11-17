@@ -1214,6 +1214,15 @@ def tournament_status(
             "entry_price": MONTHLY_STARS,
             "active_players": monthly_count,
         },
+        "mega": {
+            "has_access": mega_tournament.has_access(uid),
+            "status": mega_campaign.get("status", "waiting"),
+            "confirmed_members": int(mega_campaign.get("confirmed_members", 0)),
+            "target_members": mega_tournament.TARGET,
+            "entry_price_kes": mega_tournament.ENTRY_KES,
+            "started_at": mega_campaign.get("started_at"),
+            "ends_at": mega_campaign.get("ends_at"),
+        },
     }
 
 
@@ -2432,6 +2441,27 @@ def admin_extend_mega_tournament(
         raise HTTPException(status_code=400, detail=str(exc))
     record_admin_action(admin["id"], "EXTEND_MEGA_TOURNAMENT", None, f"{action.hours} hours")
     return json_safe({"success": True, **result})
+
+
+@app.get("/api/admin/mega-tournament/leaderboard")
+def admin_mega_tournament_leaderboard(
+    x_telegram_init_data: str = Header(default="", alias="X-Telegram-Init-Data"),
+):
+    require_admin(x_telegram_init_data)
+    scores = mega_tournament.leaderboard(100)
+    winners = []
+    for position, item in enumerate(scores[:5], start=1):
+        prize = mega_tournament.PRIZES[position - 1]["amount_kes"]
+        player = db.get_user(item.get("telegram_id")) or {}
+        winners.append({
+            "position": position,
+            "telegram_id": item.get("telegram_id"),
+            "username": player.get("username") or item.get("username"),
+            "score": item.get("score", 0),
+            "prize_kes": prize,
+            "award_status": "pending_manual_review",
+        })
+    return json_safe({"top_five": winners, "scored_players": len(scores)})
 
 
 # ============================================================
