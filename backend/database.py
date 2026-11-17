@@ -852,9 +852,9 @@ def create_mpesa_pending(internal_id, uid, phone, period_key,
     """Create a server-priced pending M-Pesa payment."""
     uid = _user_id(uid)
     is_weekly = payment_type == "weekly_entry"
-    if payment_type not in ("monthly_membership", "weekly_entry"):
+    if payment_type not in ("monthly_membership", "weekly_entry", "mega_tournament"):
         raise ValueError("Unsupported M-Pesa payment type.")
-    amount = 25 if is_weekly else 200
+    amount = 25 if is_weekly else (30 if payment_type == "mega_tournament" else 200)
     fields = {
         "internal_id": internal_id,
         "telegram_id": uid,
@@ -866,7 +866,7 @@ def create_mpesa_pending(internal_id, uid, phone, period_key,
         "status": "pending",
         "created_at": timestamp(),
     }
-    fields["session_key" if is_weekly else "month_key"] = str(period_key)
+    fields["session_key" if is_weekly or payment_type == "mega_tournament" else "month_key"] = str(period_key)
     _doc("mpesa_transactions", internal_id).set(fields)
     return True
 
@@ -1105,10 +1105,10 @@ def process_mpesa_query_result(internal_id, query_result):
         return {"processed": True, "success": False, "reason": "confirmed_failed"}
 
     payment_type = str(pending.get("payment_type") or "")
-    if payment_type not in ("weekly_entry", "monthly_membership"):
+    if payment_type not in ("weekly_entry", "monthly_membership", "mega_tournament"):
         return {"processed": False, "reason": "unsupported_payment_type"}
     uid = str(pending.get("telegram_id") or "")
-    amount = 25 if payment_type == "weekly_entry" else 200
+    amount = 25 if payment_type == "weekly_entry" else (30 if payment_type == "mega_tournament" else 200)
     if _as_int(pending.get("amount")) != amount or not uid:
         pending_ref.set({
             "status": "review_required",
@@ -1120,10 +1120,17 @@ def process_mpesa_query_result(internal_id, query_result):
 
     is_weekly = payment_type == "weekly_entry"
     period_key = str(
-        pending.get("session_key" if is_weekly else "month_key") or ""
+        pending.get("session_key" if is_weekly or payment_type == "mega_tournament" else "month_key") or ""
     )
     if not period_key:
         return {"processed": False, "reason": "missing_period"}
+
+    if payment_type == "mega_tournament":
+        import mega_tournament
+        payment_id = "mpesa_reconciled_" + str(pending.get("internal_id") or internal_id)
+        return mega_tournament.confirm_mpesa_payment(
+            internal_id, payment_id, None, checkout_id, "daraja_stk_query"
+        )
 
     payment_id = "mpesa_reconciled_" + str(pending.get("internal_id") or internal_id)
     payment_ref = _doc("payments", payment_id)
@@ -1264,10 +1271,10 @@ def process_mpesa_callback(payload):
     uid = str(pending.get("telegram_id", ""))
     month_key = str(pending.get("month_key", ""))
     payment_type = str(pending.get("payment_type") or "")
-    if pending.get("provider") != "mpesa" or payment_type not in ("monthly_membership", "weekly_entry"):
+    if pending.get("provider") != "mpesa" or payment_type not in ("monthly_membership", "weekly_entry", "mega_tournament"):
         return {"processed": False, "reason": "wrong_payment_type"}
     is_weekly = payment_type == "weekly_entry"
-    period_key = str(pending.get("session_key" if is_weekly else "month_key", ""))
+    period_key = str(pending.get("session_key" if is_weekly or payment_type == "mega_tournament" else "month_key", ""))
 
     # Daraja callbacks must match both identifiers saved for this STK request.
     callback_merchant_id = str(callback.get("MerchantRequestID") or "")
@@ -1291,7 +1298,7 @@ def process_mpesa_callback(payload):
             receipt = str(values.get("MpesaReceiptNumber") or "").strip()
             callback_phone = str(values.get("PhoneNumber") or "").strip()
             expected_phone = str(pending.get("phone") or "").strip()
-            expected_amount = 25 if payment_type == "weekly_entry" else 200
+            expected_amount = 25 if payment_type == "weekly_entry" else (30 if payment_type == "mega_tournament" else 200)
             if (
                 receipt
                 and _as_int(values.get("Amount"), -1) == expected_amount
@@ -1361,7 +1368,7 @@ def process_mpesa_callback(payload):
     callback_phone = str(metadata.get("PhoneNumber") or "").strip()
     expected_phone = str(pending.get("phone") or "").strip()
 
-    expected_amount = 25 if is_weekly else 200
+    expected_amount = 25 if is_weekly else (30 if payment_type == "mega_tournament" else 200)
 
     def mark_review_required(reason, fields):
         """Move a still-pending payment to review atomically; never overwrite a terminal state."""
@@ -1400,6 +1407,11 @@ def process_mpesa_callback(payload):
 
     payment_id = "mpesa_" + receipt
     payment_ref = _doc("payments", payment_id)
+    if payment_type == "mega_tournament":
+        import mega_tournament
+        return mega_tournament.confirm_mpesa_payment(
+            matches[0].id, payment_id, receipt, checkout_id, "daraja_callback"
+        )
     if is_weekly:
         entry_id = _weekly_entry_id(uid, period_key)
         entry_ref = _doc("weekly_entries", entry_id)
