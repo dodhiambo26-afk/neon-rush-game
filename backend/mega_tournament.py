@@ -153,11 +153,11 @@ def has_access(uid):
 
 def has_pending_payment(uid):
     """Prevent two simultaneous STK prompts for one Mega membership."""
-    rows = db.db().collection("mpesa_transactions").where(
-        "telegram_id", "==", str(int(uid))
-    ).where("payment_type", "==", "mega_tournament").stream()
+    rows = db.db().collection("mpesa_transactions").stream()
     return any(
-        (row.to_dict() or {}).get("status") in ("pending", "initiated")
+        str((row.to_dict() or {}).get("telegram_id")) == str(int(uid))
+        and (row.to_dict() or {}).get("payment_type") == "mega_tournament"
+        and (row.to_dict() or {}).get("status") in ("pending", "initiated")
         for row in rows
     )
 
