@@ -299,7 +299,7 @@ These actions do not charge Telegram Stars.
 <h2>100K Mega Tournament</h2>
 <div class="notice">
 <strong>Automatic launch rule</strong>
-<p>The tournament starts automatically when 100,000 unique KSh 30 M-Pesa payments are confirmed. Pending, failed, duplicate and complimentary entries do not count. Players may continue joining while the tournament is active. There is no manual start button.</p>
+<p>The tournament starts automatically when 100,000 unique KSh 35 M-Pesa payments are confirmed. Pending, failed, duplicate and complimentary entries do not count. Players may continue joining while the tournament is active. There is no manual start button.</p>
 </div>
 <div id="megaTournamentStatus" class="panel">Loading Mega Tournament status...</div>
 <h3>Set tournament duration before automatic launch</h3>
@@ -984,7 +984,7 @@ async function loadMegaTournament(){
   const started=d.started_at?new Date(d.started_at).toLocaleString("en-KE",{timeZone:"Africa/Nairobi"}):"Not started";
   const ends=d.ends_at?new Date(d.ends_at).toLocaleString("en-KE",{timeZone:"Africa/Nairobi"}):"Not set";
   const winners=(ranking.top_five||[]).map(w=>"<div class='item'><strong>#"+escapeHTML(w.position)+" — KSh "+Number(w.prize_kes).toLocaleString("en-KE")+"</strong><br>Player: "+escapeHTML(w.username||w.telegram_id)+" (ID "+escapeHTML(w.telegram_id)+")<br>Verified score: "+escapeHTML(w.score)+"<br>Award: pending manual review</div>").join("");
-  el.innerHTML="<strong>Status: "+escapeHTML(String(d.status||"waiting").toUpperCase())+"</strong><br>Confirmed paid members: "+Number(d.confirmed_members||0).toLocaleString("en-KE")+" / 100,000<br>Remaining to launch: "+Number(d.remaining_members||0).toLocaleString("en-KE")+"<br>Entry price: KSh 30<br>Configured duration: "+escapeHTML(d.duration_hours||24)+" hours<br>Started: "+escapeHTML(started)+"<br>Ends: "+escapeHTML(ends)+"<br><br><strong>Fixed cash prizes (total KSh 1,450,000)</strong>"+prizes+"<h3>Current top five</h3>"+(winners||"No Mega Tournament scores have been submitted yet.")+"<div class='notice'>Awards are not paid automatically. Confirm final standings and Safaricom B2C approval before paying winners.</div>";
+  el.innerHTML="<strong>Status: "+escapeHTML(String(d.status||"waiting").toUpperCase())+"</strong><br>Confirmed paid members: "+Number(d.confirmed_members||0).toLocaleString("en-KE")+" / 100,000<br>Remaining to launch: "+Number(d.remaining_members||0).toLocaleString("en-KE")+"<br>Entry price: KSh 35<br>Configured duration: "+escapeHTML(d.duration_hours||24)+" hours<br>Started: "+escapeHTML(started)+"<br>Ends: "+escapeHTML(ends)+"<br><br><strong>Fixed cash prizes (total KSh 1,450,000)</strong>"+prizes+"<h3>Current top five</h3>"+(winners||"No Mega Tournament scores have been submitted yet.")+"<div class='notice'>Awards are not paid automatically. Confirm final standings and Safaricom B2C approval before paying winners.</div>";
   if(d.duration_hours) document.getElementById("megaDurationHours").value=d.duration_hours;
  }catch(e){
   el.textContent="Could not load Mega Tournament: "+e.message;
