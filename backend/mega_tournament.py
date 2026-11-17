@@ -67,11 +67,13 @@ def confirm_mpesa_payment(internal_id, payment_id, receipt, checkout_id, source)
 
     @firestore.transactional
     def apply(txn):
-        current = txn.get(pending_ref)
-        existing_payment = txn.get(payment_ref)
-        member = txn.get(member_ref)
-        campaign = txn.get(campaign_ref)
-        if not current.exists:
+        # Firestore Python Transaction.get(document_ref) yields a generator
+        # in current client versions; consume each single-document result.
+        current = next(txn.get(pending_ref), None)
+        existing_payment = next(txn.get(payment_ref), None)
+        member = next(txn.get(member_ref), None)
+        campaign = next(txn.get(campaign_ref), None)
+        if current is None or not current.exists:
             return {"processed": False, "reason": "unknown_payment"}
         current_data = current.to_dict() or {}
         if current_data.get("status") not in ("pending", "initiated"):
@@ -79,10 +81,10 @@ def confirm_mpesa_payment(internal_id, payment_id, receipt, checkout_id, source)
         if int(current_data.get("amount", 0)) != ENTRY_KES:
             txn.update(pending_ref, {"status": "review_required", "review_reason": "Mega tournament payment amount mismatch."})
             return {"processed": False, "reason": "amount_mismatch"}
-        if existing_payment.exists:
+        if existing_payment is not None and existing_payment.exists:
             txn.update(pending_ref, {"status": "review_required", "review_reason": "M-Pesa receipt already linked."})
             return {"processed": False, "reason": "duplicate_receipt"}
-        campaign_data = campaign.to_dict() if campaign.exists else {
+        campaign_data = campaign.to_dict() if campaign is not None and campaign.exists else {
             "name": "NEON RUSH 100K Mega Tournament",
             "target_members": TARGET,
             "entry_price_kes": ENTRY_KES,
@@ -92,7 +94,7 @@ def confirm_mpesa_payment(internal_id, payment_id, receipt, checkout_id, source)
             "prizes": PRIZES,
         }
         now = datetime.now(timezone.utc)
-        already_member = member.exists
+        already_member = member is not None and member.exists
         count = int(campaign_data.get("confirmed_members", 0))
         if not already_member:
             count += 1
@@ -181,8 +183,8 @@ def extend_time(hours, admin_id):
     transaction = db.db().transaction()
     @firestore.transactional
     def apply(txn):
-        snap = txn.get(ref)
-        if not snap.exists:
+        snap = next(txn.get(ref), None)
+        if snap is None or not snap.exists:
             raise ValueError("Tournament has not started.")
         data = snap.to_dict() or {}
         if data.get("status") != "active" or not isinstance(data.get("ends_at"), datetime):
