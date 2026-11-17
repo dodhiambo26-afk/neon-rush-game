@@ -156,6 +156,17 @@ async def initiate_stk_push(telegram_id, phone, payment_type="monthly_membership
         amount = MONTHLY_MEMBERSHIP_KES
         reference = "NEONRUSH"
         description = "Monthly Membership"
+    elif payment_type == "mega_tournament":
+        import mega_tournament
+        campaign = mega_tournament.get_status()
+        if campaign.get("status") == "finished":
+            raise ValueError("The 100K Mega Tournament has finished and is no longer accepting entries.")
+        if mega_tournament.has_access(telegram_id):
+            return {"already_active": True}
+        period_key = mega_tournament.SESSION_KEY
+        amount = mega_tournament.ENTRY_KES
+        reference = "NRMEGA100K"
+        description = "100K Mega Tournament Entry"
     else:
         raise ValueError("Unsupported M-Pesa payment type.")
 
