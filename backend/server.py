@@ -1172,6 +1172,7 @@ def tournament_status(
 
     weekly = weekly_session()
     monthly = monthly_session()
+    mega_campaign = mega_tournament.get_status()
 
     weekly_entries = db.list_weekly_entries(weekly["key"])
     monthly_members = db.list_monthly_members(monthly["key"])
