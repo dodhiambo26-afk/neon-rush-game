@@ -854,7 +854,7 @@ def create_mpesa_pending(internal_id, uid, phone, period_key,
     is_weekly = payment_type == "weekly_entry"
     if payment_type not in ("monthly_membership", "weekly_entry", "mega_tournament"):
         raise ValueError("Unsupported M-Pesa payment type.")
-    amount = 25 if is_weekly else (30 if payment_type == "mega_tournament" else 200)
+    amount = 25 if is_weekly else (35 if payment_type == "mega_tournament" else 200)
     fields = {
         "internal_id": internal_id,
         "telegram_id": uid,
