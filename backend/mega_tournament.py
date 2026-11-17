@@ -37,7 +37,8 @@ def get_status():
         snap = ref.get()
     data = snap.to_dict() or {}
     data.setdefault("target_members", TARGET)
-    data.setdefault("entry_price_kes", ENTRY_KES)
+    data["entry_price_kes"] = ENTRY_KES
+    ref.set({"entry_price_kes": ENTRY_KES}, merge=True)
     data.setdefault("confirmed_members", 0)
     data.setdefault("status", "waiting")
     data.setdefault("duration_hours", 24)
