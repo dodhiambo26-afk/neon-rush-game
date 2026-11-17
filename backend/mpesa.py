@@ -92,7 +92,11 @@ async def reconcile_stale_mpesa_payments(application=None):
                                 + (
                                     "Your KSh 25 weekly tournament entry is now confirmed."
                                     if outcome.get("payment_type") == "weekly_entry"
-                                    else "Your KSh 200 monthly membership is now active."
+                                    else (
+                                        "Your KSh 30 Mega Tournament membership is confirmed and counted toward the 100,000 target."
+                                        if outcome.get("payment_type") == "mega_tournament"
+                                        else "Your KSh 200 monthly membership is now active."
+                                    )
                                 )
                                 + "\\n\\nYour payment was recovered automatically. "
                                 "If the receipt is not yet displayed, it will be attached when Safaricom's callback arrives."
@@ -156,6 +160,19 @@ async def initiate_stk_push(telegram_id, phone, payment_type="monthly_membership
         amount = MONTHLY_MEMBERSHIP_KES
         reference = "NEONRUSH"
         description = "Monthly Membership"
+    elif payment_type == "mega_tournament":
+        import mega_tournament
+        campaign = mega_tournament.get_status()
+        if campaign.get("status") == "finished":
+            raise ValueError("The 100K Mega Tournament has finished and is no longer accepting entries.")
+        if mega_tournament.has_access(telegram_id):
+            return {"already_active": True}
+        if mega_tournament.has_pending_payment(telegram_id):
+            raise ValueError("You already have a pending KSh 30 Mega Tournament payment. Complete or wait for that M-Pesa request before starting another.")
+        period_key = mega_tournament.SESSION_KEY
+        amount = mega_tournament.ENTRY_KES
+        reference = "NRMEGA100K"
+        description = "100K Mega Tournament Entry"
     else:
         raise ValueError("Unsupported M-Pesa payment type.")
 
@@ -272,17 +289,23 @@ async def mpesa_callback(secret: str, request: Request):
                     text=(
                         "🎉 M-PESA PAYMENT CONFIRMED!\n\n"
                         + (
-                            "Your KSh 25 weekly tournament entry is now confirmed "
-                            "for this week's session.\n\n"
+                            "Your KSh 25 weekly tournament entry is now confirmed for this week's session.\n\n"
                             if result.get("payment_type") == "weekly_entry"
-                            else "Your KSh 200 NEON RUSH ARENA monthly membership "
-                            "is now active until the end of this month.\n\n"
+                            else (
+                                "Your KSh 30 Mega Tournament payment is confirmed. Your unique paid membership has been counted toward the 100,000 target.\n\n"
+                                if result.get("payment_type") == "mega_tournament"
+                                else "Your KSh 200 NEON RUSH ARENA monthly membership is now active until the end of this month.\n\n"
+                            )
                         )
                         + f"Receipt: {result.get('receipt', 'confirmed')}\n"
                         + (
                             "Good luck in the weekly tournament!"
                             if result.get("payment_type") == "weekly_entry"
-                            else "Good luck in the monthly tournament!"
+                            else (
+                                "The Mega Tournament will unlock when the 100,000 paid-member target is reached."
+                                if result.get("payment_type") == "mega_tournament"
+                                else "Good luck in the monthly tournament!"
+                            )
                         )
                     ),
                 )

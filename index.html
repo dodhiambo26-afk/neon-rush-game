@@ -550,7 +550,7 @@ const BACKEND_URL="https://neon-rush-game-backend.onrender.com";
 const tg=window.Telegram?.WebApp;
 const initData=tg?.initData||"";
 const requestedMode=new URLSearchParams(location.search).get("mode")||"free";
-const gameMode=["weekly","monthly"].includes(requestedMode)?requestedMode:"free";
+const gameMode=["weekly","monthly","mega"].includes(requestedMode)?requestedMode:"free";
 
 const $=id=>document.getElementById(id);
 
@@ -653,6 +653,7 @@ const soundBtn=$("soundToggle");
 let verifiedPlayer=null;
 let weeklyAccess=false;
 let monthlyAccess=false;
+let megaAccess=false;
 let authReady=false;
 
 let active=false;
@@ -1274,6 +1275,7 @@ async function authenticateTelegram(){
 
   weeklyAccess=data.weekly_access===true;
   monthlyAccess=data.monthly_access===true;
+  megaAccess=data.mega_access===true;
   authReady=true;
 
   if(gameMode==="weekly"){
@@ -1288,6 +1290,16 @@ async function authenticateTelegram(){
     );
 
     startBtn.textContent="WEEKLY ACCESS REQUIRED";
+    startBtn.disabled=true;
+   }
+  }else if(gameMode==="mega"){
+   if(megaAccess){
+    setAuthMessage("Welcome "+playerName()+"! Your KSh 30 Mega Tournament entry is confirmed.");
+    startBtn.textContent="START MEGA TOURNAMENT";
+    startBtn.disabled=false;
+   }else{
+    setAuthMessage("A confirmed KSh 30 M-Pesa Mega Tournament entry is required. Open the bot and choose 100K Mega Tournament.");
+    startBtn.textContent="MEGA ENTRY REQUIRED";
     startBtn.disabled=true;
    }
   }else if(gameMode==="monthly"){
@@ -1355,9 +1367,11 @@ async function loadTournamentPlayerCount(){
   const data=await response.json();
 
   const count=Number(
-   gameMode==="monthly"
-    ?data.monthly?.active_players
-    :data.weekly?.active_players
+   gameMode==="mega"
+    ?data.mega?.confirmed_members
+    :(gameMode==="monthly"
+      ?data.monthly?.active_players
+      :data.weekly?.active_players)
   )||0;
 
   const formattedCount=count.toLocaleString();
@@ -1381,8 +1395,7 @@ async function loadTournamentPlayerCount(){
 
   if(menuLabel){
    menuLabel.firstChild.textContent=
-    "👥 "+gameMode.toUpperCase()+
-    " TOURNAMENT PARTICIPANTS: ";
+    "👥 "+(gameMode==="mega"?"MEGA TOURNAMENT PAID MEMBERS":gameMode.toUpperCase()+" TOURNAMENT PARTICIPANTS")+": ";
   }
 
  }catch(error){

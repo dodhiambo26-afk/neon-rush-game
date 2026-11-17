@@ -18,6 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 import database as db
+import mega_tournament
 from race_engine import simulate_race
 from bot import build_application
 from telegram import Update
@@ -698,6 +699,10 @@ class MonthlyGrantAction(BaseModel):
     telegram_id: int = Field(gt=0)
 
 
+class MegaTournamentDurationAction(BaseModel):
+    hours: int = Field(ge=1, le=720)
+
+
 class ContactSettingsAction(BaseModel):
     whatsapp: str = Field(max_length=40)
     email: str = Field(max_length=200)
@@ -785,6 +790,8 @@ def telegram_auth(
         uid,
         monthly["key"],
     )
+    mega_campaign = mega_tournament.get_status()
+    mega_access = mega_tournament.has_access(uid)
 
     weekly_locked = db.is_weekly_locked()
 
@@ -815,6 +822,15 @@ def telegram_auth(
         "weekly_session": weekly,
 
         "monthly_access": monthly_access,
+        "mega_access": mega_access,
+        "mega_tournament": {
+            "status": mega_campaign.get("status", "waiting"),
+            "confirmed_members": int(mega_campaign.get("confirmed_members", 0)),
+            "target_members": mega_tournament.TARGET,
+            "entry_price_kes": mega_tournament.ENTRY_KES,
+            "started_at": mega_campaign.get("started_at"),
+            "ends_at": mega_campaign.get("ends_at"),
+        },
         "monthly_session": monthly,
         "monthly_expiry": monthly["end"],
 
@@ -858,8 +874,15 @@ def start_race(
         session = monthly_session()
         if not db.has_monthly_access(uid, session["key"]):
             raise HTTPException(status_code=403, detail="An active monthly membership is required.")
+    elif mode == "mega":
+        campaign = mega_tournament.get_status()
+        if campaign.get("status") != "active":
+            raise HTTPException(status_code=403, detail="The 100K Mega Tournament has not started or has finished.")
+        if not mega_tournament.has_access(uid):
+            raise HTTPException(status_code=403, detail="A confirmed KSh 30 Mega Tournament entry is required.")
+        session = {"key": mega_tournament.SESSION_KEY}
     else:
-        raise HTTPException(status_code=400, detail="Race sessions are only available for weekly or monthly tournaments.")
+        raise HTTPException(status_code=400, detail="Race sessions are only available for weekly, monthly or mega tournaments.")
 
     race_id = secrets.token_urlsafe(32)
     seed = secrets.randbits(32) or 1
@@ -921,10 +944,10 @@ def submit_score(
             "player": None,
         }
 
-    if mode not in ("weekly", "monthly"):
+    if mode not in ("weekly", "monthly", "mega"):
         raise HTTPException(
             status_code=400,
-            detail="Invalid game mode. Use free, weekly or monthly.",
+            detail="Invalid game mode. Use free, weekly, monthly or mega.",
         )
 
     if not submission.race_id:
@@ -973,7 +996,14 @@ def submit_score(
     verified_score = replay["score"]
     verified_duration = max(1, round(submission.ticks / 60))
 
-    if mode == "weekly":
+    if mode == "mega":
+        campaign = mega_tournament.get_status()
+        if campaign.get("status") != "active":
+            raise HTTPException(status_code=403, detail="The 100K Mega Tournament is not active.")
+        if not mega_tournament.has_access(uid):
+            raise HTTPException(status_code=403, detail="A confirmed KSh 30 Mega Tournament entry is required.")
+        session = {"key": mega_tournament.SESSION_KEY}
+    elif mode == "weekly":
         session = weekly_session()
 
         if not db.has_weekly_entry(uid, session["key"]):
@@ -1019,17 +1049,32 @@ def submit_score(
             detail="This race session is invalid or has already been submitted. Please start a new race.",
         )
 
-    leaderboard_data = build_leaderboard(
-        mode,
-        session["key"],
-        10,
-    )
-
-    player = player_rank_data(
-        uid,
-        mode,
-        session["key"],
-    )
+    if mode == "mega":
+        ranked = mega_tournament.leaderboard(100)
+        leaderboard_data = [
+            {
+                **item,
+                "rank": position,
+                "display_name": item.get("username") or str(item.get("telegram_id")),
+            }
+            for position, item in enumerate(ranked[:10], start=1)
+        ]
+        player = next((
+            {"position": position, "rank": position, "score": item.get("score", 0)}
+            for position, item in enumerate(ranked, start=1)
+            if str(item.get("telegram_id")) == str(uid)
+        ), None)
+    else:
+        leaderboard_data = build_leaderboard(
+            mode,
+            session["key"],
+            10,
+        )
+        player = player_rank_data(
+            uid,
+            mode,
+            session["key"],
+        )
 
     return {
         "saved": True,
@@ -1073,28 +1118,34 @@ def leaderboard(
             uid,
             session["key"],
         )
-
+    elif mode == "mega":
+        campaign = mega_tournament.get_status()
+        session = {"key": mega_tournament.SESSION_KEY, "status": campaign.get("status"), "ends_at": campaign.get("ends_at")}
+        has_access = mega_tournament.has_access(uid)
     else:
         raise HTTPException(
             status_code=400,
-            detail="Leaderboard mode must be weekly or monthly.",
+            detail="Leaderboard mode must be weekly, monthly or mega.",
         )
 
-    data = build_leaderboard(
-        mode,
-        session["key"],
-        10,
-    )
-
-    player = (
-        player_rank_data(uid, mode, session["key"])
-        if has_access
-        else {
-            "position": None,
-            "score": 0,
-            "display_name": None,
-        }
-    )
+    if mode == "mega":
+        ranked = mega_tournament.leaderboard(100)
+        data = [
+            {**item, "rank": position, "display_name": item.get("username") or str(item.get("telegram_id"))}
+            for position, item in enumerate(ranked[:10], start=1)
+        ]
+        player = next((
+            {"position": position, "rank": position, "score": item.get("score", 0)}
+            for position, item in enumerate(ranked, start=1)
+            if str(item.get("telegram_id")) == str(uid)
+        ), {"position": None, "score": 0, "display_name": None})
+    else:
+        data = build_leaderboard(mode, session["key"], 10)
+        player = (
+            player_rank_data(uid, mode, session["key"])
+            if has_access
+            else {"position": None, "score": 0, "display_name": None}
+        )
 
     return {
         "mode": mode,
@@ -1121,6 +1172,7 @@ def tournament_status(
 
     weekly = weekly_session()
     monthly = monthly_session()
+    mega_campaign = mega_tournament.get_status()
 
     weekly_entries = db.list_weekly_entries(weekly["key"])
     monthly_members = db.list_monthly_members(monthly["key"])
@@ -1162,6 +1214,15 @@ def tournament_status(
             ),
             "entry_price": MONTHLY_STARS,
             "active_players": monthly_count,
+        },
+        "mega": {
+            "has_access": mega_tournament.has_access(uid),
+            "status": mega_campaign.get("status", "waiting"),
+            "confirmed_members": int(mega_campaign.get("confirmed_members", 0)),
+            "target_members": mega_tournament.TARGET,
+            "entry_price_kes": mega_tournament.ENTRY_KES,
+            "started_at": mega_campaign.get("started_at"),
+            "ends_at": mega_campaign.get("ends_at"),
         },
     }
 
@@ -2332,6 +2393,76 @@ def admin_tournament(
             "winners": 5,
         },
     }
+
+
+# ============================================================
+# ADMIN 100K MEGA TOURNAMENT
+# ============================================================
+
+@app.get("/api/admin/mega-tournament")
+def admin_mega_tournament(
+    x_telegram_init_data: str = Header(default="", alias="X-Telegram-Init-Data"),
+):
+    require_admin(x_telegram_init_data)
+    status = mega_tournament.get_status()
+    return json_safe({
+        **status,
+        "target_members": mega_tournament.TARGET,
+        "entry_price_kes": mega_tournament.ENTRY_KES,
+        "prizes": mega_tournament.PRIZES,
+        "remaining_members": max(0, mega_tournament.TARGET - int(status.get("confirmed_members", 0))),
+        "automatic_start": True,
+        "manual_start_enabled": False,
+    })
+
+
+@app.post("/api/admin/mega-tournament/duration")
+def admin_set_mega_duration(
+    action: MegaTournamentDurationAction,
+    x_telegram_init_data: str = Header(default="", alias="X-Telegram-Init-Data"),
+):
+    admin = require_admin(x_telegram_init_data)
+    try:
+        status = mega_tournament.set_duration(action.hours, admin["id"])
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    record_admin_action(admin["id"], "SET_MEGA_TOURNAMENT_DURATION", None, f"{action.hours} hours")
+    return json_safe({"success": True, **status})
+
+
+@app.post("/api/admin/mega-tournament/extend")
+def admin_extend_mega_tournament(
+    action: MegaTournamentDurationAction,
+    x_telegram_init_data: str = Header(default="", alias="X-Telegram-Init-Data"),
+):
+    admin = require_admin(x_telegram_init_data)
+    try:
+        result = mega_tournament.extend_time(action.hours, admin["id"])
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    record_admin_action(admin["id"], "EXTEND_MEGA_TOURNAMENT", None, f"{action.hours} hours")
+    return json_safe({"success": True, **result})
+
+
+@app.get("/api/admin/mega-tournament/leaderboard")
+def admin_mega_tournament_leaderboard(
+    x_telegram_init_data: str = Header(default="", alias="X-Telegram-Init-Data"),
+):
+    require_admin(x_telegram_init_data)
+    scores = mega_tournament.leaderboard(100)
+    winners = []
+    for position, item in enumerate(scores[:5], start=1):
+        prize = mega_tournament.PRIZES[position - 1]["amount_kes"]
+        player = db.get_user(item.get("telegram_id")) or {}
+        winners.append({
+            "position": position,
+            "telegram_id": item.get("telegram_id"),
+            "username": player.get("username") or item.get("username"),
+            "score": item.get("score", 0),
+            "prize_kes": prize,
+            "award_status": "pending_manual_review",
+        })
+    return json_safe({"top_five": winners, "scored_players": len(scores)})
 
 
 # ============================================================
