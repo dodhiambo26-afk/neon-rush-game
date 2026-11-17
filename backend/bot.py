@@ -27,6 +27,7 @@ import database as db
 import notifications as notification_service
 import mega_tournament
 from mpesa import initiate_stk_push
+from paypal_payments import create_paypal_order
 
 
 # ============================================================
@@ -295,7 +296,7 @@ async def weekly_information(update: Update, context):
 
     await query.message.reply_text(
         f"🏆 WEEKLY TOURNAMENT — {session_key}\n\n"
-        "Entry fee: KSh 25 by M-Pesa OR 50 Telegram Stars.\n\n"
+        "Entry fee: KSh 25 by M-Pesa, US$0.30 by PayPal, OR 50 Telegram Stars.\n\n"
         "Choose your payment method below. Your entry activates only "
         "after the payment is confirmed.\n\n"
         "Session: Sunday 6 PM to Sunday 6 PM Kenya time.\n\n"
@@ -306,6 +307,7 @@ async def weekly_information(update: Update, context):
         "<i>Final standings are reviewed before awards are confirmed. Cash payouts are not automatic.</i>",
         reply_markup=InlineKeyboardMarkup([
             [InlineKeyboardButton("📱 PAY KSh 25 WITH M-PESA", callback_data="weekly_mpesa")],
+            [InlineKeyboardButton("🌍 PAY US$0.30 WITH PAYPAL", callback_data="weekly_paypal")],
             [InlineKeyboardButton("⭐ PAY 50 TELEGRAM STARS", callback_data="weekly_stars")],
             [InlineKeyboardButton("📞 SUPPORT", callback_data="support")],
         ]),
@@ -342,6 +344,7 @@ async def monthly_join_options(update, context):
         f"👑 MONTHLY MEMBERSHIP — {month_key}\n\n"
         "Choose your payment method:\n"
         "• KSh 200 via M-Pesa STK Push\n"
+        "• US$2.00 via PayPal (about KSh 260)\n"
         "• 300 Telegram Stars\n\n"
         "\n━━━━━━━━━━━━━━━━━━━━\n"
         "🏆 <b>TOP 5 PLAYERS WIN REWARDS!</b> 🏆\n"
@@ -350,6 +353,7 @@ async def monthly_join_options(update, context):
         "<i>Final standings are reviewed before awards are confirmed. Cash payouts are not automatic.</i>",
         reply_markup=InlineKeyboardMarkup([
             [InlineKeyboardButton("📱 PAY KSh 200 WITH M-PESA", callback_data="monthly_mpesa")],
+            [InlineKeyboardButton("🌍 PAY US$2.00 WITH PAYPAL", callback_data="monthly_paypal")],
             [InlineKeyboardButton("⭐ PAY 300 TELEGRAM STARS", callback_data="monthly_stars")],
         ]),
     )
@@ -444,7 +448,7 @@ async def mega_tournament_information(update, context):
     count = int(campaign.get("confirmed_members", 0))
     text = (
         "🏆 NEON RUSH 100K MEGA TOURNAMENT\n\n"
-        "Entry: KSh 30 by M-Pesa.\n"
+        "Entry: KSh 35 by M-Pesa or US$0.35 by PayPal.\n"
         f"Confirmed paid members: {count:,} / 100,000\n"
         f"Status: {status}\n"
         "The tournament starts automatically when 100,000 unique paid members are confirmed. "
@@ -456,7 +460,8 @@ async def mega_tournament_information(update, context):
     buttons = []
     has_access = mega_tournament.has_access(uid)
     if campaign.get("status") != "finished" and not has_access:
-        buttons.append([InlineKeyboardButton("📱 JOIN — PAY KSh 35 WITH M-PESA", callback_data="mega_mpesa")])
+        buttons.append([InlineKeyboardButton("📱 PAY KSh 35 WITH M-PESA", callback_data="mega_mpesa")])
+        buttons.append([InlineKeyboardButton("🌍 PAY US$0.35 WITH PAYPAL", callback_data="mega_paypal")])
     elif has_access:
         text += "\n\n✅ Your paid membership is confirmed."
         if campaign.get("status") == "active":
@@ -467,6 +472,33 @@ async def mega_tournament_information(update, context):
         elif campaign.get("status") == "waiting":
             text += "\nThe game will unlock automatically when the 100,000 paid-member target is reached."
     await query.message.reply_text(text, reply_markup=InlineKeyboardMarkup(buttons) if buttons else None)
+
+
+async def send_paypal_checkout(update, context, payment_type):
+    query = update.callback_query
+    await query.answer()
+    uid = query.from_user.id
+    if reject_banned(uid):
+        await query.message.reply_text("🚫 Your account has been suspended.")
+        return
+    try:
+        result = await create_paypal_order(uid, payment_type)
+        await query.message.reply_text(
+            "🌍 PAYPAL SECURE CHECKOUT\\n\\n"
+            f"Amount: US${result['amount']} {result['currency']}\\n"
+            "Open the secure PayPal link below to complete payment. "
+            "Tournament access activates only after PayPal confirms the captured payment.",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("🔐 CONTINUE TO PAYPAL", url=result["approval_url"])
+            ]]),
+        )
+    except ValueError as exc:
+        await query.message.reply_text(str(exc))
+    except Exception:
+        logger.exception("PayPal order creation failed")
+        await query.message.reply_text(
+            "❌ PayPal checkout could not be started. No payment was taken and no access was granted. Please try again."
+        )
 
 
 async def request_mpesa_phone(update, context, payment_type="monthly_membership"):
@@ -691,8 +723,14 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data == "mega_mpesa":
         await request_mpesa_phone(update, context, "mega_tournament")
 
+    elif query.data == "mega_paypal":
+        await send_paypal_checkout(update, context, "mega_tournament")
+
     elif query.data == "weekly_stars":
         await send_weekly_invoice(update, context)
+
+    elif query.data == "weekly_paypal":
+        await send_paypal_checkout(update, context, "weekly_entry")
 
     elif query.data == "weekly_mpesa":
         await request_mpesa_phone(update, context, "weekly_entry")
@@ -702,6 +740,9 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif query.data == "monthly_stars":
         await send_monthly_invoice(update, context)
+
+    elif query.data == "monthly_paypal":
+        await send_paypal_checkout(update, context, "monthly_membership")
 
     elif query.data == "monthly_mpesa":
         await request_mpesa_phone(update, context)
