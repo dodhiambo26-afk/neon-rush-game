@@ -454,10 +454,18 @@ async def mega_tournament_information(update, context):
         "Cash awards are subject to final score verification and are paid separately."
     )
     buttons = []
-    if campaign.get("status") != "finished" and not mega_tournament.has_access(uid):
+    has_access = mega_tournament.has_access(uid)
+    if campaign.get("status") != "finished" and not has_access:
         buttons.append([InlineKeyboardButton("📱 JOIN — PAY KSh 30 WITH M-PESA", callback_data="mega_mpesa")])
-    elif mega_tournament.has_access(uid):
+    elif has_access:
         text += "\n\n✅ Your paid membership is confirmed."
+        if campaign.get("status") == "active":
+            buttons.append([InlineKeyboardButton(
+                "🏁 PLAY 100K MEGA TOURNAMENT",
+                web_app=WebAppInfo(url=game_url("mega"))
+            )])
+        elif campaign.get("status") == "waiting":
+            text += "\nThe game will unlock automatically when the 100,000 paid-member target is reached."
     await query.message.reply_text(text, reply_markup=InlineKeyboardMarkup(buttons) if buttons else None)
 
 
