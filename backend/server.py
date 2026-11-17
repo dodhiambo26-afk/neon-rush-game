@@ -790,6 +790,8 @@ def telegram_auth(
         uid,
         monthly["key"],
     )
+    mega_campaign = mega_tournament.get_status()
+    mega_access = mega_tournament.has_access(uid)
 
     weekly_locked = db.is_weekly_locked()
 
@@ -820,6 +822,15 @@ def telegram_auth(
         "weekly_session": weekly,
 
         "monthly_access": monthly_access,
+        "mega_access": mega_access,
+        "mega_tournament": {
+            "status": mega_campaign.get("status", "waiting"),
+            "confirmed_members": int(mega_campaign.get("confirmed_members", 0)),
+            "target_members": mega_tournament.TARGET,
+            "entry_price_kes": mega_tournament.ENTRY_KES,
+            "started_at": mega_campaign.get("started_at"),
+            "ends_at": mega_campaign.get("ends_at"),
+        },
         "monthly_session": monthly,
         "monthly_expiry": monthly["end"],
 
@@ -863,8 +874,15 @@ def start_race(
         session = monthly_session()
         if not db.has_monthly_access(uid, session["key"]):
             raise HTTPException(status_code=403, detail="An active monthly membership is required.")
+    elif mode == "mega":
+        campaign = mega_tournament.get_status()
+        if campaign.get("status") != "active":
+            raise HTTPException(status_code=403, detail="The 100K Mega Tournament has not started or has finished.")
+        if not mega_tournament.has_access(uid):
+            raise HTTPException(status_code=403, detail="A confirmed KSh 30 Mega Tournament entry is required.")
+        session = {"key": mega_tournament.SESSION_KEY}
     else:
-        raise HTTPException(status_code=400, detail="Race sessions are only available for weekly or monthly tournaments.")
+        raise HTTPException(status_code=400, detail="Race sessions are only available for weekly, monthly or mega tournaments.")
 
     race_id = secrets.token_urlsafe(32)
     seed = secrets.randbits(32) or 1
@@ -926,10 +944,10 @@ def submit_score(
             "player": None,
         }
 
-    if mode not in ("weekly", "monthly"):
+    if mode not in ("weekly", "monthly", "mega"):
         raise HTTPException(
             status_code=400,
-            detail="Invalid game mode. Use free, weekly or monthly.",
+            detail="Invalid game mode. Use free, weekly, monthly or mega.",
         )
 
     if not submission.race_id:
@@ -978,7 +996,14 @@ def submit_score(
     verified_score = replay["score"]
     verified_duration = max(1, round(submission.ticks / 60))
 
-    if mode == "weekly":
+    if mode == "mega":
+        campaign = mega_tournament.get_status()
+        if campaign.get("status") != "active":
+            raise HTTPException(status_code=403, detail="The 100K Mega Tournament is not active.")
+        if not mega_tournament.has_access(uid):
+            raise HTTPException(status_code=403, detail="A confirmed KSh 30 Mega Tournament entry is required.")
+        session = {"key": mega_tournament.SESSION_KEY}
+    elif mode == "weekly":
         session = weekly_session()
 
         if not db.has_weekly_entry(uid, session["key"]):
@@ -1024,17 +1049,32 @@ def submit_score(
             detail="This race session is invalid or has already been submitted. Please start a new race.",
         )
 
-    leaderboard_data = build_leaderboard(
-        mode,
-        session["key"],
-        10,
-    )
-
-    player = player_rank_data(
-        uid,
-        mode,
-        session["key"],
-    )
+    if mode == "mega":
+        ranked = mega_tournament.leaderboard(100)
+        leaderboard_data = [
+            {
+                **item,
+                "rank": position,
+                "display_name": item.get("username") or str(item.get("telegram_id")),
+            }
+            for position, item in enumerate(ranked[:10], start=1)
+        ]
+        player = next((
+            {"position": position, "rank": position, "score": item.get("score", 0)}
+            for position, item in enumerate(ranked, start=1)
+            if str(item.get("telegram_id")) == str(uid)
+        ), None)
+    else:
+        leaderboard_data = build_leaderboard(
+            mode,
+            session["key"],
+            10,
+        )
+        player = player_rank_data(
+            uid,
+            mode,
+            session["key"],
+        )
 
     return {
         "saved": True,
@@ -1078,28 +1118,34 @@ def leaderboard(
             uid,
             session["key"],
         )
-
+    elif mode == "mega":
+        campaign = mega_tournament.get_status()
+        session = {"key": mega_tournament.SESSION_KEY, "status": campaign.get("status"), "ends_at": campaign.get("ends_at")}
+        has_access = mega_tournament.has_access(uid)
     else:
         raise HTTPException(
             status_code=400,
-            detail="Leaderboard mode must be weekly or monthly.",
+            detail="Leaderboard mode must be weekly, monthly or mega.",
         )
 
-    data = build_leaderboard(
-        mode,
-        session["key"],
-        10,
-    )
-
-    player = (
-        player_rank_data(uid, mode, session["key"])
-        if has_access
-        else {
-            "position": None,
-            "score": 0,
-            "display_name": None,
-        }
-    )
+    if mode == "mega":
+        ranked = mega_tournament.leaderboard(100)
+        data = [
+            {**item, "rank": position, "display_name": item.get("username") or str(item.get("telegram_id"))}
+            for position, item in enumerate(ranked[:10], start=1)
+        ]
+        player = next((
+            {"position": position, "rank": position, "score": item.get("score", 0)}
+            for position, item in enumerate(ranked, start=1)
+            if str(item.get("telegram_id")) == str(uid)
+        ), {"position": None, "score": 0, "display_name": None})
+    else:
+        data = build_leaderboard(mode, session["key"], 10)
+        player = (
+            player_rank_data(uid, mode, session["key"])
+            if has_access
+            else {"position": None, "score": 0, "display_name": None}
+        )
 
     return {
         "mode": mode,
