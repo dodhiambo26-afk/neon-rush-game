@@ -447,7 +447,7 @@ async def mega_tournament_information(update, context):
     count = int(campaign.get("confirmed_members", 0))
     text = (
         "🏆 NEON RUSH 100K MEGA TOURNAMENT\n\n"
-        "Entry: KSh 30 by M-Pesa.\n"
+        "Entry: KSh 35 by M-Pesa or US$0.35 by PayPal.\n"
         f"Confirmed paid members: {count:,} / 100,000\n"
         f"Status: {status}\n"
         "The tournament starts automatically when 100,000 unique paid members are confirmed. "
