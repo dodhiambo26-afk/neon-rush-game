@@ -27,6 +27,7 @@ import database as db
 import notifications as notification_service
 import mega_tournament
 from mpesa import initiate_stk_push
+from paypal_payments import create_paypal_order
 
 
 # ============================================================
@@ -306,6 +307,7 @@ async def weekly_information(update: Update, context):
         "<i>Final standings are reviewed before awards are confirmed. Cash payouts are not automatic.</i>",
         reply_markup=InlineKeyboardMarkup([
             [InlineKeyboardButton("📱 PAY KSh 25 WITH M-PESA", callback_data="weekly_mpesa")],
+            [InlineKeyboardButton("🌍 PAY US$0.30 WITH PAYPAL", callback_data="weekly_paypal")],
             [InlineKeyboardButton("⭐ PAY 50 TELEGRAM STARS", callback_data="weekly_stars")],
             [InlineKeyboardButton("📞 SUPPORT", callback_data="support")],
         ]),
@@ -350,6 +352,7 @@ async def monthly_join_options(update, context):
         "<i>Final standings are reviewed before awards are confirmed. Cash payouts are not automatic.</i>",
         reply_markup=InlineKeyboardMarkup([
             [InlineKeyboardButton("📱 PAY KSh 200 WITH M-PESA", callback_data="monthly_mpesa")],
+            [InlineKeyboardButton("🌍 PAY US$2.00 WITH PAYPAL", callback_data="monthly_paypal")],
             [InlineKeyboardButton("⭐ PAY 300 TELEGRAM STARS", callback_data="monthly_stars")],
         ]),
     )
@@ -456,7 +459,8 @@ async def mega_tournament_information(update, context):
     buttons = []
     has_access = mega_tournament.has_access(uid)
     if campaign.get("status") != "finished" and not has_access:
-        buttons.append([InlineKeyboardButton("📱 JOIN — PAY KSh 35 WITH M-PESA", callback_data="mega_mpesa")])
+        buttons.append([InlineKeyboardButton("📱 PAY KSh 35 WITH M-PESA", callback_data="mega_mpesa")])
+        buttons.append([InlineKeyboardButton("🌍 PAY US$0.35 WITH PAYPAL", callback_data="mega_paypal")])
     elif has_access:
         text += "\n\n✅ Your paid membership is confirmed."
         if campaign.get("status") == "active":
@@ -467,6 +471,33 @@ async def mega_tournament_information(update, context):
         elif campaign.get("status") == "waiting":
             text += "\nThe game will unlock automatically when the 100,000 paid-member target is reached."
     await query.message.reply_text(text, reply_markup=InlineKeyboardMarkup(buttons) if buttons else None)
+
+
+async def send_paypal_checkout(update, context, payment_type):
+    query = update.callback_query
+    await query.answer()
+    uid = query.from_user.id
+    if reject_banned(uid):
+        await query.message.reply_text("🚫 Your account has been suspended.")
+        return
+    try:
+        result = await create_paypal_order(uid, payment_type)
+        await query.message.reply_text(
+            "🌍 PAYPAL SECURE CHECKOUT\\n\\n"
+            f"Amount: US${result['amount']} {result['currency']}\\n"
+            "Open the secure PayPal link below to complete payment. "
+            "Tournament access activates only after PayPal confirms the captured payment.",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("🔐 CONTINUE TO PAYPAL", url=result["approval_url"])
+            ]]),
+        )
+    except ValueError as exc:
+        await query.message.reply_text(str(exc))
+    except Exception:
+        logger.exception("PayPal order creation failed")
+        await query.message.reply_text(
+            "❌ PayPal checkout could not be started. No payment was taken and no access was granted. Please try again."
+        )
 
 
 async def request_mpesa_phone(update, context, payment_type="monthly_membership"):
@@ -691,8 +722,14 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data == "mega_mpesa":
         await request_mpesa_phone(update, context, "mega_tournament")
 
+    elif query.data == "mega_paypal":
+        await send_paypal_checkout(update, context, "mega_tournament")
+
     elif query.data == "weekly_stars":
         await send_weekly_invoice(update, context)
+
+    elif query.data == "weekly_paypal":
+        await send_paypal_checkout(update, context, "weekly_entry")
 
     elif query.data == "weekly_mpesa":
         await request_mpesa_phone(update, context, "weekly_entry")
@@ -702,6 +739,9 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif query.data == "monthly_stars":
         await send_monthly_invoice(update, context)
+
+    elif query.data == "monthly_paypal":
+        await send_paypal_checkout(update, context, "monthly_membership")
 
     elif query.data == "monthly_mpesa":
         await request_mpesa_phone(update, context)
