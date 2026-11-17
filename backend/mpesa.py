@@ -93,7 +93,7 @@ async def reconcile_stale_mpesa_payments(application=None):
                                     "Your KSh 25 weekly tournament entry is now confirmed."
                                     if outcome.get("payment_type") == "weekly_entry"
                                     else (
-                                        "Your KSh 30 Mega Tournament membership is confirmed and counted toward the 100,000 target."
+                                        "Your KSh 35 Mega Tournament membership is confirmed and counted toward the 100,000 target."
                                         if outcome.get("payment_type") == "mega_tournament"
                                         else "Your KSh 200 monthly membership is now active."
                                     )
@@ -168,7 +168,7 @@ async def initiate_stk_push(telegram_id, phone, payment_type="monthly_membership
         if mega_tournament.has_access(telegram_id):
             return {"already_active": True}
         if mega_tournament.has_pending_payment(telegram_id):
-            raise ValueError("You already have a pending KSh 30 Mega Tournament payment. Complete or wait for that M-Pesa request before starting another.")
+            raise ValueError("You already have a pending Mega Tournament payment. Complete or wait for that M-Pesa request before starting another.")
         period_key = mega_tournament.SESSION_KEY
         amount = mega_tournament.ENTRY_KES
         reference = "NRMEGA100K"
@@ -292,7 +292,7 @@ async def mpesa_callback(secret: str, request: Request):
                             "Your KSh 25 weekly tournament entry is now confirmed for this week's session.\n\n"
                             if result.get("payment_type") == "weekly_entry"
                             else (
-                                "Your KSh 30 Mega Tournament payment is confirmed. Your unique paid membership has been counted toward the 100,000 target.\n\n"
+                                "Your Mega Tournament payment is confirmed. Your unique paid membership has been counted toward the 100,000 target.\n\n"
                                 if result.get("payment_type") == "mega_tournament"
                                 else "Your KSh 200 NEON RUSH ARENA monthly membership is now active until the end of this month.\n\n"
                             )
