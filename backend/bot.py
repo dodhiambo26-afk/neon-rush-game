@@ -296,7 +296,7 @@ async def weekly_information(update: Update, context):
 
     await query.message.reply_text(
         f"🏆 WEEKLY TOURNAMENT — {session_key}\n\n"
-        "Entry fee: KSh 25 by M-Pesa OR 50 Telegram Stars.\n\n"
+        "Entry fee: KSh 25 by M-Pesa, US$0.30 by PayPal, OR 50 Telegram Stars.\n\n"
         "Choose your payment method below. Your entry activates only "
         "after the payment is confirmed.\n\n"
         "Session: Sunday 6 PM to Sunday 6 PM Kenya time.\n\n"
@@ -344,6 +344,7 @@ async def monthly_join_options(update, context):
         f"👑 MONTHLY MEMBERSHIP — {month_key}\n\n"
         "Choose your payment method:\n"
         "• KSh 200 via M-Pesa STK Push\n"
+        "• US$2.00 via PayPal (about KSh 260)\n"
         "• 300 Telegram Stars\n\n"
         "\n━━━━━━━━━━━━━━━━━━━━\n"
         "🏆 <b>TOP 5 PLAYERS WIN REWARDS!</b> 🏆\n"
