@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field
 
 import database as db
 import mega_tournament
-from paypal_payments import capture_and_grant
+from paypal_payments import capture_and_grant, verify_webhook
 from race_engine import simulate_race
 from bot import build_application
 from telegram import Update
@@ -764,6 +764,25 @@ async def paypal_return(token: str = Query(default="")):
             "<p>Do not pay again immediately. Contact support and provide your PayPal transaction details.</p>"
             "</body></html>", status_code=400
         )
+
+
+@app.post("/api/paypal/webhook")
+async def paypal_webhook(request: Request):
+    try:
+        event = await request.json()
+        if not await verify_webhook(request.headers, event):
+            raise HTTPException(status_code=400, detail="Invalid PayPal webhook signature.")
+        if event.get("event_type") == "PAYMENT.CAPTURE.COMPLETED":
+            resource = event.get("resource") or {}
+            order_id = (((resource.get("supplementary_data") or {}).get("related_ids") or {}).get("order_id"))
+            if order_id:
+                await capture_and_grant(order_id)
+        return {"received": True}
+    except HTTPException:
+        raise
+    except Exception:
+        logging.exception("PayPal webhook processing failed")
+        raise HTTPException(status_code=500, detail="PayPal webhook processing failed.")
 
 
 @app.get("/health")
