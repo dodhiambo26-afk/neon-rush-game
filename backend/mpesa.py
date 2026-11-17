@@ -167,6 +167,8 @@ async def initiate_stk_push(telegram_id, phone, payment_type="monthly_membership
             raise ValueError("The 100K Mega Tournament has finished and is no longer accepting entries.")
         if mega_tournament.has_access(telegram_id):
             return {"already_active": True}
+        if mega_tournament.has_pending_payment(telegram_id):
+            raise ValueError("You already have a pending KSh 30 Mega Tournament payment. Complete or wait for that M-Pesa request before starting another.")
         period_key = mega_tournament.SESSION_KEY
         amount = mega_tournament.ENTRY_KES
         reference = "NRMEGA100K"
