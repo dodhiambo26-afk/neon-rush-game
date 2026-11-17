@@ -147,7 +147,7 @@ def player_keyboard(uid):
         ],
         [
             InlineKeyboardButton(
-                "🏆 100K MEGA TOURNAMENT — KSh 30",
+                "🏆 100K MEGA TOURNAMENT — KSh 35",
                 callback_data="mega_info"
             )
         ],
@@ -227,7 +227,7 @@ def main_text(user):
         "🌟 MONTHLY TOURNAMENT\n"
         "Membership: KSh 200 by M-Pesa or 300 Telegram Stars.\n\n"
         "🏆 100K MEGA TOURNAMENT\n"
-        "Entry: KSh 30 by M-Pesa. Starts automatically at 100,000 confirmed paid members.\n"
+        "Entry: KSh 35 by M-Pesa. Starts automatically at 100,000 confirmed paid members.\n"
         "\n<b>━━━━━━━━━━━━━━━━━━━━</b>\n"
         "🏆 <b>TOP 5 PLAYERS WIN REWARDS!</b> 🏆\n"
         "<b>In EVERY monthly tournament.</b>\n"
@@ -456,7 +456,7 @@ async def mega_tournament_information(update, context):
     buttons = []
     has_access = mega_tournament.has_access(uid)
     if campaign.get("status") != "finished" and not has_access:
-        buttons.append([InlineKeyboardButton("📱 JOIN — PAY KSh 30 WITH M-PESA", callback_data="mega_mpesa")])
+        buttons.append([InlineKeyboardButton("📱 JOIN — PAY KSh 35 WITH M-PESA", callback_data="mega_mpesa")])
     elif has_access:
         text += "\n\n✅ Your paid membership is confirmed."
         if campaign.get("status") == "active":
@@ -492,11 +492,11 @@ async def request_mpesa_phone(update, context, payment_type="monthly_membership"
             await query.message.reply_text("⛔ The 100K Mega Tournament has finished and is closed.")
             return
         if mega_tournament.has_access(uid):
-            await query.message.reply_text("✅ Your KSh 30 Mega Tournament membership is already confirmed.")
+            await query.message.reply_text("✅ Your Mega Tournament membership is already confirmed.")
             return
         context.user_data["awaiting_mpesa_phone"] = "mega_tournament"
         heading = "📱 100K MEGA TOURNAMENT ENTRY"
-        price = "KSh 30"
+        price = "KSh 35"
     else:
         if db.has_monthly_access(uid, current_month_session()):
             await query.message.reply_text("✅ Your monthly membership is already active.")
@@ -532,7 +532,7 @@ async def mpesa_phone_message(update, context):
         if result.get("already_active"):
             await update.message.reply_text("✅ You already have access to this tournament period.")
         else:
-            amount_text = "KSh 25" if payment_type == "weekly_entry" else ("KSh 30" if payment_type == "mega_tournament" else "KSh 200")
+            amount_text = "KSh 25" if payment_type == "weekly_entry" else ("KSh 35" if payment_type == "mega_tournament" else "KSh 200")
             access_text = "weekly tournament entry" if payment_type == "weekly_entry" else ("100K Mega Tournament entry" if payment_type == "mega_tournament" else "monthly membership")
             await update.message.reply_text(
                 "📲 M-PESA request sent. " + result["customer_message"] + "\n\n"
