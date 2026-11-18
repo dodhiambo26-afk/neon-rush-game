@@ -80,7 +80,7 @@ class CapacityReservationSafetyTests(unittest.TestCase):
 
     def test_paypal_will_not_capture_after_reservation_expiry(self):
         source = self._source("paypal_payments.py")
-        self.assertIn("reservation_is_valid(kind, p.get(\"telegram_id\"))", source)
+        self.assertIn("reservation_is_valid(kind, p.get(\"telegram_id\"), p.get(\"internal_id\"))", source)
         self.assertIn("no capture was attempted", source)
 
     def test_mpesas_live_mode_is_explicit_for_new_tournaments(self):
