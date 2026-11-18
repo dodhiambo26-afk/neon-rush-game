@@ -52,6 +52,14 @@ ADMIN_DASHBOARD_URL = os.getenv(
     "https://dodhiambo26-afk.github.io/neon-rush-game/admin.html"
 )
 
+ADMIN_DASHBOARD_VERSION = "2026.11.18.2"
+
+
+def admin_dashboard_url():
+    separator = "&" if "?" in ADMIN_DASHBOARD_URL else "?"
+    return f"{ADMIN_DASHBOARD_URL}{separator}v={ADMIN_DASHBOARD_VERSION}"
+
+
 MONTHLY_PRICE = 300
 MONTHLY_CURRENCY = "XTR"
 
@@ -184,7 +192,7 @@ def player_keyboard(uid):
         keyboard.append([
             InlineKeyboardButton(
                 "🛠 ADMIN DASHBOARD",
-                web_app=WebAppInfo(url=ADMIN_DASHBOARD_URL)
+                web_app=WebAppInfo(url=admin_dashboard_url())
             )
         ])
 
