@@ -85,6 +85,15 @@ async def reconcile_stale_mpesa_payments(application=None):
                     outcome = db.process_mpesa_query_result(
                         item["internal_id"], result
                     )
+                    if (
+                        outcome.get("reason") == "confirmed_failed"
+                        and outcome.get("payment_type") in ("tournament_10k", "tournament_1k")
+                        and outcome.get("telegram_id")
+                    ):
+                        import capacity_tournaments
+                        capacity_tournaments.release_slot(
+                            outcome["payment_type"], outcome["telegram_id"], "mpesa_query_failed"
+                        )
                     if outcome.get("success") and application and outcome.get("telegram_id"):
                         try:
                             text = (
@@ -200,7 +209,12 @@ async def initiate_stk_push(telegram_id, phone, payment_type="monthly_membership
     )
     callback_url = f"{render_url}/api/mpesa/callback/{callback_secret}"
     internal_id = uuid.uuid4().hex
-    db.create_mpesa_pending(internal_id, telegram_id, phone, period_key, payment_type)
+    try:
+        db.create_mpesa_pending(internal_id, telegram_id, phone, period_key, payment_type)
+    except Exception:
+        if payment_type in ("tournament_10k", "tournament_1k"):
+            capacity_tournaments.release_slot(payment_type, telegram_id, "pending_record_creation_failed")
+        raise
 
     now = datetime.now(KENYA).strftime("%Y%m%d%H%M%S")
     password = base64.b64encode(
@@ -216,6 +230,8 @@ async def initiate_stk_push(telegram_id, phone, payment_type="monthly_membership
     ).strip()
     if transaction_type == "CustomerBuyGoodsOnline" and not till_number:
         db.fail_mpesa_pending(internal_id, "Missing MPESA_TILL_NUMBER.")
+        if payment_type in ("tournament_10k", "tournament_1k"):
+            capacity_tournaments.release_slot(payment_type, telegram_id, "invalid_transaction_type_config")
         raise RuntimeError(
             "Buy Goods is selected but MPESA_TILL_NUMBER is missing in Render."
         )
