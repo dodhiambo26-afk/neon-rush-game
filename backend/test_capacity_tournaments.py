@@ -62,6 +62,8 @@ class CapacityReservationSafetyTests(unittest.TestCase):
         self.assertIn("firestore.transactional", source)
         self.assertIn('"reserved_count"', source)
         self.assertIn('"consumed"', source)
+        self.assertIn("expected_checkout_id is not None", source)
+        self.assertIn('if reason == "expired":', source)
 
     def test_paid_admission_requires_a_live_reservation(self):
         source = self._source("capacity_tournaments.py")
