@@ -76,9 +76,7 @@ footer{text-align:center;color:#6f88a8;font-size:11px;padding:25px}
 <button class="active" data-page="overview">Overview</button>
 <button data-page="players">Players</button>
 <button data-page="entries">Tournament entries</button>
-<button data-page="weeklyMembers">Weekly members</button>
-<button data-page="monthlyMembers">Monthly members</button>
-<button data-page="leaderboard">Leaderboard</button>
+<button data-page="capacityTournaments">10K &amp; 1K Tournaments</button>
 <button data-page="grant">Add player</button>
 <button data-page="payments">Telegram Stars payments</button>
 <button data-page="mpesa">M-Pesa payments</button>
@@ -305,6 +303,29 @@ These actions do not charge Telegram Stars.
 <h2>Tournament management</h2>
 <button class="action" onclick="loadTournament()">Refresh tournament information</button>
 <div id="tournamentInfo" class="panel">Loading...</div>
+</section>
+
+<section id="capacityTournaments">
+<h2>10,000-player and 1,000-player tournaments</h2>
+<div class="notice">Both tournaments start automatically at their own capacity. Paid entries and complimentary admin entries count toward the target. Complimentary players are eligible for the same top-five prizes. Payment history is retained if access is revoked.</div>
+<div class="panel">
+<h3>10,000-player tournament</h3>
+<div id="capacityStatus10k">Loading...</div>
+<label>Player Telegram ID</label>
+<input id="capacityGrant10k" type="number" min="1" placeholder="Telegram ID">
+<button class="action" onclick="grantCapacityMember('tournament_10k')">Grant complimentary 10K entry</button>
+<button class="action" onclick="loadCapacityTournament('tournament_10k')">Refresh 10K details and members</button>
+<div id="capacityMembers10k"></div>
+</div>
+<div class="panel">
+<h3>1,000-player tournament</h3>
+<div id="capacityStatus1k">Loading...</div>
+<label>Player Telegram ID</label>
+<input id="capacityGrant1k" type="number" min="1" placeholder="Telegram ID">
+<button class="action" onclick="grantCapacityMember('tournament_1k')">Grant complimentary 1K entry</button>
+<button class="action" onclick="loadCapacityTournament('tournament_1k')">Refresh 1K details and members</button>
+<div id="capacityMembers1k"></div>
+</div>
 </section>
 
 <section id="megaTournament">
@@ -538,9 +559,7 @@ document.querySelectorAll("nav button").forEach(button=>{
    overview:loadOverview,
    players:loadPlayers,
    entries:loadEntries,
-   weeklyMembers:loadWeeklyMembers,
-   monthlyMembers:loadMonthlyMembers,
-   leaderboard:loadLeaderboard,
+   capacityTournaments:loadCapacityTournaments,
    payments:loadPayments,
    mpesa:loadMpesaPayments,
     paypal:loadPaypalPayments,
@@ -1049,6 +1068,62 @@ async function loadBanned(){
  }catch(e){
   showMessage("Could not load banned players: "+e.message);
  }
+}
+
+async function loadCapacityTournaments(){
+ await Promise.all([
+  loadCapacityTournament("tournament_10k"),
+  loadCapacityTournament("tournament_1k")
+ ]);
+}
+async function loadCapacityTournament(kind){
+ const suffix=kind==="tournament_10k"?"10k":"1k";
+ const statusEl=document.getElementById("capacityStatus"+suffix);
+ const membersEl=document.getElementById("capacityMembers"+suffix);
+ statusEl.textContent="Loading...";
+ membersEl.textContent="Loading members...";
+ try{
+  const [d,members,ranking]=await Promise.all([
+   api("/api/admin/capacity-tournaments/"+kind),
+   api("/api/admin/capacity-tournaments/"+kind+"/members"),
+   api("/api/admin/capacity-tournaments/"+kind+"/leaderboard")
+  ]);
+  const prizes=(d.prizes||[]).map(p=>"<div class='item'>"+escapeHTML(p.position)+". KSh "+Number(p.amount_kes).toLocaleString("en-KE")+"</div>").join("");
+  const winners=(ranking.top_five||[]).map(w=>"<div class='item'><strong>#"+escapeHTML(w.position)+" — KSh "+Number(w.prize_kes).toLocaleString("en-KE")+"</strong><br>"+escapeHTML(w.username||w.telegram_id)+" (ID "+escapeHTML(w.telegram_id)+")<br>Score: "+escapeHTML(w.score)+" · Award: pending manual review</div>").join("");
+  statusEl.innerHTML="<strong>Status: "+escapeHTML(String(d.status||"waiting").toUpperCase())+"</strong><br>Admitted: "+Number(d.total_members||0).toLocaleString("en-KE")+" / "+Number(d.target_members).toLocaleString("en-KE")+"<br>Paid: "+Number(d.confirmed_members||0).toLocaleString("en-KE")+"<br>Complimentary: "+Number(d.complimentary_members||0).toLocaleString("en-KE")+"<br>Remaining: "+Number(d.remaining_members||0).toLocaleString("en-KE")+"<br>Entry: KSh 50 · US$0.80 · 50 Stars<h3>Top-five prizes</h3>"+prizes+"<h3>Current top five</h3>"+(winners||"No verified tournament scores yet.");
+  renderCapacityMembers(kind,members.members||[]);
+ }catch(e){statusEl.textContent="Could not load: "+e.message;membersEl.textContent="Could not load members.";showMessage(e.message);}
+}
+function renderCapacityMembers(kind,members){
+ const suffix=kind==="tournament_10k"?"10k":"1k";
+ const el=document.getElementById("capacityMembers"+suffix);
+ if(!members.length){el.textContent="No admitted members yet.";return;}
+ el.innerHTML="<h3>Members ("+members.length+")</h3>"+members.map(m=>{
+  const uid=Number(m.telegram_id);
+  return "<div class='item'><strong>"+escapeHTML(m.username?"@"+m.username:(m.first_name||"Player"))+"</strong><br>ID: "+escapeHTML(m.telegram_id)+"<br>Type: "+escapeHTML(m.membership_type||"Paid")+"<br><button class='action danger' onclick='revokeCapacityMember("+JSON.stringify(kind)+","+uid+")'>Revoke access</button></div>";
+ }).join("");
+}
+async function grantCapacityMember(kind){
+ const suffix=kind==="tournament_10k"?"10k":"1k";
+ const input=document.getElementById("capacityGrant"+suffix);
+ const uid=Number(input.value);
+ if(!Number.isSafeInteger(uid)||uid<=0)return showMessage("Enter a valid Telegram ID.");
+ if(!confirm("Grant complimentary entry? This counts toward capacity and is prize eligible."))return;
+ try{
+  const d=await api("/api/admin/capacity-tournaments/"+kind+"/members/grant","POST",{telegram_id:uid});
+  showMessage(d.message||"Entry granted.");
+  input.value="";
+  await loadCapacityTournament(kind);
+ }catch(e){showMessage("Could not grant entry: "+e.message);}
+}
+async function revokeCapacityMember(kind,uid){
+ if(!Number.isSafeInteger(Number(uid))||Number(uid)<=0)return showMessage("Invalid Telegram ID.");
+ if(!confirm("Revoke this tournament entry? Historical payment records will be retained."))return;
+ try{
+  const d=await api("/api/admin/capacity-tournaments/"+kind+"/members/revoke","POST",{telegram_id:Number(uid)});
+  showMessage(d.message||"Entry revoked.");
+  await loadCapacityTournament(kind);
+ }catch(e){showMessage("Could not revoke entry: "+e.message);}
 }
 
 async function loadMegaTournament(){
