@@ -5,8 +5,9 @@ import httpx
 from firebase_admin import firestore
 import database as db
 import mega_tournament
+import capacity_tournaments
 
-PRICES = {"weekly_entry": "0.80", "monthly_membership": "2.00", "mega_tournament": "0.80"}
+PRICES = {"weekly_entry": "0.80", "monthly_membership": "2.00", "mega_tournament": "0.80", "tournament_10k": "0.80", "tournament_1k": "0.80"}
 
 def base_url():
     return "https://api-m.paypal.com" if os.getenv("PAYPAL_MODE", "live").lower() == "live" else "https://api-m.sandbox.paypal.com"
@@ -22,6 +23,8 @@ async def access_token(client):
 def period_key(kind):
     if kind == "weekly_entry": return db.current_weekly_session()
     if kind == "monthly_membership": return db.current_month_key()
+    if kind in ("tournament_10k", "tournament_1k"):
+        return capacity_tournaments.TOURNAMENTS[kind]["session_key"]
     return mega_tournament.SESSION_KEY
 
 async def create_paypal_order(uid, kind):
@@ -31,6 +34,10 @@ async def create_paypal_order(uid, kind):
     key = period_key(kind)
     if kind == "weekly_entry" and db.has_weekly_entry(uid,key): raise ValueError("You already have weekly access.")
     if kind == "monthly_membership" and db.has_monthly_access(uid,key): raise ValueError("Your monthly membership is active.")
+    if kind in ("tournament_10k", "tournament_1k"):
+        campaign = capacity_tournaments.get_status(kind)
+        if campaign.get("status") not in ("waiting", "active"): raise ValueError("This tournament is closed.")
+        if capacity_tournaments.has_access(kind, uid): raise ValueError("Your tournament entry is already confirmed.")
     if kind == "mega_tournament":
         campaign = mega_tournament.get_status()
         if campaign.get("status") == "finished": raise ValueError("The Mega Tournament is closed.")
@@ -70,6 +77,12 @@ async def capture_and_grant(order_id):
     capture_id=str(cap.get("id") or "")
     if not capture_id: raise ValueError("PayPal capture reference is missing.")
     uid=int(p["telegram_id"]); kind=p["payment_type"]; key=str(p["period_key"]); now=datetime.now(timezone.utc)
+    if kind in ("tournament_10k", "tournament_1k"):
+        result = capacity_tournaments.confirm_paypal_payment(kind, uid, capture_id, order_id, p["amount"])
+        if not result.get("processed"):
+            raise ValueError("PayPal captured the payment, but tournament access could not be safely applied. Contact support and do not pay again.")
+        ref.update({"status": "completed", "capture_id": capture_id, "completed_at": now})
+        return {"success": True, "capture_id": capture_id, "payment_type": kind}
     payref=db.db().collection("payments").document("paypal_"+capture_id)
     tx=db.db().transaction()
     @firestore.transactional
