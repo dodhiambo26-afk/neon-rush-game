@@ -75,12 +75,14 @@ def get_status(kind):
         if isinstance(end, datetime) and datetime.now(timezone.utc) >= end:
             ref.set({"status": "finished", "finished_at": datetime.now(timezone.utc)}, merge=True)
             data["status"] = "finished"
+    # Only write static configuration here. Membership counters are owned by
+    # atomic admission/revocation transactions; writing snapshot-derived totals
+    # from this read path could overwrite a concurrent payment transaction.
     ref.set({
         "name": cfg["name"], "target_members": cfg["target"],
         "entry_price_kes": cfg["entry_kes"], "prizes": cfg["prizes"],
-        "complimentary_members": int(data.get("complimentary_members", 0)),
-        "total_members": data["total_members"],
     }, merge=True)
+    data.setdefault("reserved_count", 0)
     return data
 
 def _reservation(kind, uid):
@@ -175,7 +177,7 @@ def expire_stale_reservations(kind, limit=500):
     """Reclaim timed-out holds; safe to call periodically or before checkout."""
     _config(kind)
     now = datetime.now(timezone.utc)
-    refs = db.db().collection(str(kind) + "_reservations").where("status", "==", "reserved").limit(max(1, min(2000, int(limit)))).stream()
+    refs = db.db().collection(str(kind) + "_reservations").where("expires_at", "<=", now).limit(max(1, min(2000, int(limit)))).stream()
     released = 0
     for snap in refs:
         data = snap.to_dict() or {}
