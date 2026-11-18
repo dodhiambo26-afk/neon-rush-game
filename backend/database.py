@@ -1353,7 +1353,8 @@ def process_mpesa_callback(payload):
             return True
 
         applied = apply_failure(transaction)
-        return {"processed": bool(applied), "success": False, "telegram_id": uid}
+        return {"processed": bool(applied), "success": False, "telegram_id": uid,
+                "payment_type": payment_type, "reason": "provider_declined"}
 
     metadata_items = (
         callback.get("CallbackMetadata", {}).get("Item", [])
