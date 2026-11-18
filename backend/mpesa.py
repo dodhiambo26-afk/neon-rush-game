@@ -168,8 +168,11 @@ async def initiate_stk_push(telegram_id, phone, payment_type="monthly_membership
             raise ValueError("This tournament is closed.")
         if capacity_tournaments.has_access(payment_type, telegram_id):
             return {"already_active": True}
+        if environment != "production":
+            raise RuntimeError("Live M-Pesa checkout requires MPESA_ENVIRONMENT=production in Render.")
         if capacity_tournaments.has_pending_payment(payment_type, telegram_id):
             raise ValueError("You already have a pending payment for this tournament. Complete or wait for it before starting another.")
+        capacity_tournaments.reserve_slot(payment_type, telegram_id, "mpesa", ttl_minutes=30)
         period_key = cfg["session_key"]
         amount = cfg["entry_kes"]
         reference = "NR" + cfg["slug"].upper()
@@ -255,12 +258,16 @@ async def initiate_stk_push(telegram_id, phone, payment_type="monthly_membership
             data = response.json()
     except Exception as exc:
         db.fail_mpesa_pending(internal_id, type(exc).__name__)
+        if payment_type in ("tournament_10k", "tournament_1k"):
+            capacity_tournaments.release_slot(payment_type, telegram_id, "provider_request_failed")
         raise RuntimeError(
             "Safaricom could not be reached or rejected the request. Please try again."
         ) from exc
 
     if str(data.get("ResponseCode", "")) != "0":
         db.fail_mpesa_pending(internal_id, data.get("ResponseDescription") or data)
+        if payment_type in ("tournament_10k", "tournament_1k"):
+            capacity_tournaments.release_slot(payment_type, telegram_id, "provider_rejected")
         raise RuntimeError(
             str(data.get("ResponseDescription") or "Safaricom rejected the STK request.")
         )
@@ -269,6 +276,8 @@ async def initiate_stk_push(telegram_id, phone, payment_type="monthly_membership
     merchant_id = data.get("MerchantRequestID")
     if not checkout_id or not merchant_id:
         db.fail_mpesa_pending(internal_id, "Missing Daraja request identifiers.")
+        if payment_type in ("tournament_10k", "tournament_1k"):
+            capacity_tournaments.release_slot(payment_type, telegram_id, "invalid_provider_response")
         raise RuntimeError("Daraja response did not include payment request IDs.")
 
     db.update_mpesa_checkout(internal_id, checkout_id, merchant_id, {
