@@ -1102,7 +1102,11 @@ def process_mpesa_query_result(internal_id, query_result):
             "reconciliation_status": "confirmed_failed",
             "updated_at": timestamp(),
         }, merge=True)
-        return {"processed": True, "success": False, "reason": "confirmed_failed"}
+        return {
+            "processed": True, "success": False, "reason": "confirmed_failed",
+            "payment_type": str(pending.get("payment_type") or ""),
+            "telegram_id": str(pending.get("telegram_id") or ""),
+        }
 
     payment_type = str(pending.get("payment_type") or "")
     if payment_type not in ("weekly_entry", "monthly_membership", "mega_tournament", "tournament_10k", "tournament_1k"):
