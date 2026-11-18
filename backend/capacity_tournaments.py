@@ -254,6 +254,8 @@ def confirm_mpesa_payment(kind, internal_id, payment_id, receipt, checkout_id, s
 
 def confirm_paypal_payment(kind, uid, capture_id, order_id, amount):
     cfg = _config(kind)
+    if str(amount) != cfg["entry_usd"]:
+        return {"processed": False, "reason": "amount_mismatch"}
     uid = str(int(uid))
     member_ref, campaign_ref = _member(kind, uid), _campaign(kind)
     payref = db.db().collection("payments").document("paypal_" + str(capture_id))
