@@ -120,7 +120,7 @@ def ensure_user(update):
     if not user:
         return
 
-    db.upsert_user(
+    return db.upsert_user(
         uid=user.id,
         username=user.username,
         first_name=user.first_name,
@@ -246,9 +246,11 @@ def main_text(user):
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
 
-    ensure_user(update)
+    user_record = ensure_user(update)
 
-    if reject_banned(user.id):
+    # upsert_user already returns the current user record, including banned status.
+    # Reuse it instead of making a second Firestore read for every /start.
+    if user_record and user_record.get("banned", False):
         await update.message.reply_text(
             "🚫 Your account has been suspended."
         )
