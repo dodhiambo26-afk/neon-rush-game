@@ -864,6 +864,17 @@ def telegram_auth(
 
         "monthly_access": monthly_access,
         "mega_access": mega_access,
+        "capacity_tournaments": {
+            kind: {
+                "status": capacity_tournaments.get_status(kind).get("status", "waiting"),
+                "has_access": capacity_tournaments.has_access(kind, uid),
+                "total_members": int(capacity_tournaments.get_status(kind).get("total_members", 0)),
+                "target_members": capacity_tournaments.TOURNAMENTS[kind]["target"],
+                "entry_price_kes": 50,
+                "entry_price_usd": "0.80",
+                "entry_price_stars": 50,
+            } for kind in ("tournament_10k", "tournament_1k")
+        },
         "mega_tournament": {
             "status": mega_campaign.get("status", "waiting"),
             "confirmed_members": int(mega_campaign.get("confirmed_members", 0)),
@@ -919,8 +930,8 @@ def start_race(
             raise HTTPException(status_code=403, detail="An active monthly membership is required.")
     elif mode in ("tournament_10k", "tournament_1k"):
         campaign = capacity_tournaments.get_status(mode)
-        if campaign.get("status") not in ("waiting", "active"):
-            raise HTTPException(status_code=403, detail="This tournament is closed.")
+        if campaign.get("status") != "active":
+            raise HTTPException(status_code=403, detail="This tournament has not reached capacity and started yet.")
         if not capacity_tournaments.has_access(mode, uid):
             raise HTTPException(status_code=403, detail="A confirmed tournament entry is required.")
         session = {"key": capacity_tournaments.TOURNAMENTS[mode]["session_key"]}
@@ -1299,6 +1310,16 @@ def tournament_status(
             ),
             "entry_price": MONTHLY_STARS,
             "active_players": monthly_count,
+        },
+        "tournament_10k": {
+            "has_access": capacity_tournaments.has_access("tournament_10k", uid),
+            **capacity_tournaments.get_status("tournament_10k"),
+            "target_members": 10000,
+        },
+        "tournament_1k": {
+            "has_access": capacity_tournaments.has_access("tournament_1k", uid),
+            **capacity_tournaments.get_status("tournament_1k"),
+            "target_members": 1000,
         },
         "mega": {
             "has_access": mega_tournament.has_access(uid),
