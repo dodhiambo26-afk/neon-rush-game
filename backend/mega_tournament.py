@@ -42,7 +42,12 @@ def get_status():
     data["entry_price_kes"] = ENTRY_KES
     ref.set({"entry_price_kes": ENTRY_KES}, merge=True)
     data.setdefault("confirmed_members", 0)
-    data.setdefault("complimentary_members", 0)
+    if "complimentary_members" not in data:
+        # One-time migration: include complimentary members granted by the earlier admin feature.
+        data["complimentary_members"] = sum(
+            1 for row in _member_collection().where("source", "==", "admin").stream()
+        )
+        ref.set({"complimentary_members": data["complimentary_members"]}, merge=True)
     data["total_members"] = int(data.get("confirmed_members", 0)) + int(data.get("complimentary_members", 0))
     data.setdefault("status", "waiting")
     data.setdefault("duration_hours", 24)
@@ -214,6 +219,7 @@ def list_members(limit=500):
 
 def grant_admin_access(uid, admin_id):
     """Grant complimentary Mega access and count it toward total tournament capacity."""
+    get_status()  # Migrate any complimentary grants created before this counter existed.
     uid = str(int(uid))
     member_ref = _member(uid)
     now = datetime.now(timezone.utc)
@@ -261,6 +267,7 @@ def grant_admin_access(uid, admin_id):
 
 def revoke_access(uid):
     """Remove Mega access and decrement the appropriate total-member counter."""
+    get_status()  # Ensure legacy complimentary entries are represented in the counter.
     uid = str(int(uid))
     member_ref = _member(uid)
     campaign_ref = _campaign()
