@@ -646,6 +646,11 @@ class ScoreSubmission(BaseModel):
 class AdminPlayerAction(BaseModel):
     telegram_id: int = Field(gt=0)
 
+class AdminReservationReleaseAction(BaseModel):
+    telegram_id: int = Field(gt=0)
+    pending_transaction_id: str = Field(min_length=1, max_length=200)
+    reason: str = Field(min_length=5, max_length=500)
+
 
 class AdminContactPlayerAction(BaseModel):
     telegram_id: int = Field(gt=0)
@@ -2575,6 +2580,33 @@ def admin_revoke_capacity_member(kind: str, action: AdminPlayerAction, x_telegra
     record_admin_action(admin["id"], "REVOKE_" + kind.upper(), uid,
         "Tournament access removed; payment history retained.")
     return {"success": True, "telegram_id": uid, "message": "Tournament access revoked. Payment history retained."}
+
+
+@app.post("/api/admin/capacity-tournaments/{kind}/reservations/release")
+def admin_release_capacity_reservation(kind: str, action: AdminReservationReleaseAction, x_telegram_init_data: str = Header(default="", alias="X-Telegram-Init-Data")):
+    admin = require_admin(x_telegram_init_data)
+    try:
+        capacity_tournaments._config(kind)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Unknown tournament.")
+    pending_ref = db.db().collection("mpesa_transactions").document(action.pending_transaction_id)
+    pending = pending_ref.get()
+    if not pending.exists:
+        raise HTTPException(status_code=404, detail="Pending M-Pesa transaction not found.")
+    pdata = pending.to_dict() or {}
+    if str(pdata.get("telegram_id")) != str(action.telegram_id) or pdata.get("payment_type") != kind:
+        raise HTTPException(status_code=400, detail="Transaction does not match this player and tournament.")
+    if pdata.get("status") not in ("pending", "initiated", "failed", "review_required"):
+        raise HTTPException(status_code=409, detail="Only unresolved transactions can be reconciled.")
+    released = capacity_tournaments.release_slot(
+        kind, action.telegram_id, reason="admin_released",
+        expected_checkout_id=action.pending_transaction_id,
+    )
+    if not released:
+        raise HTTPException(status_code=409, detail="Matching reservation was not found or was already resolved.")
+    record_admin_action(admin["id"], "RELEASE_RESERVATION_" + kind.upper(), action.telegram_id,
+        "Pending transaction " + action.pending_transaction_id + "; reason: " + action.reason)
+    return {"success": True, "message": "Reservation released. This does not cancel or refund an M-Pesa payment; verify transaction status before taking further action."}
 
 
 @app.get("/api/admin/capacity-tournaments/{kind}/leaderboard")
