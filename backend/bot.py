@@ -466,14 +466,15 @@ async def capacity_tournament_information(update, context, kind):
     text = (
         f"🏆 {cfg['name'].upper()}\n\n"
         "Entry: KSh 50 by M-Pesa, US$0.80 by PayPal, or 50 Telegram Stars.\n"
-        f"Admitted: {total:,} / {cfg['target']:,}\n"
+        f"Players admitted: {total:,}\n"
+        f"Launch threshold: {cfg['target']:,} players\n"
         f"Paid: {int(status.get('confirmed_members', 0)):,} | Complimentary: {int(status.get('complimentary_members', 0)):,}\n"
-        "Starts automatically when the target is reached. Complimentary entries count toward capacity and are prize eligible.\n\n"
+        "Starts automatically at the launch threshold. New players can still join while the tournament is active, until it ends. Complimentary entries are prize eligible.\n\n"
         "🏅 TOP FIVE PRIZES\n" + prizes + "\n\n"
         "Final standings are reviewed before awards are confirmed. Cash payouts are handled separately and are not automatic."
     )
     buttons = []
-    if status.get("status") == "waiting" and not capacity_tournaments.has_access(kind, uid):
+    if status.get("status") in ("waiting", "active") and not capacity_tournaments.has_access(kind, uid):
         buttons.extend([
             [InlineKeyboardButton("📱 PAY KSh 50 WITH M-PESA", callback_data=f"capacity_mpesa_{kind}")],
             [InlineKeyboardButton("🌍 PAY US$0.80 WITH PAYPAL", callback_data=f"capacity_paypal_{kind}")],
@@ -495,8 +496,8 @@ async def send_capacity_stars_invoice(update, context, kind):
         return
     cfg = capacity_tournaments.TOURNAMENTS[kind]
     status = capacity_tournaments.get_status(kind)
-    if status.get("status") != "waiting" or capacity_tournaments.has_access(kind, uid):
-        await query.message.reply_text("This tournament is closed or your entry is already confirmed.")
+    if status.get("status") == "finished" or capacity_tournaments.has_access(kind, uid):
+        await query.message.reply_text("This tournament is finished or your entry is already confirmed.")
         return
     reservation_id = uuid.uuid4().hex
     reserved = False
@@ -624,8 +625,8 @@ async def request_mpesa_phone(update, context, payment_type="monthly_membership"
     elif payment_type in ("tournament_10k", "tournament_1k"):
         cfg = capacity_tournaments.TOURNAMENTS[payment_type]
         campaign = capacity_tournaments.get_status(payment_type)
-        if campaign.get("status") != "waiting":
-            await query.message.reply_text("⛔ This tournament is closed.")
+        if campaign.get("status") == "finished":
+            await query.message.reply_text("⛔ This tournament has finished and is closed.")
             return
         if capacity_tournaments.has_access(payment_type, uid):
             await query.message.reply_text("✅ Your tournament entry is already confirmed.")
@@ -1000,8 +1001,8 @@ async def precheckout(
             await query.answer(ok=False, error_message="Invalid tournament Stars invoice.")
             return
         campaign = capacity_tournaments.get_status(kind)
-        if campaign.get("status") != "waiting" or capacity_tournaments.has_access(kind, uid):
-            await query.answer(ok=False, error_message="This tournament is closed or your entry is already confirmed.")
+        if campaign.get("status") == "finished" or capacity_tournaments.has_access(kind, uid):
+            await query.answer(ok=False, error_message="This tournament has finished or your entry is already confirmed.")
             return
         if not capacity_tournaments.refresh_reservation(kind, uid, reservation_id, ttl_minutes=10):
             await query.answer(ok=False, error_message="This Stars checkout has expired. Request a new invoice.")
