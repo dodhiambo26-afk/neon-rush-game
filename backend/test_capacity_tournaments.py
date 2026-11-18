@@ -43,5 +43,47 @@ class CapacityTournamentConfigurationTests(unittest.TestCase):
         )
 
 
+
+
+class CapacityReservationSafetyTests(unittest.TestCase):
+    def _source(self, filename):
+        return pathlib.Path(__file__).with_name(filename).read_text(encoding="utf-8")
+
+    def test_atomic_reservation_and_expiry_helpers_exist(self):
+        source = self._source("capacity_tournaments.py")
+        tree = ast.parse(source)
+        functions = {
+            node.name for node in tree.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        }
+        self.assertTrue({
+            "reserve_slot", "release_slot", "expire_stale_reservations",
+            "reservation_is_valid",
+        }.issubset(functions))
+        self.assertIn("firestore.transactional", source)
+        self.assertIn('"reserved_count"', source)
+        self.assertIn('"consumed"', source)
+
+    def test_paid_admission_requires_a_live_reservation(self):
+        source = self._source("capacity_tournaments.py")
+        self.assertIn('"reservation_missing_or_expired"', source)
+        self.assertIn("expiry <= now", source)
+        self.assertIn("total + reserved_count > target", source)
+
+    def test_all_three_payment_paths_reserve_capacity(self):
+        self.assertIn('reserve_slot(payment_type, telegram_id, "mpesa"', self._source("mpesa.py"))
+        self.assertIn('reserve_slot(kind, uid, "paypal"', self._source("paypal_payments.py"))
+        self.assertIn('reserve_slot(kind, uid, "telegram_stars"', self._source("bot.py"))
+
+    def test_paypal_will_not_capture_after_reservation_expiry(self):
+        source = self._source("paypal_payments.py")
+        self.assertIn("reservation_is_valid(kind, p.get(\"telegram_id\"))", source)
+        self.assertIn("no capture was attempted", source)
+
+    def test_mpesas_live_mode_is_explicit_for_new_tournaments(self):
+        source = self._source("mpesa.py")
+        self.assertIn('if environment != "production":', source)
+        self.assertIn("MPESA_ENVIRONMENT=production", source)
+
+
 if __name__ == "__main__":
     unittest.main()
