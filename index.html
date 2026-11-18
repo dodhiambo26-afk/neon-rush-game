@@ -550,7 +550,7 @@ const BACKEND_URL="https://neon-rush-game-backend.onrender.com";
 const tg=window.Telegram?.WebApp;
 const initData=tg?.initData||"";
 const requestedMode=new URLSearchParams(location.search).get("mode")||"free";
-const gameMode=["weekly","monthly","mega"].includes(requestedMode)?requestedMode:"free";
+const gameMode=["weekly","monthly","mega","tournament_10k","tournament_1k"].includes(requestedMode)?requestedMode:"free";
 
 const $=id=>document.getElementById(id);
 
@@ -654,6 +654,8 @@ let verifiedPlayer=null;
 let weeklyAccess=false;
 let monthlyAccess=false;
 let megaAccess=false;
+ let capacityAccess=false;
+ let capacityStatus=null;
 let authReady=false;
 
 let active=false;
@@ -1276,6 +1278,10 @@ async function authenticateTelegram(){
   weeklyAccess=data.weekly_access===true;
   monthlyAccess=data.monthly_access===true;
   megaAccess=data.mega_access===true;
+  if(gameMode==="tournament_10k"||gameMode==="tournament_1k"){
+   capacityStatus=data.capacity_tournaments?.[gameMode]||null;
+   capacityAccess=capacityStatus?.has_access===true;
+  }
   authReady=true;
 
   if(gameMode==="weekly"){
@@ -1301,6 +1307,21 @@ async function authenticateTelegram(){
     setAuthMessage("A confirmed KSh 35 M-Pesa Mega Tournament entry is required. Open the bot and choose 100K Mega Tournament.");
     startBtn.textContent="MEGA ENTRY REQUIRED";
     startBtn.disabled=true;
+   }
+  }else if(gameMode==="tournament_10k"||gameMode==="tournament_1k"){
+   const target=gameMode==="tournament_10k"?10000:1000;
+   if(!capacityAccess){
+    setAuthMessage("A confirmed KSh 50 entry is required. Open the Telegram bot to join this tournament.");
+    startBtn.textContent="TOURNAMENT ENTRY REQUIRED";
+    startBtn.disabled=true;
+   }else if(capacityStatus?.status!=="active"){
+    setAuthMessage("Your entry is confirmed. The tournament unlocks when "+target.toLocaleString()+" players have joined.");
+    startBtn.textContent="WAITING FOR FULL CAPACITY";
+    startBtn.disabled=true;
+   }else{
+    setAuthMessage("Welcome "+playerName()+"! Your entry is confirmed. Good luck!");
+    startBtn.textContent="START TOURNAMENT";
+    startBtn.disabled=false;
    }
   }else if(gameMode==="monthly"){
    if(monthlyAccess){
@@ -1367,11 +1388,13 @@ async function loadTournamentPlayerCount(){
   const data=await response.json();
 
   const count=Number(
-   gameMode==="mega"
-    ?data.mega?.confirmed_members
-    :(gameMode==="monthly"
-      ?data.monthly?.active_players
-      :data.weekly?.active_players)
+   (gameMode==="tournament_10k"||gameMode==="tournament_1k")
+    ?data[gameMode]?.total_members
+    :(gameMode==="mega"
+      ?data.mega?.total_members
+      :(gameMode==="monthly"
+        ?data.monthly?.active_players
+        :data.weekly?.active_players))
   )||0;
 
   const formattedCount=count.toLocaleString();
@@ -1395,7 +1418,7 @@ async function loadTournamentPlayerCount(){
 
   if(menuLabel){
    menuLabel.firstChild.textContent=
-    "👥 "+(gameMode==="mega"?"MEGA TOURNAMENT PAID MEMBERS":gameMode.toUpperCase()+" TOURNAMENT PARTICIPANTS")+": ";
+    "👥 "+(gameMode==="mega"?"MEGA TOURNAMENT PLAYERS":gameMode.toUpperCase()+" PLAYERS")+": ";
   }
 
  }catch(error){
