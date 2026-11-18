@@ -496,15 +496,18 @@ async def send_capacity_stars_invoice(update, context, kind):
     if status.get("status") != "waiting" or capacity_tournaments.has_access(kind, uid):
         await query.message.reply_text("This tournament is closed or your entry is already confirmed.")
         return
+    reserved = False
     try:
         capacity_tournaments.reserve_slot(kind, uid, "telegram_stars", ttl_minutes=30)
+        reserved = True
         await context.bot.send_invoice(
             chat_id=uid, title=cfg["name"], description="Tournament entry. Top-five prizes apply.",
             payload=f"{kind}_50_stars_v1", currency="XTR",
             prices=[LabeledPrice(label=cfg["name"] + " entry", amount=50)], provider_token="",
         )
     except Exception:
-        capacity_tournaments.release_slot(kind, uid, "stars_invoice_creation_failed")
+        if reserved:
+            capacity_tournaments.release_slot(kind, uid, "stars_invoice_creation_failed")
         logger.exception("Could not create capacity tournament Stars invoice")
         await query.message.reply_text("Stars checkout could not be started. No payment was taken; please try again.")
 
