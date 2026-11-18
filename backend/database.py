@@ -714,18 +714,21 @@ def get_leaderboard(mode="weekly", session_key=None, limit=100):
 
 
 def get_player_profile(uid, history_limit=5):
-    """Return a player's aggregate tournament statistics and recent games."""
+    """Return career statistics across legacy and current tournament modes."""
     uid = _user_id(uid)
+    supported_modes = (
+        "weekly", "monthly", "tournament_10k", "tournament_1k", "mega"
+    )
     rows = [
         row for row in _all("scores")
         if str(row.get("telegram_id")) == uid
-        and row.get("mode") in ("weekly", "monthly")
+        and row.get("mode") in supported_modes
         and row.get("verification_status") != "rejected"
     ]
     rows.sort(key=_score_recorded_time, reverse=True)
 
-    weekly = [row for row in rows if row.get("mode") == "weekly"]
-    monthly = [row for row in rows if row.get("mode") == "monthly"]
+    def mode_rows(mode):
+        return [row for row in rows if row.get("mode") == mode]
 
     def best(items):
         return max((_as_int(row.get("score")) for row in items), default=0)
@@ -758,14 +761,12 @@ def get_player_profile(uid, history_limit=5):
         "games_played": total_games,
         "total_points": sum(_as_int(row.get("score")) for row in rows),
         "personal_best": best(rows),
-        "weekly_best": best(weekly),
-        "monthly_best": best(monthly),
-        "weekly_rank": get_player_ranking(uid, "weekly", current_weekly_session()),
-        "monthly_rank": get_player_ranking(uid, "monthly", current_month_key()),
+        "tournament_10k_best": best(mode_rows("tournament_10k")),
+        "tournament_1k_best": best(mode_rows("tournament_1k")),
+        "mega_best": best(mode_rows("mega")),
         "achievements": achievements,
         "recent_games": recent,
     }
-
 
 # ============================================================
 # PAYMENTS
