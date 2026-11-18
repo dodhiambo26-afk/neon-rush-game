@@ -311,11 +311,11 @@ These actions do not charge Telegram Stars.
 <h2>100K Mega Tournament</h2>
 <div class="notice">
 <strong>Automatic launch rule</strong>
-<p>The tournament starts automatically when 100,000 unique KSh 35 M-Pesa payments are confirmed. Pending, failed, duplicate and complimentary entries do not count. Players may continue joining while the tournament is active. There is no manual start button.</p>
+<p>The tournament starts automatically when 100,000 unique players are admitted, including paid M-Pesa/PayPal entries and admin-granted complimentary entries. Pending, failed and duplicate payments do not count. Players may continue joining while the tournament is active. There is no manual start button.</p>
 </div>
 <div id="megaTournamentStatus" class="panel">Loading Mega Tournament status...</div>
 <h3>Manually add a player</h3>
-<p class="muted">Enter the player's Telegram ID. This grants complimentary access and does not count as a paid KSh 35 entry or increase the 100,000 paid-member launch counter.</p>
+<p class="muted">Enter the player's Telegram ID. Complimentary access counts toward the 100,000 total-player launch target, but is recorded separately and does not generate payment revenue.</p>
 <input id="megaGrantPlayerId" type="number" min="1" step="1" placeholder="Player Telegram ID">
 <button class="action" onclick="grantMegaMember()">Grant Mega Tournament access</button>
 <h3>Mega Tournament members</h3>
@@ -1064,7 +1064,7 @@ async function loadMegaTournament(){
   const started=d.started_at?new Date(d.started_at).toLocaleString("en-KE",{timeZone:"Africa/Nairobi"}):"Not started";
   const ends=d.ends_at?new Date(d.ends_at).toLocaleString("en-KE",{timeZone:"Africa/Nairobi"}):"Not set";
   const winners=(ranking.top_five||[]).map(w=>"<div class='item'><strong>#"+escapeHTML(w.position)+" — KSh "+Number(w.prize_kes).toLocaleString("en-KE")+"</strong><br>Player: "+escapeHTML(w.username||w.telegram_id)+" (ID "+escapeHTML(w.telegram_id)+")<br>Verified score: "+escapeHTML(w.score)+"<br>Award: pending manual review</div>").join("");
-  el.innerHTML="<strong>Status: "+escapeHTML(String(d.status||"waiting").toUpperCase())+"</strong><br>Confirmed paid members: "+Number(d.confirmed_members||0).toLocaleString("en-KE")+" / 100,000<br>Remaining to launch: "+Number(d.remaining_members||0).toLocaleString("en-KE")+"<br>Entry price: KSh 35<br>Configured duration: "+escapeHTML(d.duration_hours||24)+" hours<br>Started: "+escapeHTML(started)+"<br>Ends: "+escapeHTML(ends)+"<br><br><strong>Fixed cash prizes (total KSh 1,450,000)</strong>"+prizes+"<h3>Current top five</h3>"+(winners||"No Mega Tournament scores have been submitted yet.")+"<div class='notice'>Awards are not paid automatically. Confirm final standings and Safaricom B2C approval before paying winners.</div>";
+  el.innerHTML="<strong>Status: "+escapeHTML(String(d.status||"waiting").toUpperCase())+"</strong><br>Total admitted players: "+Number(d.total_members||d.confirmed_members||0).toLocaleString("en-KE")+" / 100,000<br>Paid entries: "+Number(d.confirmed_members||0).toLocaleString("en-KE")+"<br>Complimentary entries: "+Number(d.complimentary_members||0).toLocaleString("en-KE")+"<br>Remaining to launch: "+Number(d.remaining_members||0).toLocaleString("en-KE")+"<br>Entry price: KSh 35<br>Configured duration: "+escapeHTML(d.duration_hours||24)+" hours<br>Started: "+escapeHTML(started)+"<br>Ends: "+escapeHTML(ends)+"<br><br><strong>Fixed cash prizes (total KSh 1,450,000)</strong>"+prizes+"<h3>Current top five</h3>"+(winners||"No Mega Tournament scores have been submitted yet.")+"<div class='notice'>Awards are not paid automatically. Confirm final standings and Safaricom B2C approval before paying winners.</div>";
   if(d.duration_hours) document.getElementById("megaDurationHours").value=d.duration_hours;
   renderMegaMembers(membersData.members||[]);
  }catch(e){
@@ -1098,7 +1098,7 @@ async function loadMegaMembers(){
 async function grantMegaMember(){
  const uid=Number(document.getElementById("megaGrantPlayerId").value);
  if(!Number.isSafeInteger(uid)||uid<=0)return showMessage("Enter a valid Telegram ID.");
- if(!confirm("Grant complimentary Mega Tournament access to Telegram ID "+uid+"? This will not count as a paid entry."))return;
+ if(!confirm("Grant complimentary Mega Tournament access to Telegram ID "+uid+"? This will count toward the 100,000 total-player target, but no payment will be collected."))return;
  try{
   const d=await api("/api/admin/mega-tournament/members/grant","POST",{telegram_id:uid});
   showMessage(d.message||"Mega Tournament access granted.");
