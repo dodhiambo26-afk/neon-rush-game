@@ -163,9 +163,9 @@ def revoke_access(kind, uid):
         return True
     return apply(txn)
 
-def list_members(kind, limit=2000):
+def list_members(kind, limit=10000):
     _config(kind)
-    rows = _member_collection(kind).limit(max(1, min(2000, int(limit)))).stream()
+    rows = _member_collection(kind).limit(max(1, min(10000, int(limit)))).stream()
     return [{"id": row.id, **(row.to_dict() or {})} for row in rows]
 
 def leaderboard(kind, limit=100):
