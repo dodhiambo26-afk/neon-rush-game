@@ -182,8 +182,8 @@ async def initiate_stk_push(telegram_id, phone, payment_type="monthly_membership
         import capacity_tournaments
         cfg = capacity_tournaments.TOURNAMENTS[payment_type]
         campaign = capacity_tournaments.get_status(payment_type)
-        if campaign.get("status") != "waiting":
-            raise ValueError("This tournament is closed.")
+        if campaign.get("status") == "finished":
+            raise ValueError("This tournament has finished and is closed to new entries.")
         if capacity_tournaments.has_access(payment_type, telegram_id):
             return {"already_active": True}
         if environment != "production":
