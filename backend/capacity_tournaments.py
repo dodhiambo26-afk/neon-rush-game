@@ -203,7 +203,19 @@ def confirm_stars_payment(kind, uid, telegram_charge_id, provider_charge_id, amo
             "amount": cfg["entry_stars"], "currency": "XTR",
         }, "telegram_stars")
         if not ok:
-            return {"processed": False, "reason": reason}
+            if reason in ("capacity_reached", "tournament_closed"):
+                now = datetime.now(timezone.utc)
+                t.set(payref, {
+                    "payment_id": "stars_" + str(telegram_charge_id),
+                    "telegram_payment_charge_id": str(telegram_charge_id),
+                    "provider_payment_charge_id": str(provider_charge_id or ""),
+                    "telegram_id": int(uid), "amount": cfg["entry_stars"],
+                    "currency": "XTR", "payment_type": kind,
+                    "provider": "telegram_stars", "status": "review_required",
+                    "review_reason": "Stars payment completed after tournament capacity was filled; no access was granted.",
+                    "created_at": now, "reconciliation_status": "review_required",
+                })
+            return {"processed": False, "reason": reason, "review_required": reason in ("capacity_reached", "tournament_closed")}
         now = datetime.now(timezone.utc)
         t.set(payref, {"payment_id": "stars_" + str(telegram_charge_id),
             "telegram_payment_charge_id": str(telegram_charge_id),
