@@ -163,9 +163,17 @@ def list_members(kind, limit=2000):
 
 def leaderboard(kind, limit=100):
     cfg = _config(kind)
-    rows = [r for r in db.list_tournament_player_rankings(kind, cfg["session_key"], limit)
-            if not db.is_banned(r.get("telegram_id"))]
-    return rows[:max(1, min(1000, int(limit)))]
+    query = (db.db().collection("scores")
+             .where("mode", "==", str(kind))
+             .where("session_key", "==", cfg["session_key"])
+             .order_by("score", direction=firestore.Query.DESCENDING)
+             .limit(max(1, min(1000, int(limit)))))
+    rows = []
+    for snap in query.stream():
+        item = snap.to_dict() or {}
+        if not db.is_banned(item.get("telegram_id")):
+            rows.append(item)
+    return rows
 
 def confirm_stars_payment(kind, uid, telegram_charge_id, provider_charge_id, amount):
     cfg = _config(kind)
