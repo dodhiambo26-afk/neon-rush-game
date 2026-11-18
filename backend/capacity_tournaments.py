@@ -122,7 +122,7 @@ def release_slot(kind, uid, reason="released", expected_checkout_id=None):
     return apply(txn)
 
 
-def reservation_is_valid(kind, uid):
+def reservation_is_valid(kind, uid, expected_checkout_id=None):
     _config(kind)
     snap = _reservation(kind, uid).get()
     if not snap.exists:
@@ -133,6 +133,10 @@ def reservation_is_valid(kind, uid):
         data.get("status") == "reserved"
         and isinstance(expiry, datetime)
         and expiry > datetime.now(timezone.utc)
+        and (
+            expected_checkout_id is None
+            or str(data.get("checkout_id") or "") == str(expected_checkout_id)
+        )
     )
 
 
@@ -205,10 +209,15 @@ def _apply_admission(txn, kind, cfg, uid, member_ref, campaign_ref, payment_fiel
     rd = reservation.to_dict() if reservation is not None and reservation.exists else {}
     now = datetime.now(timezone.utc)
     expiry = rd.get("expires_at")
+    expected_checkout_id = payment_fields.get("reservation_checkout_id")
     if source != "admin" and (
         rd.get("status") != "reserved"
         or not isinstance(expiry, datetime)
         or expiry <= now
+        or (
+            expected_checkout_id is not None
+            and str(rd.get("checkout_id") or "") != str(expected_checkout_id)
+        )
     ):
         return False, "reservation_missing_or_expired", cd.get("status", "waiting")
     reserved_count = int(cd.get("reserved_count", 0))
@@ -406,6 +415,7 @@ def confirm_mpesa_payment(kind, internal_id, payment_id, receipt, checkout_id, s
         ok, reason, status = _apply_admission(t, kind, cfg, uid, member_ref, campaign_ref, {
             "payment_id": payment_id, "mpesa_receipt": receipt,
             "amount_kes": cfg["entry_kes"], "checkout_request_id": checkout_id,
+            "reservation_checkout_id": str(internal_id),
         }, "mpesa")
         if not ok:
             # Provider-confirmed money must always leave an auditable payment
@@ -444,7 +454,7 @@ def confirm_mpesa_payment(kind, internal_id, payment_id, receipt, checkout_id, s
                 "payment_type": kind, "payment_id": payment_id, "tournament_status": status}
     return apply(txn)
 
-def confirm_paypal_payment(kind, uid, capture_id, order_id, amount):
+def confirm_paypal_payment(kind, uid, capture_id, order_id, amount, internal_id=None):
     cfg = _config(kind)
     if str(amount) != cfg["entry_usd"]:
         return {"processed": False, "reason": "amount_mismatch"}
@@ -460,6 +470,7 @@ def confirm_paypal_payment(kind, uid, capture_id, order_id, amount):
         ok, reason, status = _apply_admission(t, kind, cfg, uid, member_ref, campaign_ref, {
             "payment_id": "paypal_" + str(capture_id), "amount": str(amount),
             "currency": "USD", "paypal_order_id": order_id,
+            "reservation_checkout_id": str(internal_id) if internal_id is not None else None,
         }, "paypal")
         if not ok:
             return {"processed": False, "reason": reason}
