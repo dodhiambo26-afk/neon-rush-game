@@ -350,7 +350,15 @@ async def mpesa_callback(secret: str, request: Request):
                             else (
                                 "Your Mega Tournament payment is confirmed. Your unique paid membership has been counted toward the 100,000 target.\n\n"
                                 if result.get("payment_type") == "mega_tournament"
-                                else "Your KSh 200 NEON RUSH ARENA monthly membership is now active until the end of this month.\n\n"
+                                else (
+                                    "Your KSh 50 entry to the 10,000-player tournament is confirmed. You are eligible for its prizes.\n\n"
+                                    if result.get("payment_type") == "tournament_10k"
+                                    else (
+                                        "Your KSh 50 entry to the 1,000-player tournament is confirmed. You are eligible for its prizes.\n\n"
+                                        if result.get("payment_type") == "tournament_1k"
+                                        else "Your KSh 200 NEON RUSH ARENA monthly membership is now active until the end of this month.\n\n"
+                                    )
+                                )
                             )
                         )
                         + f"Receipt: {result.get('receipt', 'confirmed')}\n"
@@ -360,7 +368,15 @@ async def mpesa_callback(secret: str, request: Request):
                             else (
                                 "The Mega Tournament will unlock when the 100,000 paid-member target is reached."
                                 if result.get("payment_type") == "mega_tournament"
-                                else "Good luck in the monthly tournament!"
+                                else (
+                                    "Good luck in the 10,000-player tournament!"
+                                    if result.get("payment_type") == "tournament_10k"
+                                    else (
+                                        "Good luck in the 1,000-player tournament!"
+                                        if result.get("payment_type") == "tournament_1k"
+                                        else "Good luck!"
+                                    )
+                                )
                             )
                         )
                     ),
