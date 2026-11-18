@@ -203,7 +203,7 @@ def confirm_stars_payment(kind, uid, telegram_charge_id, provider_charge_id, amo
             "amount": cfg["entry_stars"], "currency": "XTR",
         }, "telegram_stars")
         if not ok:
-            if reason in ("capacity_reached", "tournament_closed"):
+            if True:
                 now = datetime.now(timezone.utc)
                 t.set(payref, {
                     "payment_id": "stars_" + str(telegram_charge_id),
@@ -212,10 +212,10 @@ def confirm_stars_payment(kind, uid, telegram_charge_id, provider_charge_id, amo
                     "telegram_id": int(uid), "amount": cfg["entry_stars"],
                     "currency": "XTR", "payment_type": kind,
                     "provider": "telegram_stars", "status": "review_required",
-                    "review_reason": "Stars payment completed after tournament capacity was filled; no access was granted.",
+                    "review_reason": "Stars payment was confirmed but admission was not granted: " + str(reason),
                     "created_at": now, "reconciliation_status": "review_required",
                 })
-            return {"processed": False, "reason": reason, "review_required": reason in ("capacity_reached", "tournament_closed")}
+            return {"processed": False, "reason": reason, "review_required": True}
         now = datetime.now(timezone.utc)
         t.set(payref, {"payment_id": "stars_" + str(telegram_charge_id),
             "telegram_payment_charge_id": str(telegram_charge_id),
@@ -258,28 +258,29 @@ def confirm_mpesa_payment(kind, internal_id, payment_id, receipt, checkout_id, s
             "amount_kes": cfg["entry_kes"], "checkout_request_id": checkout_id,
         }, "mpesa")
         if not ok:
-            # The provider has confirmed that money was received. Never silently
-            # discard a full/closed-tournament payment: mark it for manual review
-            # so support can arrange a refund or resolve the admission.
-            if reason in ("capacity_reached", "tournament_closed"):
-                t.update(pending_ref, {
-                    "status": "review_required",
-                    "reconciliation_status": "review_required",
-                    "review_reason": "Payment confirmed after tournament capacity was filled or closed; no access was granted.",
-                    "payment_id": payment_id,
-                    "mpesa_receipt": receipt,
-                    "paid_at": datetime.now(timezone.utc),
-                    "reconciliation_source": source,
-                })
-                t.set(payref, {
-                    "payment_id": payment_id, "telegram_id": uid,
-                    "amount": cfg["entry_kes"], "currency": "KES",
-                    "payment_type": kind, "provider": "mpesa",
-                    "mpesa_receipt": receipt, "checkout_request_id": checkout_id,
-                    "status": "review_required", "review_reason": "Capacity closed before admission.",
-                    "created_at": datetime.now(timezone.utc),
-                })
-            return {"processed": False, "reason": reason, "review_required": reason in ("capacity_reached", "tournament_closed")}
+            # Provider-confirmed money must always leave an auditable payment
+            # record, even when admission failed due to a duplicate member,
+            # closed capacity, or a duplicate receipt.
+            t.update(pending_ref, {
+                "status": "review_required",
+                "reconciliation_status": "review_required",
+                "review_reason": "Payment confirmed but tournament admission was not granted: " + str(reason),
+                "payment_id": payment_id,
+                "mpesa_receipt": receipt,
+                "paid_at": datetime.now(timezone.utc),
+                "reconciliation_source": source,
+            })
+            t.set(payref, {
+                "payment_id": payment_id, "telegram_id": uid,
+                "amount": cfg["entry_kes"], "currency": "KES",
+                "payment_type": kind, "provider": "mpesa",
+                "mpesa_receipt": receipt, "checkout_request_id": checkout_id,
+                "status": "review_required",
+                "review_reason": "Payment confirmed but tournament admission was not granted: " + str(reason),
+                "created_at": datetime.now(timezone.utc),
+                "reconciliation_status": "review_required",
+            })
+            return {"processed": False, "reason": reason, "review_required": True}
         now = datetime.now(timezone.utc)
         t.set(payref, {"payment_id": payment_id, "telegram_id": uid,
             "amount": cfg["entry_kes"], "currency": "KES", "payment_type": kind,
