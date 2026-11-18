@@ -29,6 +29,8 @@ def get_status():
             "target_members": TARGET,
             "entry_price_kes": ENTRY_KES,
             "confirmed_members": 0,
+            "complimentary_members": 0,
+            "total_members": 0,
             "status": "waiting",
             "duration_hours": 24,
             "created_at": datetime.now(timezone.utc),
@@ -40,6 +42,8 @@ def get_status():
     data["entry_price_kes"] = ENTRY_KES
     ref.set({"entry_price_kes": ENTRY_KES}, merge=True)
     data.setdefault("confirmed_members", 0)
+    data.setdefault("complimentary_members", 0)
+    data["total_members"] = int(data.get("confirmed_members", 0)) + int(data.get("complimentary_members", 0))
     data.setdefault("status", "waiting")
     data.setdefault("duration_hours", 24)
     data.setdefault("prizes", PRIZES)
@@ -91,6 +95,8 @@ def confirm_mpesa_payment(internal_id, payment_id, receipt, checkout_id, source)
             "target_members": TARGET,
             "entry_price_kes": ENTRY_KES,
             "confirmed_members": 0,
+            "complimentary_members": 0,
+            "total_members": 0,
             "status": "waiting",
             "duration_hours": 24,
             "prizes": PRIZES,
@@ -98,6 +104,7 @@ def confirm_mpesa_payment(internal_id, payment_id, receipt, checkout_id, source)
         now = datetime.now(timezone.utc)
         already_member = member is not None and member.exists
         count = int(campaign_data.get("confirmed_members", 0))
+        complimentary_count = int(campaign_data.get("complimentary_members", 0))
         if not already_member:
             count += 1
             txn.set(member_ref, {
@@ -110,8 +117,8 @@ def confirm_mpesa_payment(internal_id, payment_id, receipt, checkout_id, source)
                 "joined_at": now,
             })
         status = campaign_data.get("status", "waiting")
-        fields = {"confirmed_members": count, "updated_at": now}
-        if status == "waiting" and count >= int(campaign_data.get("target_members", TARGET)):
+        fields = {"confirmed_members": count, "total_members": count + complimentary_count, "updated_at": now}
+        if status == "waiting" and count + complimentary_count >= int(campaign_data.get("target_members", TARGET)):
             duration = max(1, min(720, int(campaign_data.get("duration_hours", 24))))
             fields.update({
                 "status": "active",
@@ -206,7 +213,7 @@ def list_members(limit=500):
 
 
 def grant_admin_access(uid, admin_id):
-    """Grant complimentary Mega access without counting it as a paid member."""
+    """Grant complimentary Mega access and count it toward total tournament capacity."""
     uid = str(int(uid))
     member_ref = _member(uid)
     now = datetime.now(timezone.utc)
@@ -217,6 +224,26 @@ def grant_admin_access(uid, admin_id):
         existing = next(txn.get(member_ref), None)
         if existing is not None and existing.exists:
             return False
+        campaign_ref = _campaign()
+        campaign = next(txn.get(campaign_ref), None)
+        campaign_data = campaign.to_dict() if campaign is not None and campaign.exists else {}
+        complimentary_count = int(campaign_data.get("complimentary_members", 0)) + 1
+        paid_count = int(campaign_data.get("confirmed_members", 0))
+        total_count = paid_count + complimentary_count
+        fields = {
+            "complimentary_members": complimentary_count,
+            "total_members": total_count,
+            "updated_at": now,
+        }
+        if campaign_data.get("status", "waiting") == "waiting" and total_count >= int(campaign_data.get("target_members", TARGET)):
+            duration = max(1, min(720, int(campaign_data.get("duration_hours", 24))))
+            fields.update({
+                "status": "active",
+                "started_at": now,
+                "ends_at": now + timedelta(hours=duration),
+                "started_automatically": True,
+            })
+        txn.set(campaign_ref, fields, merge=True)
         txn.set(member_ref, {
             "telegram_id": uid,
             "source": "admin",
@@ -233,7 +260,7 @@ def grant_admin_access(uid, admin_id):
 
 
 def revoke_access(uid):
-    """Remove Mega access; reduce the paid-member counter only for paid entries."""
+    """Remove Mega access and decrement the appropriate total-member counter."""
     uid = str(int(uid))
     member_ref = _member(uid)
     campaign_ref = _campaign()
@@ -250,10 +277,18 @@ def revoke_access(uid):
             or bool(data.get("admin_granted"))
         )
         campaign = next(txn.get(campaign_ref), None)
-        if not is_complimentary and campaign is not None and campaign.exists:
-            count = max(0, int((campaign.to_dict() or {}).get("confirmed_members", 0)) - 1)
+        if campaign is not None and campaign.exists:
+            campaign_data = campaign.to_dict() or {}
+            paid_count = int(campaign_data.get("confirmed_members", 0))
+            complimentary_count = int(campaign_data.get("complimentary_members", 0))
+            if is_complimentary:
+                complimentary_count = max(0, complimentary_count - 1)
+            else:
+                paid_count = max(0, paid_count - 1)
             txn.set(campaign_ref, {
-                "confirmed_members": count,
+                "confirmed_members": paid_count,
+                "complimentary_members": complimentary_count,
+                "total_members": paid_count + complimentary_count,
                 "updated_at": datetime.now(timezone.utc),
             }, merge=True)
         txn.delete(member_ref)
