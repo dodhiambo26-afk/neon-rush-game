@@ -98,7 +98,7 @@ def _apply_admission(txn, kind, cfg, uid, member_ref, campaign_ref, payment_fiel
     target = int(cd.get("target_members", cfg["target"]))
     # These are fixed-capacity tournaments: do not admit a 10,001st or
     # 1,001st player, or accept late callbacks after the tournament closes.
-    if status != "waiting" or total > target:
+    if status != "waiting":
         return False, "tournament_closed", status
     if total > target:
         return False, "capacity_reached", status
