@@ -204,8 +204,10 @@ def _apply_admission(txn, kind, cfg, uid, member_ref, campaign_ref, payment_fiel
     # 1,001st player, or accept late callbacks after the tournament closes.
     if status != "waiting":
         return False, "tournament_closed", status
-    if total > target:
-        return False, "capacity_reached", status
+    # Admin complimentary grants must not consume places already held
+    # by players who are in a live provider checkout.
+    if total + reserved_count > target:
+        return False, "capacity_reached_reserved_slots", status
     if total == target:
         hours = max(1, min(720, int(cd.get("duration_hours", 24))))
         fields.update({"status": "active", "started_at": now,
