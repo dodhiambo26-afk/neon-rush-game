@@ -940,7 +940,7 @@ def start_race(
         if campaign.get("status") != "active":
             raise HTTPException(status_code=403, detail="The 100K Mega Tournament has not started or has finished.")
         if not mega_tournament.has_access(uid):
-            raise HTTPException(status_code=403, detail="A confirmed KSh 30 Mega Tournament entry is required.")
+            raise HTTPException(status_code=403, detail="A confirmed KSh 35 Mega Tournament entry is required.")
         session = {"key": mega_tournament.SESSION_KEY}
     else:
         raise HTTPException(status_code=400, detail="Race sessions are only available for weekly, monthly or mega tournaments.")
@@ -2551,7 +2551,12 @@ def admin_grant_capacity_member(kind: str, action: AdminPlayerAction, x_telegram
     except ValueError:
         raise HTTPException(status_code=404, detail="Unknown tournament.")
     if not granted:
-        raise HTTPException(status_code=409, detail="This player already has tournament access.")
+        current = capacity_tournaments.get_status(kind)
+        if capacity_tournaments.has_access(kind, uid):
+            raise HTTPException(status_code=409, detail="This player already has tournament access.")
+        if current.get("status") != "waiting" or int(current.get("total_members", 0)) >= int(current.get("target_members", capacity_tournaments.TOURNAMENTS[kind]["target"])):
+            raise HTTPException(status_code=409, detail="Tournament capacity is full or the tournament has already started; no additional entries can be granted.")
+        raise HTTPException(status_code=409, detail="The complimentary entry could not be granted. Please refresh and try again.")
     record_admin_action(admin["id"], "GRANT_" + kind.upper(), uid,
         "Complimentary entry counts toward capacity and is prize eligible.")
     return {"success": True, "telegram_id": uid, "message": "Complimentary entry granted and counted toward tournament capacity. Player is prize eligible."}
