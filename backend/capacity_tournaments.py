@@ -82,18 +82,114 @@ def get_status(kind):
     }, merge=True)
     return data
 
+def _reservation(kind, uid):
+    return db.db().collection(str(kind) + "_reservations").document(str(int(uid)))
+
+
+def release_slot(kind, uid, reason="released"):
+    """Idempotently release an unconsumed capacity hold."""
+    _config(kind)
+    reservation_ref, campaign_ref = _reservation(kind, uid), _campaign(kind)
+    txn = db.db().transaction()
+
+    @firestore.transactional
+    def apply(t):
+        reservation = next(t.get(reservation_ref), None)
+        campaign = next(t.get(campaign_ref), None)
+        if reservation is None or not reservation.exists:
+            return False
+        rd = reservation.to_dict() or {}
+        if rd.get("status") != "reserved":
+            return False
+        cd = campaign.to_dict() if campaign is not None and campaign.exists else {}
+        t.update(campaign_ref, {
+            "reserved_count": max(0, int(cd.get("reserved_count", 0)) - 1),
+            "updated_at": datetime.now(timezone.utc),
+        })
+        t.update(reservation_ref, {
+            "status": reason, "released_at": datetime.now(timezone.utc),
+        })
+        return True
+    return apply(txn)
+
+
+def reserve_slot(kind, uid, provider, checkout_id=None, ttl_minutes=30):
+    """Atomically hold one place before creating a provider checkout."""
+    cfg = _config(kind)
+    get_status(kind)
+    uid = str(int(uid))
+    reservation_ref, campaign_ref = _reservation(kind, uid), _campaign(kind)
+    now = datetime.now(timezone.utc)
+    expires = now + timedelta(minutes=max(5, min(60, int(ttl_minutes))))
+    txn = db.db().transaction()
+
+    @firestore.transactional
+    def apply(t):
+        reservation = next(t.get(reservation_ref), None)
+        campaign = next(t.get(campaign_ref), None)
+        rd = reservation.to_dict() if reservation is not None and reservation.exists else {}
+        cd = campaign.to_dict() if campaign is not None and campaign.exists else {}
+        if rd.get("status") == "reserved":
+            old_expiry = rd.get("expires_at")
+            if isinstance(old_expiry, datetime) and old_expiry > now:
+                return False, "You already have a payment checkout in progress. Complete it or wait for it to expire."
+            # Expired hold is reclaimed in the same atomic campaign update.
+            reserved = max(0, int(cd.get("reserved_count", 0)) - 1)
+        else:
+            reserved = int(cd.get("reserved_count", 0))
+        if cd.get("status", "waiting") != "waiting":
+            return False, "This tournament is full or closed."
+        admitted = int(cd.get("confirmed_members", 0)) + int(cd.get("complimentary_members", 0))
+        if admitted + reserved >= int(cd.get("target_members", cfg["target"])):
+            return False, "All tournament places are currently taken or reserved."
+        t.set(campaign_ref, {"reserved_count": reserved + 1, "updated_at": now}, merge=True)
+        t.set(reservation_ref, {
+            "telegram_id": uid, "provider": str(provider),
+            "checkout_id": str(checkout_id or ""),
+            "status": "reserved", "created_at": now, "expires_at": expires,
+        }, merge=True)
+        return True, None
+    ok, reason = apply(txn)
+    if not ok:
+        raise ValueError(reason)
+    return {"reserved": True, "expires_at": expires}
+
+
+def expire_stale_reservations(kind, limit=500):
+    """Reclaim timed-out holds; safe to call periodically or before checkout."""
+    _config(kind)
+    now = datetime.now(timezone.utc)
+    refs = db.db().collection(str(kind) + "_reservations").where("status", "==", "reserved").limit(max(1, min(2000, int(limit)))).stream()
+    released = 0
+    for snap in refs:
+        data = snap.to_dict() or {}
+        expiry = data.get("expires_at")
+        if isinstance(expiry, datetime) and expiry <= now:
+            if release_slot(kind, snap.id, "expired"):
+                released += 1
+    return released
+
+
 def _apply_admission(txn, kind, cfg, uid, member_ref, campaign_ref, payment_fields, source):
     member = next(txn.get(member_ref), None)
     campaign = next(txn.get(campaign_ref), None)
+    reservation_ref = _reservation(kind, uid)
+    reservation = next(txn.get(reservation_ref), None)
     if member is not None and member.exists:
         return False, "already_member", "waiting"
     cd = campaign.to_dict() if campaign is not None and campaign.exists else {}
+    rd = reservation.to_dict() if reservation is not None and reservation.exists else {}
+    if source != "admin" and rd.get("status") != "reserved":
+        return False, "reservation_missing_or_expired", cd.get("status", "waiting")
+    reserved_count = int(cd.get("reserved_count", 0))
+    if source != "admin":
+        reserved_count = max(0, reserved_count - 1)
     paid = int(cd.get("confirmed_members", 0)) + (0 if source == "admin" else 1)
     free = int(cd.get("complimentary_members", 0)) + (1 if source == "admin" else 0)
     total = paid + free
     now = datetime.now(timezone.utc)
     fields = {"confirmed_members": paid, "complimentary_members": free,
-              "total_members": total, "updated_at": now}
+              "total_members": total, "reserved_count": reserved_count, "updated_at": now}
     status = cd.get("status", "waiting")
     target = int(cd.get("target_members", cfg["target"]))
     # These are fixed-capacity tournaments: do not admit a 10,001st or
@@ -113,6 +209,8 @@ def _apply_admission(txn, kind, cfg, uid, member_ref, campaign_ref, payment_fiel
         "telegram_id": str(uid), "source": source, "joined_at": now,
         "paid_at": now if source != "admin" else None, **payment_fields,
     })
+    if source != "admin":
+        txn.update(reservation_ref, {"status": "consumed", "consumed_at": now})
     return True, None, status
 
 def has_access(kind, uid):
