@@ -92,7 +92,7 @@ async def reconcile_stale_mpesa_payments(application=None):
                     ):
                         import capacity_tournaments
                         capacity_tournaments.release_slot(
-                            outcome["payment_type"], outcome["telegram_id"], "mpesa_query_failed"
+                            outcome["payment_type"], outcome["telegram_id"], "mpesa_query_failed", outcome.get("internal_id")
                         )
                     if outcome.get("success") and application and outcome.get("telegram_id"):
                         try:
@@ -326,7 +326,7 @@ async def mpesa_callback(secret: str, request: Request):
     ):
         import capacity_tournaments
         capacity_tournaments.release_slot(
-            result["payment_type"], result["telegram_id"], "mpesa_declined"
+            result["payment_type"], result["telegram_id"], "mpesa_declined", result.get("internal_id")
         )
     if result.get("success") and result.get("telegram_id"):
         application = getattr(request.app.state, "bot_application", None)
