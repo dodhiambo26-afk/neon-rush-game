@@ -246,6 +246,27 @@ def confirm_mpesa_payment(kind, internal_id, payment_id, receipt, checkout_id, s
             return {"processed": False, "reason": "unknown_payment"}
         cd = current.to_dict() or {}
         if cd.get("status") not in ("pending", "initiated"):
+            # A late successful Daraja callback/query can arrive after a
+            # timeout was marked failed. Preserve the confirmed receipt for
+            # reconciliation instead of silently losing evidence of payment.
+            if cd.get("status") in ("failed", "review_required"):
+                now = datetime.now(timezone.utc)
+                t.set(payref, {
+                    "payment_id": payment_id, "telegram_id": uid,
+                    "amount": cfg["entry_kes"], "currency": "KES",
+                    "payment_type": kind, "provider": "mpesa",
+                    "mpesa_receipt": receipt, "checkout_request_id": checkout_id,
+                    "status": "review_required",
+                    "review_reason": "Late M-Pesa success arrived after the pending transaction had reached a terminal state.",
+                    "created_at": now, "reconciliation_status": "review_required",
+                }, merge=True)
+                t.update(pending_ref, {
+                    "status": "review_required", "payment_id": payment_id,
+                    "mpesa_receipt": receipt, "paid_at": now,
+                    "reconciliation_status": "review_required",
+                    "review_reason": "Late M-Pesa success after terminal pending status.",
+                })
+                return {"processed": False, "reason": "late_success_review_required", "review_required": True}
             return {"processed": False, "reason": "payment_not_pending"}
         if int(cd.get("amount", 0)) != cfg["entry_kes"]:
             t.update(pending_ref, {"status": "review_required", "review_reason": "Tournament payment amount mismatch."})
