@@ -192,6 +192,12 @@ def expire_stale_reservations(kind, limit=500):
     for snap in refs:
         data = snap.to_dict() or {}
         expiry = data.get("expires_at")
+        # Safaricom STK requests cannot be cancelled reliably from this
+        # service. Keep their slots held until Daraja returns a terminal
+        # success/failure; otherwise a late customer PIN could charge after
+        # the slot had been offered to someone else.
+        if data.get("provider") == "mpesa":
+            continue
         if isinstance(expiry, datetime) and expiry <= now:
             if release_slot(kind, snap.id, "expired"):
                 released += 1
