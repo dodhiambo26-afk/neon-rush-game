@@ -349,17 +349,46 @@ def list_members(kind, limit=10000):
 
 def leaderboard(kind, limit=100):
     cfg = _config(kind)
-    rows = []
-    # Keep the query to one indexed equality filter; sort locally so this
-    # feature does not depend on a new Firestore composite index.
+    best_by_player = {}
+    # Only scores replayed and verified by the server can determine cash prizes.
+    # Keep a single equality query to avoid a composite Firestore index.
     for snap in db.db().collection("scores").where("mode", "==", str(kind)).stream():
         item = snap.to_dict() or {}
-        if str(item.get("session_key")) != cfg["session_key"]:
+        uid = str(item.get("telegram_id") or "").strip()
+        if (
+            not uid
+            or str(item.get("session_key")) != cfg["session_key"]
+            or item.get("verification_status") != "server_replayed"
+            or db.is_banned(uid)
+        ):
             continue
-        if db.is_banned(item.get("telegram_id")):
+        try:
+            score = int(item.get("score", 0))
+        except (ValueError, TypeError):
             continue
-        rows.append(item)
-    rows.sort(key=lambda item: int(item.get("score", 0)), reverse=True)
+        recorded = item.get("created_at")
+        if isinstance(recorded, datetime):
+            if recorded.tzinfo is None:
+                recorded = recorded.replace(tzinfo=timezone.utc)
+            timestamp = recorded.timestamp()
+        else:
+            timestamp = float("inf")
+        existing = best_by_player.get(uid)
+        if existing is None or score > existing["_rank_score"] or (
+            score == existing["_rank_score"] and timestamp < existing["_rank_time"]
+        ):
+            item["_rank_score"] = score
+            item["_rank_time"] = timestamp
+            best_by_player[uid] = item
+    rows = list(best_by_player.values())
+    rows.sort(key=lambda item: (
+        -int(item.get("_rank_score", 0)),
+        item.get("_rank_time", float("inf")),
+        str(item.get("telegram_id", "")),
+    ))
+    for item in rows:
+        item.pop("_rank_score", None)
+        item.pop("_rank_time", None)
     return rows[:max(1, min(1000, int(limit)))]
 
 def confirm_stars_payment(kind, uid, telegram_charge_id, provider_charge_id, amount, reservation_id=None):
