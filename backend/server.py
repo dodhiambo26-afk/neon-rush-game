@@ -709,6 +709,9 @@ class MonthlyGrantAction(BaseModel):
 class MegaTournamentDurationAction(BaseModel):
     hours: int = Field(ge=1, le=720)
 
+class CapacityTournamentDurationAction(BaseModel):
+    hours: int = Field(ge=1, le=720)
+
 
 class ContactSettingsAction(BaseModel):
     whatsapp: str = Field(max_length=40)
@@ -2525,6 +2528,33 @@ def admin_capacity_tournament(kind: str, x_telegram_init_data: str = Header(defa
         "entry_price_usd": cfg["entry_usd"], "entry_price_stars": cfg["entry_stars"],
         "prizes": cfg["prizes"],
         "remaining_members": max(0, cfg["target"] - int(status.get("total_members", 0)))})
+
+
+
+@app.post("/api/admin/capacity-tournaments/{kind}/duration")
+def admin_set_capacity_duration(kind: str, action: CapacityTournamentDurationAction,
+    x_telegram_init_data: str = Header(default="", alias="X-Telegram-Init-Data")):
+    admin = require_admin(x_telegram_init_data)
+    try:
+        status = capacity_tournaments.set_duration(kind, action.hours, admin["id"])
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    record_admin_action(admin["id"], "SET_" + kind.upper() + "_DURATION", None,
+        f"Initial run time set to {action.hours} hours")
+    return json_safe({"success": True, **status})
+
+
+@app.post("/api/admin/capacity-tournaments/{kind}/extend")
+def admin_extend_capacity_duration(kind: str, action: CapacityTournamentDurationAction,
+    x_telegram_init_data: str = Header(default="", alias="X-Telegram-Init-Data")):
+    admin = require_admin(x_telegram_init_data)
+    try:
+        status = capacity_tournaments.extend_duration(kind, action.hours, admin["id"])
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    record_admin_action(admin["id"], "EXTEND_" + kind.upper() + "_DURATION", None,
+        f"Extended live tournament by {action.hours} hours")
+    return json_safe({"success": True, **status})
 
 
 @app.get("/api/admin/capacity-tournaments/{kind}/members")
