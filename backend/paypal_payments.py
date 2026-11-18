@@ -70,7 +70,7 @@ async def capture_and_grant(order_id):
     if p.get("status")=="completed": return {"success":True,"already_processed":True}
     kind = p.get("payment_type")
     if kind in ("tournament_10k", "tournament_1k"):
-        if not capacity_tournaments.reservation_is_valid(kind, p.get("telegram_id")):
+        if not capacity_tournaments.reservation_is_valid(kind, p.get("telegram_id"), p.get("internal_id")):
             ref.update({
                 "status": "expired",
                 "review_reason": "PayPal checkout reservation expired before capture; no capture was attempted.",
@@ -94,7 +94,7 @@ async def capture_and_grant(order_id):
     if not capture_id: raise ValueError("PayPal capture reference is missing.")
     uid=int(p["telegram_id"]); kind=p["payment_type"]; key=str(p["period_key"]); now=datetime.now(timezone.utc)
     if kind in ("tournament_10k", "tournament_1k"):
-        result = capacity_tournaments.confirm_paypal_payment(kind, uid, capture_id, order_id, p["amount"])
+        result = capacity_tournaments.confirm_paypal_payment(kind, uid, capture_id, order_id, p["amount"], p.get("internal_id"))
         if not result.get("processed"):
             # Capture succeeded but admission failed (for example, the final
             # slot was taken concurrently). Keep the capture auditable and
