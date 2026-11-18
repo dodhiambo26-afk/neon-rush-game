@@ -85,6 +85,54 @@ def get_status(kind):
     data.setdefault("reserved_count", 0)
     return data
 
+
+def set_duration(kind, hours, admin_id):
+    """Set the planned run time before the automatic launch threshold is reached."""
+    _config(kind)
+    hours = int(hours)
+    if not 1 <= hours <= 720:
+        raise ValueError("Tournament duration must be between 1 and 720 hours.")
+    ref = _campaign(kind)
+    snap = ref.get()
+    data = snap.to_dict() if snap.exists else {}
+    status = data.get("status", "waiting")
+    if status != "waiting":
+        raise ValueError("Initial duration can only be changed before the tournament starts.")
+    ref.set({
+        "duration_hours": hours,
+        "duration_updated_at": datetime.now(timezone.utc),
+        "duration_updated_by": str(admin_id),
+    }, merge=True)
+    return get_status(kind)
+
+
+def extend_duration(kind, hours, admin_id):
+    """Add hours to the scheduled end time of a live tournament."""
+    _config(kind)
+    hours = int(hours)
+    if not 1 <= hours <= 720:
+        raise ValueError("Extension must be between 1 and 720 hours.")
+    ref = _campaign(kind)
+    snap = ref.get()
+    if not snap.exists:
+        raise ValueError("Tournament has not been configured yet.")
+    data = snap.to_dict() or {}
+    if data.get("status") != "active":
+        raise ValueError("Only an active tournament can be extended.")
+    now = datetime.now(timezone.utc)
+    end = data.get("ends_at")
+    if not isinstance(end, datetime) or now >= end:
+        ref.set({"status": "finished", "finished_at": now}, merge=True)
+        raise ValueError("Tournament has already reached its scheduled end time.")
+    new_end = end + timedelta(hours=hours)
+    ref.set({
+        "ends_at": new_end,
+        "duration_hours": int(data.get("duration_hours", 24)) + hours,
+        "duration_extended_at": now,
+        "duration_extended_by": str(admin_id),
+    }, merge=True)
+    return get_status(kind)
+
 def _reservation(kind, uid):
     return db.db().collection(str(kind) + "_reservations").document(str(int(uid)))
 
