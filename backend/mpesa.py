@@ -104,7 +104,15 @@ async def reconcile_stale_mpesa_payments(application=None):
                                     else (
                                         "Your KSh 35 Mega Tournament membership is confirmed and counted toward the 100,000 target."
                                         if outcome.get("payment_type") == "mega_tournament"
-                                        else "Your KSh 200 monthly membership is now active."
+                                        else (
+                                            "Your KSh 50 entry to the 10,000-player tournament is confirmed."
+                                            if outcome.get("payment_type") == "tournament_10k"
+                                            else (
+                                                "Your KSh 50 entry to the 1,000-player tournament is confirmed."
+                                                if outcome.get("payment_type") == "tournament_1k"
+                                                else "Your KSh 200 monthly membership is now active."
+                                            )
+                                        )
                                     )
                                 )
                                 + "\\n\\nYour payment was recovered automatically. "
