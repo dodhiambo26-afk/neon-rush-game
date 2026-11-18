@@ -140,6 +140,34 @@ def reservation_is_valid(kind, uid, expected_checkout_id=None):
     )
 
 
+def refresh_reservation(kind, uid, expected_checkout_id, ttl_minutes=10):
+    """Extend a live Stars reservation after Telegram's pre-checkout approval."""
+    _config(kind)
+    ref = _reservation(kind, uid)
+    now = datetime.now(timezone.utc)
+    expires = now + timedelta(minutes=max(5, min(20, int(ttl_minutes))))
+    txn = db.db().transaction()
+
+    @firestore.transactional
+    def apply(t):
+        snap = next(t.get(ref), None)
+        if snap is None or not snap.exists:
+            return False
+        data = snap.to_dict() or {}
+        current_expiry = data.get("expires_at")
+        if (
+            data.get("status") != "reserved"
+            or data.get("provider") != "telegram_stars"
+            or str(data.get("checkout_id") or "") != str(expected_checkout_id)
+            or not isinstance(current_expiry, datetime)
+            or current_expiry <= now
+        ):
+            return False
+        t.update(ref, {"expires_at": expires, "precheckout_at": now})
+        return True
+    return apply(txn)
+
+
 def reserve_slot(kind, uid, provider, checkout_id=None, ttl_minutes=30):
     """Atomically hold one place before creating a provider checkout."""
     cfg = _config(kind)
