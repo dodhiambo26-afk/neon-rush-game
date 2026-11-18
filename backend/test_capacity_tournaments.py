@@ -81,7 +81,8 @@ class CapacityReservationSafetyTests(unittest.TestCase):
         self.assertIn('reserve_slot(kind, uid, "paypal"', self._source("paypal_payments.py"))
         self.assertIn('reserve_slot(', self._source("bot.py"))
         self.assertIn('payload=f"capacity_stars:{kind}:{reservation_id}"', self._source("bot.py"))
-        self.assertIn('reservation_is_valid(kind, uid, reservation_id)', self._source("bot.py"))
+        self.assertIn('refresh_reservation(kind, uid, reservation_id', self._source("bot.py"))
+        self.assertIn("def refresh_reservation", self._source("capacity_tournaments.py"))
         self.assertIn('reservation_checkout_id', self._source("capacity_tournaments.py"))
 
     def test_paypal_will_not_capture_after_reservation_expiry(self):
