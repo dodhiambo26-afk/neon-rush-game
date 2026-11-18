@@ -316,6 +316,31 @@ async def weekly_information(update: Update, context):
     )
 
 
+async def send_mega_stars_invoice(update, context):
+    query = update.callback_query
+    await query.answer()
+    uid = query.from_user.id
+    if reject_banned(uid):
+        await query.message.reply_text("🚫 Your account has been suspended.")
+        return
+    campaign = mega_tournament.get_status()
+    if campaign.get("status") == "finished":
+        await query.message.reply_text("⛔ The 100K Mega Tournament is closed.")
+        return
+    if mega_tournament.has_access(uid):
+        await query.message.reply_text("✅ Your Mega Tournament membership is already confirmed.")
+        return
+    await context.bot.send_invoice(
+        chat_id=uid,
+        title="NEON RUSH ARENA 100K Mega Tournament Entry",
+        description="One-time entry to the 100K Mega Tournament. Compete for the official top-five cash prizes.",
+        payload="mega_tournament_50_stars_v1",
+        currency="XTR",
+        prices=[LabeledPrice(label="100K Mega Tournament Entry", amount=50)],
+        provider_token="",
+    )
+
+
 # ============================================================
 # MONTHLY TOURNAMENT
 # ============================================================
@@ -450,10 +475,10 @@ async def mega_tournament_information(update, context):
     count = int(campaign.get("confirmed_members", 0))
     text = (
         "🏆 NEON RUSH 100K MEGA TOURNAMENT\n\n"
-        "Entry: KSh 35 by M-Pesa or US$0.80 by PayPal.\n"
-        f"Confirmed paid members: {count:,} / 100,000\n"
+        "Entry: KSh 35 by M-Pesa, US$0.80 by PayPal, or 50 Telegram Stars.\n"
+        f"Total admitted players: {int(campaign.get('total_members', count + int(campaign.get('complimentary_members', 0)))):,} / 100,000\\n"\n        f"Paid entries: {count:,} | Complimentary: {int(campaign.get('complimentary_members', 0)):,}\\n"
         f"Status: {status}\n"
-        "The tournament starts automatically when 100,000 unique paid members are confirmed. "
+        "The tournament starts automatically when 100,000 unique players are admitted, including paid and complimentary entries. "
         "Players can continue joining while it is running.\n\n"
         "🏅 FIXED CASH PRIZES\n" + prizes + "\n\n"
         "The final top five are determined from the official Mega Tournament leaderboard. "
@@ -463,7 +488,7 @@ async def mega_tournament_information(update, context):
     has_access = mega_tournament.has_access(uid)
     if campaign.get("status") != "finished" and not has_access:
         buttons.append([InlineKeyboardButton("📱 PAY KSh 35 WITH M-PESA", callback_data="mega_mpesa")])
-        buttons.append([InlineKeyboardButton("🌍 PAY US$0.80 WITH PAYPAL", callback_data="mega_paypal")])
+        buttons.append([InlineKeyboardButton("🌍 PAY US$0.80 WITH PAYPAL", callback_data="mega_paypal")])\n        buttons.append([InlineKeyboardButton("⭐ PAY 50 TELEGRAM STARS", callback_data="mega_stars")])
     elif has_access:
         text += "\n\n✅ Your paid membership is confirmed."
         if campaign.get("status") == "active":
@@ -859,6 +884,17 @@ async def precheckout(
         await query.answer(ok=True)
         return
 
+    if query.invoice_payload == "mega_tournament_50_stars_v1":
+        campaign = mega_tournament.get_status()
+        if query.total_amount != 50 or campaign.get("status") == "finished":
+            await query.answer(ok=False, error_message="This Mega Tournament Stars invoice is invalid or closed.")
+            return
+        if mega_tournament.has_access(uid):
+            await query.answer(ok=False, error_message="Your Mega Tournament entry is already confirmed.")
+            return
+        await query.answer(ok=True)
+        return
+
     expected_monthly = f"monthly_membership_{current_month_session()}"
     if query.invoice_payload != expected_monthly or query.total_amount != MONTHLY_PRICE:
         await query.answer(ok=False, error_message="This membership invoice is invalid or expired.")
@@ -921,6 +957,30 @@ async def successful_payment(
         except Exception:
             logger.exception("Weekly Stars payment processing failed")
             await update.message.reply_text("Payment received, but entry activation needs support assistance.")
+        return
+
+    if payment.invoice_payload == "mega_tournament_50_stars_v1":
+        if payment.total_amount != 50:
+            await update.message.reply_text("❌ Invalid Mega Tournament Stars payment amount.")
+            return
+        try:
+            result = mega_tournament.confirm_stars_payment(
+                uid=uid,
+                telegram_charge_id=payment.telegram_payment_charge_id,
+                provider_charge_id=payment.provider_payment_charge_id,
+                amount=payment.total_amount,
+            )
+            if not result.get("processed"):
+                await update.message.reply_text("This Stars payment was received but could not be applied automatically. Please contact support and do not pay again.")
+                return
+            await update.message.reply_text(
+                "🎉 PAYMENT SUCCESSFUL!\\n\\n"
+                "Your 50 Telegram Stars entry to the 100K Mega Tournament is confirmed. "
+                "You are eligible for the same top-five cash prizes as all other admitted players."
+            )
+        except Exception:
+            logger.exception("Mega Tournament Stars payment processing failed")
+            await update.message.reply_text("Payment received, but Mega Tournament activation needs support assistance.")
         return
 
     expected_monthly = f"monthly_membership_{current_month_session()}"
