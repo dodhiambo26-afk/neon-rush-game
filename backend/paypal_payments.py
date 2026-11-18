@@ -32,18 +32,18 @@ async def create_paypal_order(uid, kind):
     uid = int(uid)
     if db.is_banned(uid): raise ValueError("Your account is suspended.")
     key = period_key(kind)
+    amount, internal = PRICES[kind], uuid.uuid4().hex
     if kind == "weekly_entry" and db.has_weekly_entry(uid,key): raise ValueError("You already have weekly access.")
     if kind == "monthly_membership" and db.has_monthly_access(uid,key): raise ValueError("Your monthly membership is active.")
     if kind in ("tournament_10k", "tournament_1k"):
         campaign = capacity_tournaments.get_status(kind)
         if campaign.get("status") != "waiting": raise ValueError("This tournament is full or closed; no new payments are being accepted.")
         if capacity_tournaments.has_access(kind, uid): raise ValueError("Your tournament entry is already confirmed.")
-        capacity_tournaments.reserve_slot(kind, uid, "paypal", ttl_minutes=30)
+        capacity_tournaments.reserve_slot(kind, uid, "paypal", checkout_id=internal, ttl_minutes=30)
     if kind == "mega_tournament":
         campaign = mega_tournament.get_status()
         if campaign.get("status") == "finished": raise ValueError("The Mega Tournament is closed.")
         if mega_tournament.has_access(uid): raise ValueError("Your Mega membership is already confirmed.")
-    amount, internal = PRICES[kind], uuid.uuid4().hex
     backend = os.getenv("BACKEND_PUBLIC_URL","https://neon-rush-game-backend.onrender.com").rstrip("/")
     payload = {"intent":"CAPTURE","purchase_units":[{"reference_id":kind,"custom_id":internal,"invoice_id":"NRA-"+internal,"description":"NEON RUSH ARENA "+kind.replace("_"," "),"amount":{"currency_code":"USD","value":amount}}],"payment_source":{"paypal":{"experience_context":{"brand_name":"NEON RUSH ARENA","shipping_preference":"NO_SHIPPING","user_action":"PAY_NOW","return_url":backend+"/api/paypal/return","cancel_url":"https://t.me/NeonRushGamingBot"}}}}
     try:
@@ -56,7 +56,7 @@ async def create_paypal_order(uid, kind):
         if not approval: raise RuntimeError("PayPal did not return a checkout link.")
     except Exception:
         if kind in ("tournament_10k", "tournament_1k"):
-            capacity_tournaments.release_slot(kind, uid, "paypal_order_creation_failed")
+            capacity_tournaments.release_slot(kind, uid, "paypal_order_creation_failed", internal)
         raise
     db.db().collection("paypal_orders").document(order["id"]).set({"order_id":order["id"],"internal_id":internal,"telegram_id":str(uid),"payment_type":kind,"period_key":key,"amount":amount,"currency":"USD","status":"created","created_at":datetime.now(timezone.utc)})
     return {"approval_url":approval,"amount":amount,"currency":"USD"}
@@ -76,7 +76,7 @@ async def capture_and_grant(order_id):
                 "review_reason": "PayPal checkout reservation expired before capture; no capture was attempted.",
                 "expired_at": datetime.now(timezone.utc),
             })
-            capacity_tournaments.release_slot(kind, p.get("telegram_id"), "expired")
+            capacity_tournaments.release_slot(kind, p.get("telegram_id"), "expired", p.get("internal_id"))
             raise ValueError("This PayPal checkout has expired and was not captured. Please request a fresh tournament checkout.")
     async with httpx.AsyncClient(timeout=25) as client:
         token=await access_token(client)
