@@ -740,25 +740,59 @@ async function loadMonthlyMembers(){
  }
 }
 
+function paymentField(item,names,fallback="Not recorded"){
+ for(const name of names){
+  const value=item?.[name];
+  if(value!==undefined&&value!==null&&String(value).trim()!==""){
+   return value;
+  }
+ }
+ return fallback;
+}
+
+function renderPaymentRecords(elementId,rows,method){
+ const el=document.getElementById(elementId);
+ if(!Array.isArray(rows)||!rows.length){
+  el.textContent="No records found.";
+  return;
+ }
+ el.innerHTML=rows.map(p=>{
+  const amount=paymentField(p,["amount","amount_kes","amount_usd","total"],"Not recorded");
+  const currency=paymentField(p,["currency"],method==="stars"?"XTR":method==="paypal"?"USD":"");
+  const details=[
+   ["Message sent at",paymentField(p,["message_sent_at","sent_at","notification_sent_at"])],
+   ["Created",paymentField(p,["created_at","created","timestamp"])],
+   ["Telegram ID",paymentField(p,["telegram_id","user_id"])],
+   ["Username",paymentField(p,["username","telegram_username"])],
+   ["Amount"+(currency==="KES"?" (KES)":currency==="USD"?" (USD)":currency==="XTR"?" (Stars)":""),amount],
+   ["Payment type",paymentField(p,["payment_type","type"])],
+   ["Status",paymentField(p,["status","payment_status"])],
+   ["Reconciliation",paymentField(p,["reconciliation_status","reconciliation"])],
+   [method==="paypal"?"PayPal capture / transaction ID":method==="stars"?"Telegram payment charge ID":"Payment reference",
+    paymentField(p,["capture_id","captureId","telegram_payment_charge_id","provider_payment_charge_id","mpesa_receipt","payment_id"])],
+   ["PayPal order ID",paymentField(p,["paypal_order_id","order_id"],"Not applicable")],
+   ["Phone ending",paymentField(p,["phone_last4","phone_ending"],"Not applicable")],
+   ["Review reason",paymentField(p,["review_reason"])],
+   ["Failure reason",paymentField(p,["failure_reason","error_reason"])]
+  ];
+  return '<div class="item">'+details.map(([label,value])=>
+   '<div><span class="muted">'+escapeHTML(label)+': </span>'+escapeHTML(value)+'</div>'
+  ).join("")+'</div>';
+ }).join("");
+}
+
 async function loadPayments(){
+ const el=document.getElementById("paymentsList");
+ el.textContent="Loading Telegram Stars payment records...";
  try{
   const d=await api("/api/admin/payments");
   const rows=(d.payments||[]).filter(p=>
    String(p.currency||"").toUpperCase()==="XTR" ||
    String(p.provider||"").toLowerCase()==="telegram_stars"
   );
-
-  renderList("paymentsList",rows,[
-   ["payment_id","Payment ID"],
-   ["telegram_id","Telegram ID"],
-   ["username","Username"],
-   ["payment_type","Payment type"],
-   ["month_key","Month"],
-   ["amount","Stars"],
-   ["currency","Currency"],
-   ["created_at","Date"]
-  ]);
+  renderPaymentRecords("paymentsList",rows,"stars");
  }catch(e){
+  el.textContent="Could not load Telegram Stars payments: "+e.message;
   showMessage(e.message);
  }
 }
@@ -773,19 +807,12 @@ async function loadPaypalPayments(){
    (String(p.currency||"").toUpperCase()==="USD" &&
     String(p.payment_id||"").startsWith("paypal_"))
   );
-  const total=rows.reduce((sum,p)=>sum+Number(p.amount||0),0);
-  document.getElementById("paypalSuccessCount").textContent=rows.length;
+  const confirmed=rows.filter(p=>String(p.status||"").toLowerCase()==="success"||
+   String(p.status||"").toLowerCase()==="completed");
+  const total=confirmed.reduce((sum,p)=>sum+Number(p.amount||0),0);
+  document.getElementById("paypalSuccessCount").textContent=confirmed.length;
   document.getElementById("paypalTotalUsd").textContent="US$"+total.toFixed(2);
-  renderList("paypalPaymentsList",rows,[
-   ["payment_id","PayPal capture ID"],
-   ["paypal_order_id","PayPal order ID"],
-   ["telegram_id","Telegram ID"],
-   ["username","Username"],
-   ["payment_type","Payment type"],
-   ["amount","Amount"],
-   ["currency","Currency"],
-   ["created_at","Confirmed date"]
-  ]);
+  renderPaymentRecords("paypalPaymentsList",rows,"paypal");
  }catch(e){
   el.textContent="Could not load PayPal transactions: "+e.message;
   showMessage(e.message);
