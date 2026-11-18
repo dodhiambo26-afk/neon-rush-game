@@ -199,8 +199,67 @@ def extend_time(hours, admin_id):
     return {"ends_at": end, "extension_hours": hours}
 
 def list_members(limit=500):
-    rows = _member_collection().order_by("paid_at", direction="ASCENDING").limit(max(1, min(2000, int(limit)))).stream()
-    return [{"id": row.id, **(row.to_dict() or {})} for row in rows]
+    rows = _member_collection().limit(max(1, min(2000, int(limit)))).stream()
+    members = [{"id": row.id, **(row.to_dict() or {})} for row in rows]
+    members.sort(key=lambda item: str(item.get("joined_at") or item.get("paid_at") or ""))
+    return members
+
+
+def grant_admin_access(uid, admin_id):
+    """Grant complimentary Mega access without counting it as a paid member."""
+    uid = str(int(uid))
+    member_ref = _member(uid)
+    now = datetime.now(timezone.utc)
+    transaction = db.db().transaction()
+
+    @firestore.transactional
+    def apply(txn):
+        existing = next(txn.get(member_ref), None)
+        if existing is not None and existing.exists:
+            return False
+        txn.set(member_ref, {
+            "telegram_id": uid,
+            "source": "admin",
+            "admin_granted": True,
+            "granted_by": str(admin_id),
+            "joined_at": now,
+            "paid_at": None,
+            "amount_kes": 0,
+            "payment_id": None,
+        })
+        return True
+
+    return apply(transaction)
+
+
+def revoke_access(uid):
+    """Remove Mega access; reduce the paid-member counter only for paid entries."""
+    uid = str(int(uid))
+    member_ref = _member(uid)
+    campaign_ref = _campaign()
+    transaction = db.db().transaction()
+
+    @firestore.transactional
+    def apply(txn):
+        member = next(txn.get(member_ref), None)
+        if member is None or not member.exists:
+            return None
+        data = member.to_dict() or {}
+        is_complimentary = (
+            data.get("source") == "admin"
+            or bool(data.get("admin_granted"))
+        )
+        campaign = next(txn.get(campaign_ref), None)
+        if not is_complimentary and campaign is not None and campaign.exists:
+            count = max(0, int((campaign.to_dict() or {}).get("confirmed_members", 0)) - 1)
+            txn.set(campaign_ref, {
+                "confirmed_members": count,
+                "updated_at": datetime.now(timezone.utc),
+            }, merge=True)
+        txn.delete(member_ref)
+        return {"complimentary": is_complimentary, "telegram_id": uid}
+
+    return apply(transaction)
 
 def _member_collection():
     return db.db().collection("mega_tournament_members")
