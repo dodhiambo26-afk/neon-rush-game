@@ -160,6 +160,20 @@ async def initiate_stk_push(telegram_id, phone, payment_type="monthly_membership
         amount = MONTHLY_MEMBERSHIP_KES
         reference = "NEONRUSH"
         description = "Monthly Membership"
+    elif payment_type in ("tournament_10k", "tournament_1k"):
+        import capacity_tournaments
+        cfg = capacity_tournaments.TOURNAMENTS[payment_type]
+        campaign = capacity_tournaments.get_status(payment_type)
+        if campaign.get("status") not in ("waiting", "active"):
+            raise ValueError("This tournament is closed.")
+        if capacity_tournaments.has_access(payment_type, telegram_id):
+            return {"already_active": True}
+        if capacity_tournaments.has_pending_payment(payment_type, telegram_id):
+            raise ValueError("You already have a pending payment for this tournament. Complete or wait for it before starting another.")
+        period_key = cfg["session_key"]
+        amount = cfg["entry_kes"]
+        reference = "NR" + cfg["slug"].upper()
+        description = cfg["name"][:30]
     elif payment_type == "mega_tournament":
         import mega_tournament
         campaign = mega_tournament.get_status()
