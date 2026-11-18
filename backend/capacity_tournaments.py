@@ -95,7 +95,14 @@ def _apply_admission(txn, kind, cfg, uid, member_ref, campaign_ref, payment_fiel
     fields = {"confirmed_members": paid, "complimentary_members": free,
               "total_members": total, "updated_at": now}
     status = cd.get("status", "waiting")
-    if status == "waiting" and total >= int(cd.get("target_members", cfg["target"])):
+    target = int(cd.get("target_members", cfg["target"]))
+    # These are fixed-capacity tournaments: do not admit a 10,001st or
+    # 1,001st player, or accept late callbacks after the tournament closes.
+    if status != "waiting" or total > target:
+        return False, "tournament_closed", status
+    if total >= target:
+        return False, "capacity_reached", status
+    if total == target - 1:
         hours = max(1, min(720, int(cd.get("duration_hours", 24))))
         fields.update({"status": "active", "started_at": now,
                        "ends_at": now + timedelta(hours=hours),
