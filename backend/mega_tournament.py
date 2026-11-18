@@ -163,6 +163,75 @@ def confirm_mpesa_payment(internal_id, payment_id, receipt, checkout_id, source)
         }
     return apply(transaction)
 
+
+def confirm_stars_payment(uid, telegram_charge_id, provider_charge_id, amount):
+    """Atomically grant Mega access for a verified 50-XTR Telegram Stars payment."""
+    uid = str(int(uid))
+    if int(amount) != 50 or not telegram_charge_id:
+        return {"processed": False, "reason": "invalid_payment"}
+    member_ref = _member(uid)
+    campaign_ref = _campaign()
+    payment_ref = db.db().collection("payments").document("stars_" + str(telegram_charge_id))
+    now = datetime.now(timezone.utc)
+    transaction = db.db().transaction()
+
+    @firestore.transactional
+    def apply(txn):
+        prior = next(txn.get(payment_ref), None)
+        member = next(txn.get(member_ref), None)
+        campaign = next(txn.get(campaign_ref), None)
+        if prior is not None and prior.exists:
+            return {"processed": False, "reason": "duplicate_payment"}
+        if member is not None and member.exists:
+            return {"processed": False, "reason": "already_member"}
+        campaign_data = campaign.to_dict() if campaign is not None and campaign.exists else {}
+        paid_count = int(campaign_data.get("confirmed_members", 0)) + 1
+        complimentary_count = int(campaign_data.get("complimentary_members", 0))
+        total_count = paid_count + complimentary_count
+        fields = {
+            "confirmed_members": paid_count,
+            "total_members": total_count,
+            "updated_at": now,
+        }
+        status = campaign_data.get("status", "waiting")
+        if status == "waiting" and total_count >= int(campaign_data.get("target_members", TARGET)):
+            duration = max(1, min(720, int(campaign_data.get("duration_hours", 24))))
+            fields.update({
+                "status": "active",
+                "started_at": now,
+                "ends_at": now + timedelta(hours=duration),
+                "started_automatically": True,
+            })
+            status = "active"
+        txn.set(campaign_ref, fields, merge=True)
+        txn.set(member_ref, {
+            "telegram_id": uid,
+            "payment_id": "stars_" + str(telegram_charge_id),
+            "telegram_payment_charge_id": str(telegram_charge_id),
+            "provider_payment_charge_id": str(provider_charge_id or ""),
+            "amount": 50,
+            "currency": "XTR",
+            "source": "telegram_stars",
+            "paid_at": now,
+            "joined_at": now,
+        })
+        txn.set(payment_ref, {
+            "payment_id": "stars_" + str(telegram_charge_id),
+            "telegram_payment_charge_id": str(telegram_charge_id),
+            "provider_payment_charge_id": str(provider_charge_id or ""),
+            "telegram_id": int(uid),
+            "amount": 50,
+            "currency": "XTR",
+            "payment_type": "mega_tournament",
+            "provider": "telegram_stars",
+            "status": "success",
+            "created_at": now,
+            "reconciliation_status": "confirmed_success",
+            "unique_member": True,
+        })
+        return {"processed": True, "success": True, "telegram_id": uid, "tournament_status": status}
+    return apply(transaction)
+
 def has_access(uid):
     return _member(uid).get().exists
 
