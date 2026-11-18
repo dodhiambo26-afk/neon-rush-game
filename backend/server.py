@@ -2526,7 +2526,7 @@ def admin_capacity_tournament(kind: str, x_telegram_init_data: str = Header(defa
 def admin_capacity_tournament_members(kind: str, x_telegram_init_data: str = Header(default="", alias="X-Telegram-Init-Data")):
     require_admin(x_telegram_init_data)
     try:
-        members = capacity_tournaments.list_members(kind, 2000)
+        members = capacity_tournaments.list_members(kind, 10000)
     except ValueError:
         raise HTTPException(status_code=404, detail="Unknown tournament.")
     result = []
