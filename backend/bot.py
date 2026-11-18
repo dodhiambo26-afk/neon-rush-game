@@ -1002,7 +1002,7 @@ async def precheckout(
         if campaign.get("status") != "waiting" or capacity_tournaments.has_access(kind, uid):
             await query.answer(ok=False, error_message="This tournament is closed or your entry is already confirmed.")
             return
-        if not capacity_tournaments.reservation_is_valid(kind, uid, reservation_id):
+        if not capacity_tournaments.refresh_reservation(kind, uid, reservation_id, ttl_minutes=10):
             await query.answer(ok=False, error_message="This Stars checkout has expired. Request a new invoice.")
             return
         await query.answer(ok=True)
