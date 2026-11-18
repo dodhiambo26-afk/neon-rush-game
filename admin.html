@@ -98,9 +98,9 @@ footer{text-align:center;color:#6f88a8;font-size:11px;padding:25px}
 <h2>Dashboard overview</h2>
 <div class="grid">
 <div class="stat"><small>Registered players</small><strong id="playersCount">—</strong></div>
-<div class="stat"><small>Weekly members</small><strong id="weeklyCount">—</strong></div>
-<div class="stat"><small>Active monthly members</small><strong id="monthlyCount">—</strong></div>
-<div class="stat"><small>Total active memberships</small><strong id="totalMembershipsCount">—</strong></div>
+<div class="stat"><small>10,000-player tournament</small><strong id="capacity10kCount">—</strong></div>
+<div class="stat"><small>1,000-player tournament</small><strong id="capacity1kCount">—</strong></div>
+<div class="stat"><small>Total 1K + 10K admitted</small><strong id="totalCapacityCount">—</strong></div>
 <div class="stat"><small>Stars collected</small><strong id="starsCount">—</strong></div>
 <div class="stat"><small>Payments</small><strong id="paymentsCount">—</strong></div>
 </div>
@@ -624,22 +624,24 @@ function renderJSON(id,data){
 
 async function loadOverview(){
  try{
-  const d=await api("/api/admin/overview");
+  const [d,t10k,t1k]=await Promise.all([
+   api("/api/admin/overview"),
+   api("/api/admin/capacity-tournaments/tournament_10k"),
+   api("/api/admin/capacity-tournaments/tournament_1k")
+  ]);
   const s=d.stats||d;
-
-  // Use current-session counts from the overview API, not lifetime totals.
-  const weekly=Number(d.weekly?.entries ?? 0);
-  const monthly=Number(d.monthly?.members ?? 0);
+  const count10k=Number(t10k.total_members||0);
+  const count1k=Number(t1k.total_members||0);
 
   document.getElementById("playersCount").textContent=s.players??"—";
-  document.getElementById("weeklyCount").textContent=weekly;
-  document.getElementById("monthlyCount").textContent=monthly;
-  document.getElementById("totalMembershipsCount").textContent=weekly+monthly;
+  document.getElementById("capacity10kCount").textContent=count10k.toLocaleString("en-KE");
+  document.getElementById("capacity1kCount").textContent=count1k.toLocaleString("en-KE");
+  document.getElementById("totalCapacityCount").textContent=(count10k+count1k).toLocaleString("en-KE");
   document.getElementById("starsCount").textContent=s.stars??"—";
   document.getElementById("paymentsCount").textContent=s.payments??"—";
 
   document.getElementById("systemInfo").textContent=
-   "Backend connected • Admin authentication active";
+   "Backend connected • 1K and 10K tournament status loaded • Admin authentication active";
 
  }catch(e){
   showMessage(e.message);
