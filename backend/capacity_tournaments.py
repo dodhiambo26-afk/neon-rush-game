@@ -89,7 +89,7 @@ def _reservation(kind, uid):
     return db.db().collection(str(kind) + "_reservations").document(str(int(uid)))
 
 
-def release_slot(kind, uid, reason="released"):
+def release_slot(kind, uid, reason="released", expected_checkout_id=None):
     """Idempotently release an unconsumed capacity hold."""
     _config(kind)
     reservation_ref, campaign_ref = _reservation(kind, uid), _campaign(kind)
@@ -104,6 +104,12 @@ def release_slot(kind, uid, reason="released"):
         rd = reservation.to_dict() or {}
         if rd.get("status") != "reserved":
             return False
+        if expected_checkout_id is not None and str(rd.get("checkout_id") or "") != str(expected_checkout_id):
+            return False
+        if reason == "expired":
+            expiry = rd.get("expires_at")
+            if not isinstance(expiry, datetime) or expiry > datetime.now(timezone.utc):
+                return False
         cd = campaign.to_dict() if campaign is not None and campaign.exists else {}
         t.update(campaign_ref, {
             "reserved_count": max(0, int(cd.get("reserved_count", 0)) - 1),
