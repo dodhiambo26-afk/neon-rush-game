@@ -47,6 +47,7 @@ def _member(kind, uid):
 
 def get_status(kind):
     cfg = _config(kind)
+    expire_stale_reservations(kind)
     ref = _campaign(kind)
     snap = ref.get()
     if not snap.exists:
@@ -180,7 +181,13 @@ def _apply_admission(txn, kind, cfg, uid, member_ref, campaign_ref, payment_fiel
         return False, "already_member", "waiting"
     cd = campaign.to_dict() if campaign is not None and campaign.exists else {}
     rd = reservation.to_dict() if reservation is not None and reservation.exists else {}
-    if source != "admin" and rd.get("status") != "reserved":
+    now = datetime.now(timezone.utc)
+    expiry = rd.get("expires_at")
+    if source != "admin" and (
+        rd.get("status") != "reserved"
+        or not isinstance(expiry, datetime)
+        or expiry <= now
+    ):
         return False, "reservation_missing_or_expired", cd.get("status", "waiting")
     reserved_count = int(cd.get("reserved_count", 0))
     if source != "admin":
