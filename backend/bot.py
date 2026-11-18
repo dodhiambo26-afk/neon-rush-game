@@ -283,9 +283,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
+    # Keep the image caption short (Telegram photo captions are limited).
+    # Send the complete tournament menu as a separate text message.
     await update.message.reply_photo(
         photo=LOGO_URL,
-        caption=main_text(user),
+        caption="🚀 NEON RUSH ARENA — RACE. COMPETE. WIN!",
+    )
+    await update.message.reply_text(
+        main_text(user),
         reply_markup=player_keyboard(user.id),
         parse_mode="HTML",
     )
