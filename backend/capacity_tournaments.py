@@ -116,9 +116,10 @@ def release_slot(kind, uid, reason="released"):
 def reserve_slot(kind, uid, provider, checkout_id=None, ttl_minutes=30):
     """Atomically hold one place before creating a provider checkout."""
     cfg = _config(kind)
+    expire_stale_reservations(kind)
     get_status(kind)
     uid = str(int(uid))
-    reservation_ref, campaign_ref = _reservation(kind, uid), _campaign(kind)
+    reservation_ref, campaign_ref = _reservation(kind, uid)
     now = datetime.now(timezone.utc)
     expires = now + timedelta(minutes=max(5, min(60, int(ttl_minutes))))
     txn = db.db().transaction()
