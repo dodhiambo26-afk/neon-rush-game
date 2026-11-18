@@ -314,6 +314,13 @@ These actions do not charge Telegram Stars.
 <p>The tournament starts automatically when 100,000 unique KSh 35 M-Pesa payments are confirmed. Pending, failed, duplicate and complimentary entries do not count. Players may continue joining while the tournament is active. There is no manual start button.</p>
 </div>
 <div id="megaTournamentStatus" class="panel">Loading Mega Tournament status...</div>
+<h3>Manually add a player</h3>
+<p class="muted">Enter the player's Telegram ID. This grants complimentary access and does not count as a paid KSh 35 entry or increase the 100,000 paid-member launch counter.</p>
+<input id="megaGrantPlayerId" type="number" min="1" step="1" placeholder="Player Telegram ID">
+<button class="action" onclick="grantMegaMember()">Grant Mega Tournament access</button>
+<h3>Mega Tournament members</h3>
+<button class="action" onclick="loadMegaMembers()">Refresh member list</button>
+<div id="megaMembersList" class="panel">Loading Mega Tournament members...</div>
 <h3>Set tournament duration before automatic launch</h3>
 <label for="megaDurationHours">Tournament duration (hours)</label>
 <input id="megaDurationHours" type="number" min="1" max="720" value="24">
@@ -1048,9 +1055,10 @@ async function loadMegaTournament(){
  const el=document.getElementById("megaTournamentStatus");
  el.textContent="Loading Mega Tournament...";
  try{
-  const [d,ranking]=await Promise.all([
+  const [d,ranking,membersData]=await Promise.all([
    api("/api/admin/mega-tournament"),
-   api("/api/admin/mega-tournament/leaderboard")
+   api("/api/admin/mega-tournament/leaderboard"),
+   api("/api/admin/mega-tournament/members")
   ]);
   const prizes=(d.prizes||[]).map(p=>"<div class='item'><strong>Position "+escapeHTML(p.position)+": KSh "+Number(p.amount_kes).toLocaleString("en-KE")+"</strong></div>").join("");
   const started=d.started_at?new Date(d.started_at).toLocaleString("en-KE",{timeZone:"Africa/Nairobi"}):"Not started";
@@ -1058,10 +1066,57 @@ async function loadMegaTournament(){
   const winners=(ranking.top_five||[]).map(w=>"<div class='item'><strong>#"+escapeHTML(w.position)+" — KSh "+Number(w.prize_kes).toLocaleString("en-KE")+"</strong><br>Player: "+escapeHTML(w.username||w.telegram_id)+" (ID "+escapeHTML(w.telegram_id)+")<br>Verified score: "+escapeHTML(w.score)+"<br>Award: pending manual review</div>").join("");
   el.innerHTML="<strong>Status: "+escapeHTML(String(d.status||"waiting").toUpperCase())+"</strong><br>Confirmed paid members: "+Number(d.confirmed_members||0).toLocaleString("en-KE")+" / 100,000<br>Remaining to launch: "+Number(d.remaining_members||0).toLocaleString("en-KE")+"<br>Entry price: KSh 35<br>Configured duration: "+escapeHTML(d.duration_hours||24)+" hours<br>Started: "+escapeHTML(started)+"<br>Ends: "+escapeHTML(ends)+"<br><br><strong>Fixed cash prizes (total KSh 1,450,000)</strong>"+prizes+"<h3>Current top five</h3>"+(winners||"No Mega Tournament scores have been submitted yet.")+"<div class='notice'>Awards are not paid automatically. Confirm final standings and Safaricom B2C approval before paying winners.</div>";
   if(d.duration_hours) document.getElementById("megaDurationHours").value=d.duration_hours;
+  renderMegaMembers(membersData.members||[]);
  }catch(e){
   el.textContent="Could not load Mega Tournament: "+e.message;
  }
 }
+function renderMegaMembers(members){
+ const el=document.getElementById("megaMembersList");
+ if(!members.length){el.textContent="No Mega Tournament members found.";return;}
+ el.innerHTML=members.map(m=>{
+  const uid=Number(m.telegram_id);
+  const safeId=Number.isSafeInteger(uid)&&uid>0?uid:0;
+  return "<div class='item'><strong>"+escapeHTML(m.username?"@"+m.username:(m.first_name||"Player"))+"</strong><br>"+
+   "Telegram ID: "+escapeHTML(m.telegram_id)+"<br>"+
+   "Membership: "+escapeHTML(m.membership_type||"Paid")+"<br>"+
+   "Joined: "+escapeHTML(m.joined_at||m.paid_at||"Not recorded")+"<br>"+
+   (safeId?"<button class='action danger' onclick='revokeMegaMember("+safeId+")'>Revoke access</button>":"")+
+   "</div>";
+ }).join("");
+}
+
+async function loadMegaMembers(){
+ const el=document.getElementById("megaMembersList");
+ el.textContent="Loading Mega Tournament members...";
+ try{
+  const d=await api("/api/admin/mega-tournament/members");
+  renderMegaMembers(d.members||[]);
+ }catch(e){el.textContent="Could not load members: "+e.message;showMessage(e.message);}
+}
+
+async function grantMegaMember(){
+ const uid=Number(document.getElementById("megaGrantPlayerId").value);
+ if(!Number.isSafeInteger(uid)||uid<=0)return showMessage("Enter a valid Telegram ID.");
+ if(!confirm("Grant complimentary Mega Tournament access to Telegram ID "+uid+"? This will not count as a paid entry."))return;
+ try{
+  const d=await api("/api/admin/mega-tournament/members/grant","POST",{telegram_id:uid});
+  showMessage(d.message||"Mega Tournament access granted.");
+  document.getElementById("megaGrantPlayerId").value="";
+  await loadMegaTournament();
+ }catch(e){showMessage("Could not grant access: "+e.message);}
+}
+
+async function revokeMegaMember(uid){
+ if(!Number.isSafeInteger(Number(uid))||Number(uid)<=0)return showMessage("Invalid Telegram ID.");
+ if(!confirm("Revoke Mega Tournament access for Telegram ID "+uid+"? The payment record will be retained."))return;
+ try{
+  const d=await api("/api/admin/mega-tournament/members/revoke","POST",{telegram_id:Number(uid)});
+  showMessage(d.message||"Mega Tournament access revoked.");
+  await loadMegaTournament();
+ }catch(e){showMessage("Could not revoke access: "+e.message);}
+}
+
 async function saveMegaDuration(){
  const hours=Number(document.getElementById("megaDurationHours").value);
  if(!Number.isInteger(hours)||hours<1||hours>720)return showMessage("Enter a duration from 1 to 720 hours.");

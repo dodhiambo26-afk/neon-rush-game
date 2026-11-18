@@ -2456,6 +2456,75 @@ def admin_mega_tournament(
     })
 
 
+@app.get("/api/admin/mega-tournament/members")
+def admin_mega_tournament_members(
+    x_telegram_init_data: str = Header(default="", alias="X-Telegram-Init-Data"),
+):
+    require_admin(x_telegram_init_data)
+    members = mega_tournament.list_members(2000)
+    result = []
+    for member in members:
+        uid = member.get("telegram_id") or member.get("id")
+        player = db.get_user(uid) or {}
+        result.append({
+            **member,
+            "telegram_id": str(uid),
+            "username": player.get("username") or "",
+            "first_name": player.get("first_name") or "",
+            "membership_source": member.get("source") or "legacy_paid",
+            "membership_type": "Complimentary (admin)" if (
+                member.get("source") == "admin" or member.get("admin_granted")
+            ) else "Paid",
+        })
+    return json_safe({"members": result, "count": len(result)})
+
+
+@app.post("/api/admin/mega-tournament/members/grant")
+def admin_grant_mega_member(
+    action: AdminPlayerAction,
+    x_telegram_init_data: str = Header(default="", alias="X-Telegram-Init-Data"),
+):
+    admin = require_admin(x_telegram_init_data)
+    uid = int(action.telegram_id)
+    if not db.get_user(uid):
+        raise HTTPException(
+            status_code=404,
+            detail="Player not found. Ask the player to open the game first.",
+        )
+    if not mega_tournament.grant_admin_access(uid, admin["id"]):
+        raise HTTPException(status_code=409, detail="This player already has Mega Tournament access.")
+    record_admin_action(
+        admin["id"], "GRANT_MEGA_TOURNAMENT_ACCESS", uid,
+        "Complimentary Mega Tournament access; excluded from paid-member launch count.",
+    )
+    return {
+        "success": True,
+        "message": "Complimentary Mega Tournament access granted. This does not count as a paid entry.",
+        "telegram_id": uid,
+    }
+
+
+@app.post("/api/admin/mega-tournament/members/revoke")
+def admin_revoke_mega_member(
+    action: AdminPlayerAction,
+    x_telegram_init_data: str = Header(default="", alias="X-Telegram-Init-Data"),
+):
+    admin = require_admin(x_telegram_init_data)
+    uid = int(action.telegram_id)
+    removed = mega_tournament.revoke_access(uid)
+    if not removed:
+        raise HTTPException(status_code=404, detail="This player has no Mega Tournament access.")
+    record_admin_action(
+        admin["id"], "REVOKE_MEGA_TOURNAMENT_ACCESS", uid,
+        "Removed Mega Tournament access; payment history retained.",
+    )
+    return {
+        "success": True,
+        "message": "Mega Tournament access revoked. Payment history was not deleted.",
+        **removed,
+    }
+
+
 @app.post("/api/admin/mega-tournament/duration")
 def admin_set_mega_duration(
     action: MegaTournamentDurationAction,
