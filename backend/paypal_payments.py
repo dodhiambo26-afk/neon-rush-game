@@ -68,6 +68,16 @@ async def capture_and_grant(order_id):
     if not snap.exists: raise ValueError("This PayPal order is not recognized.")
     p=snap.to_dict() or {}
     if p.get("status")=="completed": return {"success":True,"already_processed":True}
+    kind = p.get("payment_type")
+    if kind in ("tournament_10k", "tournament_1k"):
+        if not capacity_tournaments.reservation_is_valid(kind, p.get("telegram_id")):
+            ref.update({
+                "status": "expired",
+                "review_reason": "PayPal checkout reservation expired before capture; no capture was attempted.",
+                "expired_at": datetime.now(timezone.utc),
+            })
+            capacity_tournaments.release_slot(kind, p.get("telegram_id"), "expired")
+            raise ValueError("This PayPal checkout has expired and was not captured. Please request a fresh tournament checkout.")
     async with httpx.AsyncClient(timeout=25) as client:
         token=await access_token(client)
         r=await client.post(base_url()+f"/v2/checkout/orders/{order_id}/capture",json={},headers={"Authorization":"Bearer "+token})
