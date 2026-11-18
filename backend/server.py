@@ -866,6 +866,8 @@ def telegram_auth(
         "mega_tournament": {
             "status": mega_campaign.get("status", "waiting"),
             "confirmed_members": int(mega_campaign.get("confirmed_members", 0)),
+            "complimentary_members": int(mega_campaign.get("complimentary_members", 0)),
+            "total_members": int(mega_campaign.get("total_members", int(mega_campaign.get("confirmed_members", 0)) + int(mega_campaign.get("complimentary_members", 0)))),
             "target_members": mega_tournament.TARGET,
             "entry_price_kes": mega_tournament.ENTRY_KES,
             "started_at": mega_campaign.get("started_at"),
@@ -1259,6 +1261,8 @@ def tournament_status(
             "has_access": mega_tournament.has_access(uid),
             "status": mega_campaign.get("status", "waiting"),
             "confirmed_members": int(mega_campaign.get("confirmed_members", 0)),
+            "complimentary_members": int(mega_campaign.get("complimentary_members", 0)),
+            "total_members": int(mega_campaign.get("total_members", int(mega_campaign.get("confirmed_members", 0)) + int(mega_campaign.get("complimentary_members", 0)))),
             "target_members": mega_tournament.TARGET,
             "entry_price_kes": mega_tournament.ENTRY_KES,
             "started_at": mega_campaign.get("started_at"),
@@ -2450,7 +2454,7 @@ def admin_mega_tournament(
         "target_members": mega_tournament.TARGET,
         "entry_price_kes": mega_tournament.ENTRY_KES,
         "prizes": mega_tournament.PRIZES,
-        "remaining_members": max(0, mega_tournament.TARGET - int(status.get("confirmed_members", 0))),
+        "remaining_members": max(0, mega_tournament.TARGET - int(status.get("total_members", status.get("confirmed_members", 0)))),
         "automatic_start": True,
         "manual_start_enabled": False,
     })
@@ -2495,11 +2499,11 @@ def admin_grant_mega_member(
         raise HTTPException(status_code=409, detail="This player already has Mega Tournament access.")
     record_admin_action(
         admin["id"], "GRANT_MEGA_TOURNAMENT_ACCESS", uid,
-        "Complimentary Mega Tournament access; excluded from paid-member launch count.",
+        "Complimentary Mega Tournament access; included in total-member launch count but excluded from paid revenue.",
     )
     return {
         "success": True,
-        "message": "Complimentary Mega Tournament access granted. This does not count as a paid entry.",
+        "message": "Complimentary access granted and counted toward the 100,000 total-player launch target. No payment was collected.",
         "telegram_id": uid,
     }
 
