@@ -196,11 +196,10 @@ def reserve_slot(kind, uid, provider, checkout_id=None, ttl_minutes=30):
             reserved = max(0, int(cd.get("reserved_count", 0)) - 1)
         else:
             reserved = int(cd.get("reserved_count", 0))
-        if cd.get("status", "waiting") != "waiting":
-            return False, "This tournament is full or closed."
-        admitted = int(cd.get("confirmed_members", 0)) + int(cd.get("complimentary_members", 0))
-        if admitted + reserved >= int(cd.get("target_members", cfg["target"])):
-            return False, "All tournament places are currently taken or reserved."
+        if cd.get("status", "waiting") == "finished":
+            return False, "This tournament has finished and is closed to new entries."
+        # The target is a launch threshold, not a hard capacity. Once active,
+        # accept additional entries until the scheduled end time.
         t.set(campaign_ref, {"reserved_count": reserved + 1, "updated_at": now}, merge=True)
         t.set(reservation_ref, {
             "telegram_id": uid, "provider": str(provider),
@@ -272,15 +271,13 @@ def _apply_admission(txn, kind, cfg, uid, member_ref, campaign_ref, payment_fiel
               "total_members": total, "reserved_count": reserved_count, "updated_at": now}
     status = cd.get("status", "waiting")
     target = int(cd.get("target_members", cfg["target"]))
-    # These are fixed-capacity tournaments: do not admit a 10,001st or
-    # 1,001st player, or accept late callbacks after the tournament closes.
-    if status != "waiting":
+    # The configured target is the automatic-start threshold, not a maximum.
+    # Continue accepting paid/admin entries while active; close only at end.
+    if status == "finished":
+        return False, "tournament_finished", status
+    if status not in ("waiting", "active"):
         return False, "tournament_closed", status
-    # Admin complimentary grants must not consume places already held
-    # by players who are in a live provider checkout.
-    if total + reserved_count > target:
-        return False, "capacity_reached_reserved_slots", status
-    if total == target:
+    if status == "waiting" and total >= target:
         hours = max(1, min(720, int(cd.get("duration_hours", 24))))
         fields.update({"status": "active", "started_at": now,
                        "ends_at": now + timedelta(hours=hours),
