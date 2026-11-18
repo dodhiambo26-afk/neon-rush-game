@@ -80,8 +80,9 @@ footer{text-align:center;color:#6f88a8;font-size:11px;padding:25px}
 <button data-page="monthlyMembers">Monthly members</button>
 <button data-page="leaderboard">Leaderboard</button>
 <button data-page="grant">Add player</button>
-<button data-page="payments">Stars payments</button>
+<button data-page="payments">Telegram Stars payments</button>
 <button data-page="mpesa">M-Pesa payments</button>
+<button data-page="paypal">PayPal payments</button>
 <button data-page="prizes">Prizes &amp; payouts</button>
 <button data-page="performance">Performance</button>
 <button data-page="banned">Moderation</button>
@@ -235,6 +236,17 @@ These actions do not charge Telegram Stars.
 <h2>Telegram Stars payments</h2>
 <button class="action" onclick="loadPayments()">Refresh payment records</button>
 <div id="paymentsList" class="panel">Loading payments...</div>
+</section>
+
+<section id="paypal">
+<h2>PayPal payment monitoring</h2>
+<div class="notice">Read-only PayPal transaction records. Only server-recorded, confirmed PayPal captures appear here. This panel does not create refunds, charges or access grants.</div>
+<button class="action" onclick="loadPaypalPayments()">Refresh PayPal transactions</button>
+<div class="grid">
+ <div class="stat"><small>Confirmed PayPal payments</small><strong id="paypalSuccessCount">—</strong></div>
+ <div class="stat"><small>Total USD recorded</small><strong id="paypalTotalUsd">—</strong></div>
+</div>
+<div id="paypalPaymentsList" class="panel">Loading PayPal transactions...</div>
 </section>
 
 <section id="mpesa">
@@ -524,6 +536,7 @@ document.querySelectorAll("nav button").forEach(button=>{
    leaderboard:loadLeaderboard,
    payments:loadPayments,
    mpesa:loadMpesaPayments,
+    paypal:loadPaypalPayments,
    performance:loadPerformance,
    banned:loadBanned,
    tournament:loadTournament,
@@ -730,8 +743,12 @@ async function loadMonthlyMembers(){
 async function loadPayments(){
  try{
   const d=await api("/api/admin/payments");
+  const rows=(d.payments||[]).filter(p=>
+   String(p.currency||"").toUpperCase()==="XTR" ||
+   String(p.provider||"").toLowerCase()==="telegram_stars"
+  );
 
-  renderList("paymentsList",d.payments,[
+  renderList("paymentsList",rows,[
    ["payment_id","Payment ID"],
    ["telegram_id","Telegram ID"],
    ["username","Username"],
@@ -741,8 +758,36 @@ async function loadPayments(){
    ["currency","Currency"],
    ["created_at","Date"]
   ]);
-
  }catch(e){
+  showMessage(e.message);
+ }
+}
+
+async function loadPaypalPayments(){
+ const el=document.getElementById("paypalPaymentsList");
+ el.textContent="Loading PayPal transactions...";
+ try{
+  const d=await api("/api/admin/payments");
+  const rows=(d.payments||[]).filter(p=>
+   String(p.provider||"").toLowerCase()==="paypal" ||
+   (String(p.currency||"").toUpperCase()==="USD" &&
+    String(p.payment_id||"").startsWith("paypal_"))
+  );
+  const total=rows.reduce((sum,p)=>sum+Number(p.amount||0),0);
+  document.getElementById("paypalSuccessCount").textContent=rows.length;
+  document.getElementById("paypalTotalUsd").textContent="US$"+total.toFixed(2);
+  renderList("paypalPaymentsList",rows,[
+   ["payment_id","PayPal capture ID"],
+   ["paypal_order_id","PayPal order ID"],
+   ["telegram_id","Telegram ID"],
+   ["username","Username"],
+   ["payment_type","Payment type"],
+   ["amount","Amount"],
+   ["currency","Currency"],
+   ["created_at","Confirmed date"]
+  ]);
+ }catch(e){
+  el.textContent="Could not load PayPal transactions: "+e.message;
   showMessage(e.message);
  }
 }
