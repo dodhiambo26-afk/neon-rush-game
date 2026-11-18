@@ -64,6 +64,9 @@ class CapacityReservationSafetyTests(unittest.TestCase):
         self.assertIn('"consumed"', source)
         self.assertIn("expected_checkout_id is not None", source)
         self.assertIn('if reason == "expired":', source)
+        self.assertIn('if data.get("provider") == "mpesa":', source)
+        self.assertIn('if rd.get("provider") == "mpesa":', source)
+        self.assertIn("reservation_expired = False", source)
 
     def test_paid_admission_requires_a_live_reservation(self):
         source = self._source("capacity_tournaments.py")
