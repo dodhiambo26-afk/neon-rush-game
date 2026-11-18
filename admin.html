@@ -316,6 +316,12 @@ These actions do not charge Telegram Stars.
 <button class="action" onclick="grantCapacityMember('tournament_10k')">Grant complimentary 10K entry</button>
 <button class="action" onclick="loadCapacityTournament('tournament_10k')">Refresh 10K details and members</button>
 <div id="capacityMembers10k"></div>
+<h4>Resolve a stale M-Pesa reservation (admin only)</h4>
+<label>Player Telegram ID</label><input id="reservationPlayer10k" type="number" min="1" placeholder="Telegram ID">
+<label>Pending transaction ID (internal)</label><input id="reservationTxn10k" type="text" placeholder="Transaction ID">
+<label>Reason for release</label><input id="reservationReason10k" type="text" placeholder="e.g. Daraja confirmed failed / stale hold" maxlength="500">
+<button class="action danger" onclick="releaseCapacityReservation('tournament_10k')">Release reservation</button>
+<div class="notice">This only frees the held tournament slot. It does not refund or cancel a payment. Confirm transaction status first.</div>
 </div>
 <div class="panel">
 <h3>1,000-player tournament</h3>
@@ -325,6 +331,12 @@ These actions do not charge Telegram Stars.
 <button class="action" onclick="grantCapacityMember('tournament_1k')">Grant complimentary 1K entry</button>
 <button class="action" onclick="loadCapacityTournament('tournament_1k')">Refresh 1K details and members</button>
 <div id="capacityMembers1k"></div>
+<h4>Resolve a stale M-Pesa reservation (admin only)</h4>
+<label>Player Telegram ID</label><input id="reservationPlayer1k" type="number" min="1" placeholder="Telegram ID">
+<label>Pending transaction ID (internal)</label><input id="reservationTxn1k" type="text" placeholder="Transaction ID">
+<label>Reason for release</label><input id="reservationReason1k" type="text" placeholder="e.g. Daraja confirmed failed / stale hold" maxlength="500">
+<button class="action danger" onclick="releaseCapacityReservation('tournament_1k')">Release reservation</button>
+<div class="notice">This only frees the held tournament slot. It does not refund or cancel a payment. Confirm transaction status first.</div>
 </div>
 </section>
 
@@ -1124,6 +1136,21 @@ async function revokeCapacityMember(kind,uid){
   showMessage(d.message||"Entry revoked.");
   await loadCapacityTournament(kind);
  }catch(e){showMessage("Could not revoke entry: "+e.message);}
+}
+
+async function releaseCapacityReservation(kind){
+ const suffix=kind==="tournament_10k"?"10k":"1k";
+ const uid=Number(document.getElementById("reservationPlayer"+suffix).value);
+ const txn=document.getElementById("reservationTxn"+suffix).value.trim();
+ const reason=document.getElementById("reservationReason"+suffix).value.trim();
+ if(!Number.isSafeInteger(uid)||uid<=0||!txn||reason.length<5)return showMessage("Enter the player ID, pending transaction ID, and a reason (at least 5 characters).");
+ if(!confirm("Release this exact M-Pesa reservation? This does NOT cancel/refund a payment. Verify the transaction first."))return;
+ try{
+  const d=await api("/api/admin/capacity-tournaments/"+kind+"/reservations/release","POST",{telegram_id:uid,pending_transaction_id:txn,reason});
+  showMessage(d.message||"Reservation released.");
+  document.getElementById("reservationTxn"+suffix).value="";
+  await loadCapacityTournament(kind);
+ }catch(e){showMessage("Could not release reservation: "+e.message);}
 }
 
 async function loadMegaTournament(){
