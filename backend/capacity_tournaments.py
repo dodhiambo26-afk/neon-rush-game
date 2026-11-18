@@ -360,6 +360,8 @@ def leaderboard(kind, limit=100):
             or str(item.get("session_key")) != cfg["session_key"]
             or item.get("verification_status") != "server_replayed"
             or db.is_banned(uid)
+            # Revoked/non-admitted players must never rank for prizes.
+            or not has_access(kind, uid)
         ):
             continue
         try:
