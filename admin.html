@@ -312,6 +312,12 @@ These actions do not charge Telegram Stars.
 <div class="panel">
 <h3>10,000-player tournament</h3>
 <div id="capacityStatus10k">Loading...</div>
+<label>Initial running period (hours, 1–720; set before launch)</label>
+<input id="capacityDuration10k" type="number" min="1" max="720" value="24">
+<button class="action" onclick="setCapacityDuration('tournament_10k')">Save 10K running period</button>
+<label>Extend active tournament by (hours, 1–720)</label>
+<input id="capacityExtend10k" type="number" min="1" max="720" value="24">
+<button class="action" onclick="extendCapacityDuration('tournament_10k')">Extend active 10K tournament</button>
 <label>Player Telegram ID</label>
 <input id="capacityGrant10k" type="number" min="1" placeholder="Telegram ID">
 <button class="action" onclick="grantCapacityMember('tournament_10k')">Grant complimentary 10K entry</button>
@@ -327,6 +333,12 @@ These actions do not charge Telegram Stars.
 <div class="panel">
 <h3>1,000-player tournament</h3>
 <div id="capacityStatus1k">Loading...</div>
+<label>Initial running period (hours, 1–720; set before launch)</label>
+<input id="capacityDuration1k" type="number" min="1" max="720" value="24">
+<button class="action" onclick="setCapacityDuration('tournament_1k')">Save 1K running period</button>
+<label>Extend active tournament by (hours, 1–720)</label>
+<input id="capacityExtend1k" type="number" min="1" max="720" value="24">
+<button class="action" onclick="extendCapacityDuration('tournament_1k')">Extend active 1K tournament</button>
 <label>Player Telegram ID</label>
 <input id="capacityGrant1k" type="number" min="1" placeholder="Telegram ID">
 <button class="action" onclick="grantCapacityMember('tournament_1k')">Grant complimentary 1K entry</button>
@@ -1112,7 +1124,10 @@ async function loadCapacityTournament(kind){
   ]);
   const prizes=(d.prizes||[]).map(p=>"<div class='item'>"+escapeHTML(p.position)+". KSh "+Number(p.amount_kes).toLocaleString("en-KE")+"</div>").join("");
   const winners=(ranking.top_five||[]).map(w=>"<div class='item'><strong>#"+escapeHTML(w.position)+" — KSh "+Number(w.prize_kes).toLocaleString("en-KE")+"</strong><br>"+escapeHTML(w.username||w.telegram_id)+" (ID "+escapeHTML(w.telegram_id)+")<br>Score: "+escapeHTML(w.score)+" · Award: pending manual review</div>").join("");
-  statusEl.innerHTML="<strong>Status: "+escapeHTML(String(d.status||"waiting").toUpperCase())+"</strong><br>Admitted: "+Number(d.total_members||0).toLocaleString("en-KE")+" / "+Number(d.target_members).toLocaleString("en-KE")+"<br>Paid: "+Number(d.confirmed_members||0).toLocaleString("en-KE")+"<br>Complimentary: "+Number(d.complimentary_members||0).toLocaleString("en-KE")+"<br>Remaining: "+Number(d.remaining_members||0).toLocaleString("en-KE")+"<br>Entry: KSh 50 · US$0.80 · 50 Stars<h3>Top-five prizes</h3>"+prizes+"<h3>Current top five</h3>"+(winners||"No verified tournament scores yet.");
+  const endTime=d.ends_at?new Date(d.ends_at).toLocaleString("en-KE",{timeZone:"Africa/Nairobi"}):"Not started";
+  statusEl.innerHTML="<strong>Status: "+escapeHTML(String(d.status||"waiting").toUpperCase())+"</strong><br>Admitted: "+Number(d.total_members||0).toLocaleString("en-KE")+" / "+Number(d.target_members).toLocaleString("en-KE")+" launch threshold<br>Paid: "+Number(d.confirmed_members||0).toLocaleString("en-KE")+"<br>Complimentary: "+Number(d.complimentary_members||0).toLocaleString("en-KE")+"<br>Remaining to launch: "+Number(d.remaining_members||0).toLocaleString("en-KE")+"<br>Entry: KSh 50 · US$0.80 · 50 Stars<br>Running period: "+Number(d.duration_hours||24)+" hours<br>Scheduled end: "+escapeHTML(endTime)+"<h3>Top-five prizes</h3>"+prizes+"<h3>Current top five</h3>"+(winners||"No verified tournament scores yet.");
+  const durationInput=document.getElementById("capacityDuration"+suffix);
+  if(durationInput)durationInput.value=d.duration_hours||24;
   renderCapacityMembers(kind,members.members||[]);
  }catch(e){statusEl.textContent="Could not load: "+e.message;membersEl.textContent="Could not load members.";showMessage(e.message);}
 }
@@ -1124,6 +1139,29 @@ function renderCapacityMembers(kind,members){
   const uid=Number(m.telegram_id);
   return "<div class='item'><strong>"+escapeHTML(m.username?"@"+m.username:(m.first_name||"Player"))+"</strong><br>ID: "+escapeHTML(m.telegram_id)+"<br>Type: "+escapeHTML(m.membership_type||"Paid")+"<br><button class='action danger' onclick='revokeCapacityMember("+JSON.stringify(kind)+","+uid+")'>Revoke access</button></div>";
  }).join("");
+}
+
+async function setCapacityDuration(kind){
+ const suffix=kind==="tournament_10k"?"10k":"1k";
+ const hours=Number(document.getElementById("capacityDuration"+suffix).value);
+ if(!Number.isInteger(hours)||hours<1||hours>720)return showMessage("Enter a running period from 1 to 720 hours.");
+ if(!confirm("Set this tournament's initial running period to "+hours+" hours? This can only be changed before it starts."))return;
+ try{
+  const d=await api("/api/admin/capacity-tournaments/"+kind+"/duration","POST",{hours});
+  showMessage("Initial running period saved: "+hours+" hours.");
+  await loadCapacityTournament(kind);
+ }catch(e){showMessage("Could not save running period: "+e.message);}
+}
+async function extendCapacityDuration(kind){
+ const suffix=kind==="tournament_10k"?"10k":"1k";
+ const hours=Number(document.getElementById("capacityExtend"+suffix).value);
+ if(!Number.isInteger(hours)||hours<1||hours>720)return showMessage("Enter an extension from 1 to 720 hours.");
+ if(!confirm("Add "+hours+" hours to this active tournament's scheduled end time?"))return;
+ try{
+  const d=await api("/api/admin/capacity-tournaments/"+kind+"/extend","POST",{hours});
+  showMessage("Tournament extended by "+hours+" hours.");
+  await loadCapacityTournament(kind);
+ }catch(e){showMessage("Could not extend tournament: "+e.message);}
 }
 async function grantCapacityMember(kind){
  const suffix=kind==="tournament_10k"?"10k":"1k";
