@@ -67,7 +67,9 @@ class CapacityReservationSafetyTests(unittest.TestCase):
         source = self._source("capacity_tournaments.py")
         self.assertIn('"reservation_missing_or_expired"', source)
         self.assertIn("expiry <= now", source)
+        self.assertIn("expected_checkout_id", source)
         self.assertIn("total + reserved_count > target", source)
+        self.assertIn("expected_checkout_id is not None", source)
 
     def test_all_three_payment_paths_reserve_capacity(self):
         self.assertIn('reserve_slot(payment_type, telegram_id, "mpesa"', self._source("mpesa.py"))
