@@ -147,10 +147,10 @@ def player_keyboard(uid):
             )
         ],
         [
-            InlineKeyboardButton("🏆 WEEKLY TOURNAMENT — KSh 25", callback_data="weekly_info")
+            InlineKeyboardButton("🏆 10,000-PLAYER TOURNAMENT — KSh 50", callback_data="capacity_info_tournament_10k")
         ],
         [
-            InlineKeyboardButton("🌟 MONTHLY TOURNAMENT — KSh 200", callback_data="monthly_join")
+            InlineKeyboardButton("🏆 1,000-PLAYER TOURNAMENT — KSh 50", callback_data="capacity_info_tournament_1k")
         ],
         [
             InlineKeyboardButton(
@@ -159,8 +159,8 @@ def player_keyboard(uid):
             )
         ],
         [
-            InlineKeyboardButton("📊 WEEKLY LEADERBOARD", callback_data="weekly_leaderboard"),
-            InlineKeyboardButton("📊 MONTHLY LEADERBOARD", callback_data="monthly_leaderboard")
+            InlineKeyboardButton("📊 10K LEADERBOARD", callback_data="capacity_leaderboard_tournament_10k"),
+            InlineKeyboardButton("📊 1K LEADERBOARD", callback_data="capacity_leaderboard_tournament_1k")
         ],
         [
             InlineKeyboardButton(
@@ -213,31 +213,24 @@ def main_text(user):
     name = html.escape(user.first_name or "Player")
 
     return (
-        f"🚀 Welcome to NEON RUSH ARENA, {name}!\n\n"
-        "Choose your game mode:\n\n"
-        "🎮 FREE DAILY GAME\n"
-        "Play free every day.\n\n"
-        "🏆 WEEKLY TOURNAMENT\n"
-        "Entry: KES 25 by M-Pesa or 50 Telegram Stars.\n"
-        "Weekly session: Sunday 6 PM to Sunday 6 PM "
-        "(Kenya time).\n"
-        "\n<b>━━━━━━━━━━━━━━━━━━━━</b>\n"
-        "🏆 <b>TOP 5 PLAYERS WIN REWARDS!</b> 🏆\n"
-        "<b>In EVERY weekly tournament.</b>\n"
-        "<b>━━━━━━━━━━━━━━━━━━━━</b>\n\n"
-        "🌟 MONTHLY TOURNAMENT\n"
-        "Membership: KSh 200 by M-Pesa or 300 Telegram Stars.\n\n"
-        "🏆 100K MEGA TOURNAMENT\n"
-        "Entry: KSh 35 by M-Pesa. Starts automatically at 100,000 confirmed paid members.\n"
-        "\n<b>━━━━━━━━━━━━━━━━━━━━</b>\n"
-        "🏆 <b>TOP 5 PLAYERS WIN REWARDS!</b> 🏆\n"
-        "<b>In EVERY monthly tournament.</b>\n"
-        "<b>━━━━━━━━━━━━━━━━━━━━</b>\n"
-        "<i>Final standings are reviewed before awards are confirmed. Cash payouts are handled separately and are not automatic.</i>\n\n"
-        "Use /alerts or the notification settings button to control your alerts.\n\n"
+        f"🚀 Welcome to NEON RUSH ARENA, {name}!\\n\\n"
+        "Choose your game mode:\\n\\n"
+        "🎮 FREE DAILY GAME\\n"
+        "Play free every day.\\n\\n"
+        "🏆 10,000-PLAYER TOURNAMENT\\n"
+        "Entry: KSh 50 by M-Pesa, US$0.80 by PayPal, or 50 Telegram Stars.\\n"
+        "Opens automatically when 10,000 players are admitted.\\n"
+        "Top five prizes: KSh 100,000 • 50,000 • 30,000 • 20,000 • 15,000.\\n\\n"
+        "🏆 1,000-PLAYER TOURNAMENT\\n"
+        "Entry: KSh 50 by M-Pesa, US$0.80 by PayPal, or 50 Telegram Stars.\\n"
+        "Opens automatically when 1,000 players are admitted.\\n"
+        "Top five prizes: KSh 10,000 • 5,000 • 3,000 • 2,000 • 1,500.\\n\\n"
+        "🏆 100K MEGA TOURNAMENT\\n"
+        "Entry: KSh 35 by M-Pesa.\\n\\n"
+        "<i>Paid and complimentary entries count toward capacity. Complimentary players are prize eligible. Final standings are reviewed before awards are confirmed; cash payouts are handled separately and are not automatic.</i>\\n\\n"
+        "Use /alerts or the notification settings button to control your alerts.\\n\\n"
         "Good luck, Racer!"
     )
-
 
 # ============================================================
 # START
