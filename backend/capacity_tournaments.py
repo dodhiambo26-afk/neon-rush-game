@@ -159,9 +159,11 @@ def reserve_slot(kind, uid, provider, checkout_id=None, ttl_minutes=30):
         cd = campaign.to_dict() if campaign is not None and campaign.exists else {}
         if rd.get("status") == "reserved":
             old_expiry = rd.get("expires_at")
+            if rd.get("provider") == "mpesa":
+                return False, "Your M-Pesa request is still awaiting a final Safaricom result. Do not start another payment; contact support if it remains pending."
             if isinstance(old_expiry, datetime) and old_expiry > now:
                 return False, "You already have a payment checkout in progress. Complete it or wait for it to expire."
-            # Expired hold is reclaimed in the same atomic campaign update.
+            # Expired PayPal/Stars hold is reclaimed in the same atomic campaign update.
             reserved = max(0, int(cd.get("reserved_count", 0)) - 1)
         else:
             reserved = int(cd.get("reserved_count", 0))
@@ -216,10 +218,14 @@ def _apply_admission(txn, kind, cfg, uid, member_ref, campaign_ref, payment_fiel
     now = datetime.now(timezone.utc)
     expiry = rd.get("expires_at")
     expected_checkout_id = payment_fields.get("reservation_checkout_id")
+    reservation_expired = (
+        not isinstance(expiry, datetime) or expiry <= now
+    )
+    if rd.get("provider") == "mpesa":
+        reservation_expired = False
     if source != "admin" and (
         rd.get("status") != "reserved"
-        or not isinstance(expiry, datetime)
-        or expiry <= now
+        or reservation_expired
         or (
             expected_checkout_id is not None
             and str(rd.get("checkout_id") or "") != str(expected_checkout_id)
