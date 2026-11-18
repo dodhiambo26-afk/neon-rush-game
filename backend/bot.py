@@ -496,11 +496,17 @@ async def send_capacity_stars_invoice(update, context, kind):
     if status.get("status") != "waiting" or capacity_tournaments.has_access(kind, uid):
         await query.message.reply_text("This tournament is closed or your entry is already confirmed.")
         return
-    await context.bot.send_invoice(
-        chat_id=uid, title=cfg["name"], description="Tournament entry. Top-five prizes apply.",
-        payload=f"{kind}_50_stars_v1", currency="XTR",
-        prices=[LabeledPrice(label=cfg["name"] + " entry", amount=50)], provider_token="",
-    )
+    try:
+        capacity_tournaments.reserve_slot(kind, uid, "telegram_stars", ttl_minutes=30)
+        await context.bot.send_invoice(
+            chat_id=uid, title=cfg["name"], description="Tournament entry. Top-five prizes apply.",
+            payload=f"{kind}_50_stars_v1", currency="XTR",
+            prices=[LabeledPrice(label=cfg["name"] + " entry", amount=50)], provider_token="",
+        )
+    except Exception:
+        capacity_tournaments.release_slot(kind, uid, "stars_invoice_creation_failed")
+        logger.exception("Could not create capacity tournament Stars invoice")
+        await query.message.reply_text("Stars checkout could not be started. No payment was taken; please try again.")
 
 
 async def capacity_leaderboard_message(update, context, kind):
@@ -984,6 +990,13 @@ async def precheckout(
             return
         if capacity_tournaments.has_access(kind, uid):
             await query.answer(ok=False, error_message="Your tournament entry is already confirmed.")
+            return
+        reservation_ref = capacity_tournaments._reservation(kind, uid)
+        reservation = reservation_ref.get()
+        reservation_data = reservation.to_dict() if reservation.exists else {}
+        expiry = reservation_data.get("expires_at")
+        if reservation_data.get("status") != "reserved" or not expiry or expiry <= datetime.now(timezone.utc):
+            await query.answer(ok=False, error_message="Your Stars checkout has expired. Request a new invoice.")
             return
         await query.answer(ok=True)
         return
