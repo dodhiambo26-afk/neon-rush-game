@@ -2,6 +2,7 @@ import os
 import asyncio
 import logging
 import html
+import uuid
 
 from datetime import datetime, timezone
 
@@ -496,18 +497,21 @@ async def send_capacity_stars_invoice(update, context, kind):
     if status.get("status") != "waiting" or capacity_tournaments.has_access(kind, uid):
         await query.message.reply_text("This tournament is closed or your entry is already confirmed.")
         return
+    reservation_id = uuid.uuid4().hex
     reserved = False
     try:
-        capacity_tournaments.reserve_slot(kind, uid, "telegram_stars", ttl_minutes=30)
+        capacity_tournaments.reserve_slot(
+            kind, uid, "telegram_stars", checkout_id=reservation_id, ttl_minutes=30
+        )
         reserved = True
         await context.bot.send_invoice(
             chat_id=uid, title=cfg["name"], description="Tournament entry. Top-five prizes apply.",
-            payload=f"{kind}_50_stars_v1", currency="XTR",
+            payload=f"capacity_stars:{kind}:{reservation_id}", currency="XTR",
             prices=[LabeledPrice(label=cfg["name"] + " entry", amount=50)], provider_token="",
         )
     except Exception:
         if reserved:
-            capacity_tournaments.release_slot(kind, uid, "stars_invoice_creation_failed")
+            capacity_tournaments.release_slot(kind, uid, "stars_invoice_creation_failed", reservation_id)
         logger.exception("Could not create capacity tournament Stars invoice")
         await query.message.reply_text("Stars checkout could not be started. No payment was taken; please try again.")
 
@@ -985,21 +989,21 @@ async def precheckout(
         await query.answer(ok=True)
         return
 
-    if query.invoice_payload in ("tournament_10k_50_stars_v1", "tournament_1k_50_stars_v1"):
-        kind = query.invoice_payload.replace("_50_stars_v1", "")
+    if query.invoice_payload.startswith("capacity_stars:"):
+        parts = query.invoice_payload.split(":")
+        if len(parts) != 3:
+            await query.answer(ok=False, error_message="Invalid tournament Stars invoice.")
+            return
+        _, kind, reservation_id = parts
+        if kind not in capacity_tournaments.TOURNAMENTS or query.total_amount != 50:
+            await query.answer(ok=False, error_message="Invalid tournament Stars invoice.")
+            return
         campaign = capacity_tournaments.get_status(kind)
-        if query.total_amount != 50 or campaign.get("status") != "waiting":
-            await query.answer(ok=False, error_message="This tournament Stars invoice is invalid or closed.")
+        if campaign.get("status") != "waiting" or capacity_tournaments.has_access(kind, uid):
+            await query.answer(ok=False, error_message="This tournament is closed or your entry is already confirmed.")
             return
-        if capacity_tournaments.has_access(kind, uid):
-            await query.answer(ok=False, error_message="Your tournament entry is already confirmed.")
-            return
-        reservation_ref = capacity_tournaments._reservation(kind, uid)
-        reservation = reservation_ref.get()
-        reservation_data = reservation.to_dict() if reservation.exists else {}
-        expiry = reservation_data.get("expires_at")
-        if reservation_data.get("status") != "reserved" or not expiry or expiry <= datetime.now(timezone.utc):
-            await query.answer(ok=False, error_message="Your Stars checkout has expired. Request a new invoice.")
+        if not capacity_tournaments.reservation_is_valid(kind, uid, reservation_id):
+            await query.answer(ok=False, error_message="This Stars checkout has expired. Request a new invoice.")
             return
         await query.answer(ok=True)
         return
@@ -1079,15 +1083,20 @@ async def successful_payment(
             await update.message.reply_text("Payment received, but entry activation needs support assistance.")
         return
 
-    if payment.invoice_payload in ("tournament_10k_50_stars_v1", "tournament_1k_50_stars_v1"):
-        kind = payment.invoice_payload.replace("_50_stars_v1", "")
-        if payment.total_amount != 50:
+    if payment.invoice_payload.startswith("capacity_stars:"):
+        parts = payment.invoice_payload.split(":")
+        if len(parts) != 3:
+            await update.message.reply_text("❌ Invalid tournament Stars payment reference.")
+            return
+        _, kind, reservation_id = parts
+        if kind not in capacity_tournaments.TOURNAMENTS or payment.total_amount != 50:
             await update.message.reply_text("❌ Invalid tournament Stars payment amount.")
             return
         try:
             result = capacity_tournaments.confirm_stars_payment(
                 kind, uid, payment.telegram_payment_charge_id,
                 payment.provider_payment_charge_id, payment.total_amount,
+                reservation_id,
             )
             if not result.get("processed"):
                 await update.message.reply_text("Payment received but could not be applied automatically. Please contact support and do not pay again.")
