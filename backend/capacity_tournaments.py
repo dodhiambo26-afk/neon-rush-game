@@ -322,7 +322,7 @@ def leaderboard(kind, limit=100):
     rows.sort(key=lambda item: int(item.get("score", 0)), reverse=True)
     return rows[:max(1, min(1000, int(limit)))]
 
-def confirm_stars_payment(kind, uid, telegram_charge_id, provider_charge_id, amount):
+def confirm_stars_payment(kind, uid, telegram_charge_id, provider_charge_id, amount, reservation_id=None):
     cfg = _config(kind)
     if int(amount) != cfg["entry_stars"] or not telegram_charge_id:
         return {"processed": False, "reason": "invalid_payment"}
@@ -340,6 +340,7 @@ def confirm_stars_payment(kind, uid, telegram_charge_id, provider_charge_id, amo
             "telegram_payment_charge_id": str(telegram_charge_id),
             "provider_payment_charge_id": str(provider_charge_id or ""),
             "amount": cfg["entry_stars"], "currency": "XTR",
+            "reservation_checkout_id": str(reservation_id) if reservation_id is not None else None,
         }, "telegram_stars")
         if not ok:
             now = datetime.now(timezone.utc)
