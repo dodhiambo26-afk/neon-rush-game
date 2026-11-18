@@ -36,7 +36,7 @@ async def create_paypal_order(uid, kind):
     if kind == "monthly_membership" and db.has_monthly_access(uid,key): raise ValueError("Your monthly membership is active.")
     if kind in ("tournament_10k", "tournament_1k"):
         campaign = capacity_tournaments.get_status(kind)
-        if campaign.get("status") not in ("waiting", "active"): raise ValueError("This tournament is closed.")
+        if campaign.get("status") != "waiting": raise ValueError("This tournament is full or closed; no new payments are being accepted.")
         if capacity_tournaments.has_access(kind, uid): raise ValueError("Your tournament entry is already confirmed.")
     if kind == "mega_tournament":
         campaign = mega_tournament.get_status()
