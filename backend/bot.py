@@ -139,10 +139,10 @@ def player_keyboard(uid):
             )
         ],
         [
-            InlineKeyboardButton("🏆 10,000-PLAYER TOURNAMENT", callback_data="capacity_info_tournament_10k")
+            InlineKeyboardButton("🏆 WEEKLY TOURNAMENT — KSh 25", callback_data="weekly_info")
         ],
         [
-            InlineKeyboardButton("🏆 1,000-PLAYER TOURNAMENT", callback_data="capacity_info_tournament_1k")
+            InlineKeyboardButton("🌟 MONTHLY TOURNAMENT — KSh 200", callback_data="monthly_join")
         ],
         [
             InlineKeyboardButton(
@@ -151,8 +151,8 @@ def player_keyboard(uid):
             )
         ],
         [
-            InlineKeyboardButton("📊 10K LEADERBOARD", callback_data="capacity_leaderboard_tournament_10k"),
-            InlineKeyboardButton("📊 1K LEADERBOARD", callback_data="capacity_leaderboard_tournament_1k")
+            InlineKeyboardButton("📊 WEEKLY LEADERBOARD", callback_data="weekly_leaderboard"),
+            InlineKeyboardButton("📊 MONTHLY LEADERBOARD", callback_data="monthly_leaderboard")
         ],
         [
             InlineKeyboardButton(
