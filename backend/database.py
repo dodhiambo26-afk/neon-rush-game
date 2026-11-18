@@ -1106,6 +1106,7 @@ def process_mpesa_query_result(internal_id, query_result):
             "processed": True, "success": False, "reason": "confirmed_failed",
             "payment_type": str(pending.get("payment_type") or ""),
             "telegram_id": str(pending.get("telegram_id") or ""),
+            "internal_id": str(internal_id),
         }
 
     payment_type = str(pending.get("payment_type") or "")
@@ -1358,7 +1359,8 @@ def process_mpesa_callback(payload):
 
         applied = apply_failure(transaction)
         return {"processed": bool(applied), "success": False, "telegram_id": uid,
-                "payment_type": payment_type, "reason": "provider_declined"}
+                "payment_type": payment_type, "internal_id": matches[0].id,
+                "reason": "provider_declined"}
 
     metadata_items = (
         callback.get("CallbackMetadata", {}).get("Item", [])
