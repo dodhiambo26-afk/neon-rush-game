@@ -2559,8 +2559,8 @@ def admin_grant_capacity_member(kind: str, action: AdminPlayerAction, x_telegram
         current = capacity_tournaments.get_status(kind)
         if capacity_tournaments.has_access(kind, uid):
             raise HTTPException(status_code=409, detail="This player already has tournament access.")
-        if current.get("status") != "waiting" or int(current.get("total_members", 0)) >= int(current.get("target_members", capacity_tournaments.TOURNAMENTS[kind]["target"])):
-            raise HTTPException(status_code=409, detail="Tournament capacity is full or the tournament has already started; no additional entries can be granted.")
+        if current.get("status") == "finished":
+            raise HTTPException(status_code=409, detail="This tournament has finished; no additional entries can be granted.")
         raise HTTPException(status_code=409, detail="The complimentary entry could not be granted. Please refresh and try again.")
     record_admin_action(admin["id"], "GRANT_" + kind.upper(), uid,
         "Complimentary entry counts toward capacity and is prize eligible.")
