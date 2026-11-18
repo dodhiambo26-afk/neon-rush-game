@@ -5,8 +5,9 @@ import httpx
 from firebase_admin import firestore
 import database as db
 import mega_tournament
+import capacity_tournaments
 
-PRICES = {"weekly_entry": "0.80", "monthly_membership": "2.00", "mega_tournament": "0.80"}
+PRICES = {"weekly_entry": "0.80", "monthly_membership": "2.00", "mega_tournament": "0.80", "tournament_10k": "0.80", "tournament_1k": "0.80"}
 
 def base_url():
     return "https://api-m.paypal.com" if os.getenv("PAYPAL_MODE", "live").lower() == "live" else "https://api-m.sandbox.paypal.com"
@@ -22,6 +23,8 @@ async def access_token(client):
 def period_key(kind):
     if kind == "weekly_entry": return db.current_weekly_session()
     if kind == "monthly_membership": return db.current_month_key()
+    if kind in ("tournament_10k", "tournament_1k"):
+        return capacity_tournaments.TOURNAMENTS[kind]["session_key"]
     return mega_tournament.SESSION_KEY
 
 async def create_paypal_order(uid, kind):
@@ -29,22 +32,32 @@ async def create_paypal_order(uid, kind):
     uid = int(uid)
     if db.is_banned(uid): raise ValueError("Your account is suspended.")
     key = period_key(kind)
+    amount, internal = PRICES[kind], uuid.uuid4().hex
     if kind == "weekly_entry" and db.has_weekly_entry(uid,key): raise ValueError("You already have weekly access.")
     if kind == "monthly_membership" and db.has_monthly_access(uid,key): raise ValueError("Your monthly membership is active.")
+    if kind in ("tournament_10k", "tournament_1k"):
+        campaign = capacity_tournaments.get_status(kind)
+        if campaign.get("status") != "waiting": raise ValueError("This tournament is full or closed; no new payments are being accepted.")
+        if capacity_tournaments.has_access(kind, uid): raise ValueError("Your tournament entry is already confirmed.")
+        capacity_tournaments.reserve_slot(kind, uid, "paypal", checkout_id=internal, ttl_minutes=30)
     if kind == "mega_tournament":
         campaign = mega_tournament.get_status()
         if campaign.get("status") == "finished": raise ValueError("The Mega Tournament is closed.")
         if mega_tournament.has_access(uid): raise ValueError("Your Mega membership is already confirmed.")
-    amount, internal = PRICES[kind], uuid.uuid4().hex
     backend = os.getenv("BACKEND_PUBLIC_URL","https://neon-rush-game-backend.onrender.com").rstrip("/")
     payload = {"intent":"CAPTURE","purchase_units":[{"reference_id":kind,"custom_id":internal,"invoice_id":"NRA-"+internal,"description":"NEON RUSH ARENA "+kind.replace("_"," "),"amount":{"currency_code":"USD","value":amount}}],"payment_source":{"paypal":{"experience_context":{"brand_name":"NEON RUSH ARENA","shipping_preference":"NO_SHIPPING","user_action":"PAY_NOW","return_url":backend+"/api/paypal/return","cancel_url":"https://t.me/NeonRushGamingBot"}}}}
-    async with httpx.AsyncClient(timeout=25) as client:
-        token=await access_token(client)
-        r=await client.post(base_url()+"/v2/checkout/orders",json=payload,headers={"Authorization":"Bearer "+token})
-        r.raise_for_status()
-        order=r.json()
-    approval=next((x["href"] for x in order.get("links",[]) if x.get("rel") in ("payer-action","approve")),None)
-    if not approval: raise RuntimeError("PayPal did not return a checkout link.")
+    try:
+        async with httpx.AsyncClient(timeout=25) as client:
+            token=await access_token(client)
+            r=await client.post(base_url()+"/v2/checkout/orders",json=payload,headers={"Authorization":"Bearer "+token})
+            r.raise_for_status()
+            order=r.json()
+        approval=next((x["href"] for x in order.get("links",[]) if x.get("rel") in ("payer-action","approve")),None)
+        if not approval: raise RuntimeError("PayPal did not return a checkout link.")
+    except Exception:
+        if kind in ("tournament_10k", "tournament_1k"):
+            capacity_tournaments.release_slot(kind, uid, "paypal_order_creation_failed", internal)
+        raise
     db.db().collection("paypal_orders").document(order["id"]).set({"order_id":order["id"],"internal_id":internal,"telegram_id":str(uid),"payment_type":kind,"period_key":key,"amount":amount,"currency":"USD","status":"created","created_at":datetime.now(timezone.utc)})
     return {"approval_url":approval,"amount":amount,"currency":"USD"}
 
@@ -55,6 +68,16 @@ async def capture_and_grant(order_id):
     if not snap.exists: raise ValueError("This PayPal order is not recognized.")
     p=snap.to_dict() or {}
     if p.get("status")=="completed": return {"success":True,"already_processed":True}
+    kind = p.get("payment_type")
+    if kind in ("tournament_10k", "tournament_1k"):
+        if not capacity_tournaments.reservation_is_valid(kind, p.get("telegram_id"), p.get("internal_id")):
+            ref.update({
+                "status": "expired",
+                "review_reason": "PayPal checkout reservation expired before capture; no capture was attempted.",
+                "expired_at": datetime.now(timezone.utc),
+            })
+            capacity_tournaments.release_slot(kind, p.get("telegram_id"), "expired", p.get("internal_id"))
+            raise ValueError("This PayPal checkout has expired and was not captured. Please request a fresh tournament checkout.")
     async with httpx.AsyncClient(timeout=25) as client:
         token=await access_token(client)
         r=await client.post(base_url()+f"/v2/checkout/orders/{order_id}/capture",json={},headers={"Authorization":"Bearer "+token})
@@ -70,6 +93,36 @@ async def capture_and_grant(order_id):
     capture_id=str(cap.get("id") or "")
     if not capture_id: raise ValueError("PayPal capture reference is missing.")
     uid=int(p["telegram_id"]); kind=p["payment_type"]; key=str(p["period_key"]); now=datetime.now(timezone.utc)
+    if kind in ("tournament_10k", "tournament_1k"):
+        result = capacity_tournaments.confirm_paypal_payment(kind, uid, capture_id, order_id, p["amount"], p.get("internal_id"))
+        if not result.get("processed"):
+            # Capture succeeded but admission failed (for example, the final
+            # slot was taken concurrently). Keep the capture auditable and
+            # prevent another capture attempt; support must resolve/refund it.
+            ref.update({
+                "status": "review_required",
+                "capture_id": capture_id,
+                "captured_at": now,
+                "review_reason": "PayPal capture succeeded but tournament admission was not granted: " + str(result.get("reason", "unknown")),
+                "reconciliation_status": "review_required",
+            })
+            db.db().collection("payments").document("paypal_" + capture_id).set({
+                "payment_id": "paypal_" + capture_id,
+                "paypal_order_id": order_id,
+                "paypal_capture_id": capture_id,
+                "telegram_id": uid,
+                "amount": p["amount"],
+                "currency": "USD",
+                "payment_type": kind,
+                "provider": "paypal",
+                "status": "review_required",
+                "review_reason": "Captured payment without tournament admission; manual resolution required.",
+                "created_at": now,
+                "reconciliation_status": "review_required",
+            }, merge=True)
+            raise ValueError("PayPal received your payment but could not grant tournament entry. Your payment is flagged for admin review; do not pay again. Contact support with your PayPal transaction ID.")
+        ref.update({"status": "completed", "capture_id": capture_id, "completed_at": now})
+        return {"success": True, "capture_id": capture_id, "payment_type": kind}
     payref=db.db().collection("payments").document("paypal_"+capture_id)
     tx=db.db().transaction()
     @firestore.transactional

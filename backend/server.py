@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field
 
 import database as db
 import mega_tournament
+import capacity_tournaments
 from paypal_payments import capture_and_grant, verify_webhook
 from race_engine import simulate_race
 from bot import build_application
@@ -645,6 +646,11 @@ class ScoreSubmission(BaseModel):
 class AdminPlayerAction(BaseModel):
     telegram_id: int = Field(gt=0)
 
+class AdminReservationReleaseAction(BaseModel):
+    telegram_id: int = Field(gt=0)
+    pending_transaction_id: str = Field(min_length=1, max_length=200)
+    reason: str = Field(min_length=5, max_length=500)
+
 
 class AdminContactPlayerAction(BaseModel):
     telegram_id: int = Field(gt=0)
@@ -863,6 +869,17 @@ def telegram_auth(
 
         "monthly_access": monthly_access,
         "mega_access": mega_access,
+        "capacity_tournaments": {
+            kind: {
+                "status": capacity_tournaments.get_status(kind).get("status", "waiting"),
+                "has_access": capacity_tournaments.has_access(kind, uid),
+                "total_members": int(capacity_tournaments.get_status(kind).get("total_members", 0)),
+                "target_members": capacity_tournaments.TOURNAMENTS[kind]["target"],
+                "entry_price_kes": 50,
+                "entry_price_usd": "0.80",
+                "entry_price_stars": 50,
+            } for kind in ("tournament_10k", "tournament_1k")
+        },
         "mega_tournament": {
             "status": mega_campaign.get("status", "waiting"),
             "confirmed_members": int(mega_campaign.get("confirmed_members", 0)),
@@ -916,12 +933,19 @@ def start_race(
         session = monthly_session()
         if not db.has_monthly_access(uid, session["key"]):
             raise HTTPException(status_code=403, detail="An active monthly membership is required.")
+    elif mode in ("tournament_10k", "tournament_1k"):
+        campaign = capacity_tournaments.get_status(mode)
+        if campaign.get("status") != "active":
+            raise HTTPException(status_code=403, detail="This tournament has not reached capacity and started yet.")
+        if not capacity_tournaments.has_access(mode, uid):
+            raise HTTPException(status_code=403, detail="A confirmed tournament entry is required.")
+        session = {"key": capacity_tournaments.TOURNAMENTS[mode]["session_key"]}
     elif mode == "mega":
         campaign = mega_tournament.get_status()
         if campaign.get("status") != "active":
             raise HTTPException(status_code=403, detail="The 100K Mega Tournament has not started or has finished.")
         if not mega_tournament.has_access(uid):
-            raise HTTPException(status_code=403, detail="A confirmed KSh 30 Mega Tournament entry is required.")
+            raise HTTPException(status_code=403, detail="A confirmed KSh 35 Mega Tournament entry is required.")
         session = {"key": mega_tournament.SESSION_KEY}
     else:
         raise HTTPException(status_code=400, detail="Race sessions are only available for weekly, monthly or mega tournaments.")
@@ -986,10 +1010,10 @@ def submit_score(
             "player": None,
         }
 
-    if mode not in ("weekly", "monthly", "mega"):
+    if mode not in ("weekly", "monthly", "mega", "tournament_10k", "tournament_1k"):
         raise HTTPException(
             status_code=400,
-            detail="Invalid game mode. Use free, weekly, monthly or mega.",
+            detail="Invalid game mode.",
         )
 
     if not submission.race_id:
@@ -1038,7 +1062,14 @@ def submit_score(
     verified_score = replay["score"]
     verified_duration = max(1, round(submission.ticks / 60))
 
-    if mode == "mega":
+    if mode in ("tournament_10k", "tournament_1k"):
+        campaign = capacity_tournaments.get_status(mode)
+        if campaign.get("status") != "active":
+            raise HTTPException(status_code=403, detail="This tournament has not started or has finished.")
+        if not capacity_tournaments.has_access(mode, uid):
+            raise HTTPException(status_code=403, detail="A confirmed tournament entry is required.")
+        session = {"key": capacity_tournaments.TOURNAMENTS[mode]["session_key"]}
+    elif mode == "mega":
         campaign = mega_tournament.get_status()
         if campaign.get("status") != "active":
             raise HTTPException(status_code=403, detail="The 100K Mega Tournament is not active.")
@@ -1091,7 +1122,19 @@ def submit_score(
             detail="This race session is invalid or has already been submitted. Please start a new race.",
         )
 
-    if mode == "mega":
+    if mode in ("tournament_10k", "tournament_1k"):
+        ranked = capacity_tournaments.leaderboard(mode, 1000)
+        leaderboard_data = [
+            {**item, "rank": position,
+             "display_name": item.get("username") or str(item.get("telegram_id"))}
+            for position, item in enumerate(ranked[:10], start=1)
+        ]
+        player = next((
+            {"position": position, "rank": position, "score": item.get("score", 0)}
+            for position, item in enumerate(ranked, start=1)
+            if str(item.get("telegram_id")) == str(uid)
+        ), None)
+    elif mode == "mega":
         ranked = mega_tournament.leaderboard(100)
         leaderboard_data = [
             {
@@ -1160,6 +1203,11 @@ def leaderboard(
             uid,
             session["key"],
         )
+    elif mode in ("tournament_10k", "tournament_1k"):
+        campaign = capacity_tournaments.get_status(mode)
+        cfg = capacity_tournaments.TOURNAMENTS[mode]
+        session = {"key": cfg["session_key"], "status": campaign.get("status"), "ends_at": campaign.get("ends_at")}
+        has_access = capacity_tournaments.has_access(mode, uid)
     elif mode == "mega":
         campaign = mega_tournament.get_status()
         session = {"key": mega_tournament.SESSION_KEY, "status": campaign.get("status"), "ends_at": campaign.get("ends_at")}
@@ -1170,7 +1218,18 @@ def leaderboard(
             detail="Leaderboard mode must be weekly, monthly or mega.",
         )
 
-    if mode == "mega":
+    if mode in ("tournament_10k", "tournament_1k"):
+        ranked = capacity_tournaments.leaderboard(mode, 1000)
+        data = [
+            {**item, "rank": position, "display_name": item.get("username") or str(item.get("telegram_id"))}
+            for position, item in enumerate(ranked[:10], start=1)
+        ]
+        player = next((
+            {"position": position, "rank": position, "score": item.get("score", 0)}
+            for position, item in enumerate(ranked, start=1)
+            if str(item.get("telegram_id")) == str(uid)
+        ), {"position": None, "score": 0, "display_name": None})
+    elif mode == "mega":
         ranked = mega_tournament.leaderboard(100)
         data = [
             {**item, "rank": position, "display_name": item.get("username") or str(item.get("telegram_id"))}
@@ -1256,6 +1315,16 @@ def tournament_status(
             ),
             "entry_price": MONTHLY_STARS,
             "active_players": monthly_count,
+        },
+        "tournament_10k": {
+            "has_access": capacity_tournaments.has_access("tournament_10k", uid),
+            **capacity_tournaments.get_status("tournament_10k"),
+            "target_members": 10000,
+        },
+        "tournament_1k": {
+            "has_access": capacity_tournaments.has_access("tournament_1k", uid),
+            **capacity_tournaments.get_status("tournament_1k"),
+            "target_members": 1000,
         },
         "mega": {
             "has_access": mega_tournament.has_access(uid),
@@ -2437,6 +2506,125 @@ def admin_tournament(
             "winners": 5,
         },
     }
+
+
+# ============================================================
+# ADMIN 10K AND 1K CAPACITY TOURNAMENTS
+# ============================================================
+
+@app.get("/api/admin/capacity-tournaments/{kind}")
+def admin_capacity_tournament(kind: str, x_telegram_init_data: str = Header(default="", alias="X-Telegram-Init-Data")):
+    require_admin(x_telegram_init_data)
+    try:
+        cfg = capacity_tournaments.TOURNAMENTS[kind]
+        status = capacity_tournaments.get_status(kind)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Unknown tournament.")
+    return json_safe({**status, "kind": kind, "name": cfg["name"],
+        "target_members": cfg["target"], "entry_price_kes": cfg["entry_kes"],
+        "entry_price_usd": cfg["entry_usd"], "entry_price_stars": cfg["entry_stars"],
+        "prizes": cfg["prizes"],
+        "remaining_members": max(0, cfg["target"] - int(status.get("total_members", 0)))})
+
+
+@app.get("/api/admin/capacity-tournaments/{kind}/members")
+def admin_capacity_tournament_members(kind: str, x_telegram_init_data: str = Header(default="", alias="X-Telegram-Init-Data")):
+    require_admin(x_telegram_init_data)
+    try:
+        members = capacity_tournaments.list_members(kind, 10000)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Unknown tournament.")
+    result = []
+    for member in members:
+        uid = member.get("telegram_id") or member.get("id")
+        player = db.get_user(uid) or {}
+        result.append({**member, "telegram_id": str(uid),
+            "username": player.get("username") or "",
+            "first_name": player.get("first_name") or "",
+            "membership_type": "Complimentary (admin)" if member.get("source") == "admin" else "Paid"})
+    return json_safe({"members": result, "count": len(result)})
+
+
+@app.post("/api/admin/capacity-tournaments/{kind}/members/grant")
+def admin_grant_capacity_member(kind: str, action: AdminPlayerAction, x_telegram_init_data: str = Header(default="", alias="X-Telegram-Init-Data")):
+    admin = require_admin(x_telegram_init_data)
+    uid = int(action.telegram_id)
+    if not db.get_user(uid):
+        raise HTTPException(status_code=404, detail="Player not found. Ask the player to open the game first.")
+    try:
+        granted = capacity_tournaments.grant_admin_access(kind, uid, admin["id"])
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Unknown tournament.")
+    if not granted:
+        current = capacity_tournaments.get_status(kind)
+        if capacity_tournaments.has_access(kind, uid):
+            raise HTTPException(status_code=409, detail="This player already has tournament access.")
+        if current.get("status") != "waiting" or int(current.get("total_members", 0)) >= int(current.get("target_members", capacity_tournaments.TOURNAMENTS[kind]["target"])):
+            raise HTTPException(status_code=409, detail="Tournament capacity is full or the tournament has already started; no additional entries can be granted.")
+        raise HTTPException(status_code=409, detail="The complimentary entry could not be granted. Please refresh and try again.")
+    record_admin_action(admin["id"], "GRANT_" + kind.upper(), uid,
+        "Complimentary entry counts toward capacity and is prize eligible.")
+    return {"success": True, "telegram_id": uid, "message": "Complimentary entry granted and counted toward tournament capacity. Player is prize eligible."}
+
+
+@app.post("/api/admin/capacity-tournaments/{kind}/members/revoke")
+def admin_revoke_capacity_member(kind: str, action: AdminPlayerAction, x_telegram_init_data: str = Header(default="", alias="X-Telegram-Init-Data")):
+    admin = require_admin(x_telegram_init_data)
+    uid = int(action.telegram_id)
+    try:
+        removed = capacity_tournaments.revoke_access(kind, uid)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Unknown tournament.")
+    if not removed:
+        raise HTTPException(status_code=404, detail="This player has no access to this tournament.")
+    record_admin_action(admin["id"], "REVOKE_" + kind.upper(), uid,
+        "Tournament access removed; payment history retained.")
+    return {"success": True, "telegram_id": uid, "message": "Tournament access revoked. Payment history retained."}
+
+
+@app.post("/api/admin/capacity-tournaments/{kind}/reservations/release")
+def admin_release_capacity_reservation(kind: str, action: AdminReservationReleaseAction, x_telegram_init_data: str = Header(default="", alias="X-Telegram-Init-Data")):
+    admin = require_admin(x_telegram_init_data)
+    try:
+        capacity_tournaments._config(kind)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Unknown tournament.")
+    pending_ref = db.db().collection("mpesa_transactions").document(action.pending_transaction_id)
+    pending = pending_ref.get()
+    if not pending.exists:
+        raise HTTPException(status_code=404, detail="Pending M-Pesa transaction not found.")
+    pdata = pending.to_dict() or {}
+    if str(pdata.get("telegram_id")) != str(action.telegram_id) or pdata.get("payment_type") != kind:
+        raise HTTPException(status_code=400, detail="Transaction does not match this player and tournament.")
+    if pdata.get("status") not in ("pending", "initiated", "failed", "review_required"):
+        raise HTTPException(status_code=409, detail="Only unresolved transactions can be reconciled.")
+    released = capacity_tournaments.release_slot(
+        kind, action.telegram_id, reason="admin_released",
+        expected_checkout_id=action.pending_transaction_id,
+    )
+    if not released:
+        raise HTTPException(status_code=409, detail="Matching reservation was not found or was already resolved.")
+    record_admin_action(admin["id"], "RELEASE_RESERVATION_" + kind.upper(), action.telegram_id,
+        "Pending transaction " + action.pending_transaction_id + "; reason: " + action.reason)
+    return {"success": True, "message": "Reservation released. This does not cancel or refund an M-Pesa payment; verify transaction status before taking further action."}
+
+
+@app.get("/api/admin/capacity-tournaments/{kind}/leaderboard")
+def admin_capacity_tournament_leaderboard(kind: str, x_telegram_init_data: str = Header(default="", alias="X-Telegram-Init-Data")):
+    require_admin(x_telegram_init_data)
+    try:
+        scores = capacity_tournaments.leaderboard(kind, 1000)
+        prizes = capacity_tournaments.TOURNAMENTS[kind]["prizes"]
+    except (ValueError, KeyError):
+        raise HTTPException(status_code=404, detail="Unknown tournament.")
+    winners = []
+    for position, item in enumerate(scores[:5], start=1):
+        player = db.get_user(item.get("telegram_id")) or {}
+        winners.append({"position": position, "telegram_id": item.get("telegram_id"),
+            "username": player.get("username") or item.get("username"),
+            "score": item.get("score", 0), "prize_kes": prizes[position-1]["amount_kes"],
+            "award_status": "pending_manual_review"})
+    return json_safe({"top_five": winners, "scored_players": len(scores)})
 
 
 # ============================================================

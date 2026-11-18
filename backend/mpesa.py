@@ -85,6 +85,15 @@ async def reconcile_stale_mpesa_payments(application=None):
                     outcome = db.process_mpesa_query_result(
                         item["internal_id"], result
                     )
+                    if (
+                        outcome.get("reason") == "confirmed_failed"
+                        and outcome.get("payment_type") in ("tournament_10k", "tournament_1k")
+                        and outcome.get("telegram_id")
+                    ):
+                        import capacity_tournaments
+                        capacity_tournaments.release_slot(
+                            outcome["payment_type"], outcome["telegram_id"], "mpesa_query_failed", outcome.get("internal_id")
+                        )
                     if outcome.get("success") and application and outcome.get("telegram_id"):
                         try:
                             text = (
@@ -95,7 +104,15 @@ async def reconcile_stale_mpesa_payments(application=None):
                                     else (
                                         "Your KSh 35 Mega Tournament membership is confirmed and counted toward the 100,000 target."
                                         if outcome.get("payment_type") == "mega_tournament"
-                                        else "Your KSh 200 monthly membership is now active."
+                                        else (
+                                            "Your KSh 50 entry to the 10,000-player tournament is confirmed."
+                                            if outcome.get("payment_type") == "tournament_10k"
+                                            else (
+                                                "Your KSh 50 entry to the 1,000-player tournament is confirmed."
+                                                if outcome.get("payment_type") == "tournament_1k"
+                                                else "Your KSh 200 monthly membership is now active."
+                                            )
+                                        )
                                     )
                                 )
                                 + "\\n\\nYour payment was recovered automatically. "
@@ -126,6 +143,7 @@ async def mpesa_reconciliation_loop(application=None):
 
 
 async def initiate_stk_push(telegram_id, phone, payment_type="monthly_membership"):
+    internal_id = uuid.uuid4().hex
     key = os.getenv("MPESA_CONSUMER_KEY", "").strip()
     secret = os.getenv("MPESA_CONSUMER_SECRET", "").strip()
     passkey = os.getenv("MPESA_PASSKEY", "").strip()
@@ -160,6 +178,23 @@ async def initiate_stk_push(telegram_id, phone, payment_type="monthly_membership
         amount = MONTHLY_MEMBERSHIP_KES
         reference = "NEONRUSH"
         description = "Monthly Membership"
+    elif payment_type in ("tournament_10k", "tournament_1k"):
+        import capacity_tournaments
+        cfg = capacity_tournaments.TOURNAMENTS[payment_type]
+        campaign = capacity_tournaments.get_status(payment_type)
+        if campaign.get("status") != "waiting":
+            raise ValueError("This tournament is closed.")
+        if capacity_tournaments.has_access(payment_type, telegram_id):
+            return {"already_active": True}
+        if environment != "production":
+            raise RuntimeError("Live M-Pesa checkout requires MPESA_ENVIRONMENT=production in Render.")
+        if capacity_tournaments.has_pending_payment(payment_type, telegram_id):
+            raise ValueError("You already have a pending payment for this tournament. Complete or wait for it before starting another.")
+        capacity_tournaments.reserve_slot(payment_type, telegram_id, "mpesa", checkout_id=internal_id, ttl_minutes=30)
+        period_key = cfg["session_key"]
+        amount = cfg["entry_kes"]
+        reference = "NR" + cfg["slug"].upper()
+        description = cfg["name"][:30]
     elif payment_type == "mega_tournament":
         import mega_tournament
         campaign = mega_tournament.get_status()
@@ -182,8 +217,12 @@ async def initiate_stk_push(telegram_id, phone, payment_type="monthly_membership
         else "https://api.safaricom.co.ke"
     )
     callback_url = f"{render_url}/api/mpesa/callback/{callback_secret}"
-    internal_id = uuid.uuid4().hex
-    db.create_mpesa_pending(internal_id, telegram_id, phone, period_key, payment_type)
+    try:
+        db.create_mpesa_pending(internal_id, telegram_id, phone, period_key, payment_type)
+    except Exception:
+        if payment_type in ("tournament_10k", "tournament_1k"):
+            capacity_tournaments.release_slot(payment_type, telegram_id, "pending_record_creation_failed", internal_id)
+        raise
 
     now = datetime.now(KENYA).strftime("%Y%m%d%H%M%S")
     password = base64.b64encode(
@@ -199,6 +238,8 @@ async def initiate_stk_push(telegram_id, phone, payment_type="monthly_membership
     ).strip()
     if transaction_type == "CustomerBuyGoodsOnline" and not till_number:
         db.fail_mpesa_pending(internal_id, "Missing MPESA_TILL_NUMBER.")
+        if payment_type in ("tournament_10k", "tournament_1k"):
+            capacity_tournaments.release_slot(payment_type, telegram_id, "invalid_transaction_type_config", internal_id)
         raise RuntimeError(
             "Buy Goods is selected but MPESA_TILL_NUMBER is missing in Render."
         )
@@ -241,12 +282,16 @@ async def initiate_stk_push(telegram_id, phone, payment_type="monthly_membership
             data = response.json()
     except Exception as exc:
         db.fail_mpesa_pending(internal_id, type(exc).__name__)
+        if payment_type in ("tournament_10k", "tournament_1k"):
+            capacity_tournaments.release_slot(payment_type, telegram_id, "provider_request_failed", internal_id)
         raise RuntimeError(
             "Safaricom could not be reached or rejected the request. Please try again."
         ) from exc
 
     if str(data.get("ResponseCode", "")) != "0":
         db.fail_mpesa_pending(internal_id, data.get("ResponseDescription") or data)
+        if payment_type in ("tournament_10k", "tournament_1k"):
+            capacity_tournaments.release_slot(payment_type, telegram_id, "provider_rejected", internal_id)
         raise RuntimeError(
             str(data.get("ResponseDescription") or "Safaricom rejected the STK request.")
         )
@@ -255,6 +300,8 @@ async def initiate_stk_push(telegram_id, phone, payment_type="monthly_membership
     merchant_id = data.get("MerchantRequestID")
     if not checkout_id or not merchant_id:
         db.fail_mpesa_pending(internal_id, "Missing Daraja request identifiers.")
+        if payment_type in ("tournament_10k", "tournament_1k"):
+            capacity_tournaments.release_slot(payment_type, telegram_id, "invalid_provider_response", internal_id)
         raise RuntimeError("Daraja response did not include payment request IDs.")
 
     db.update_mpesa_checkout(internal_id, checkout_id, merchant_id, {
@@ -280,6 +327,15 @@ async def mpesa_callback(secret: str, request: Request):
         raise HTTPException(status_code=400, detail="Invalid callback JSON.")
 
     result = db.process_mpesa_callback(payload)
+    if (
+        result.get("reason") == "provider_declined"
+        and result.get("payment_type") in ("tournament_10k", "tournament_1k")
+        and result.get("telegram_id")
+    ):
+        import capacity_tournaments
+        capacity_tournaments.release_slot(
+            result["payment_type"], result["telegram_id"], "mpesa_declined", result.get("internal_id")
+        )
     if result.get("success") and result.get("telegram_id"):
         application = getattr(request.app.state, "bot_application", None)
         if application:

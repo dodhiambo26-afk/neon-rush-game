@@ -2,6 +2,7 @@ import os
 import asyncio
 import logging
 import html
+import uuid
 
 from datetime import datetime, timezone
 
@@ -26,6 +27,7 @@ from telegram.ext import (
 import database as db
 import notifications as notification_service
 import mega_tournament
+import capacity_tournaments
 from mpesa import initiate_stk_push
 from paypal_payments import create_paypal_order
 
@@ -137,14 +139,10 @@ def player_keyboard(uid):
             )
         ],
         [
-            InlineKeyboardButton(
-                "🏆 WEEKLY TOURNAMENT",
-                callback_data="weekly_info"
-            ),
-            InlineKeyboardButton(
-                "👑 MONTHLY MEMBERSHIP",
-                callback_data="monthly_join"
-            )
+            InlineKeyboardButton("🏆 10,000-PLAYER TOURNAMENT", callback_data="capacity_info_tournament_10k")
+        ],
+        [
+            InlineKeyboardButton("🏆 1,000-PLAYER TOURNAMENT", callback_data="capacity_info_tournament_1k")
         ],
         [
             InlineKeyboardButton(
@@ -153,14 +151,8 @@ def player_keyboard(uid):
             )
         ],
         [
-            InlineKeyboardButton(
-                "📊 WEEKLY LEADERBOARD",
-                callback_data="weekly_leaderboard"
-            ),
-            InlineKeyboardButton(
-                "👑 MONTHLY LEADERBOARD",
-                callback_data="monthly_leaderboard"
-            )
+            InlineKeyboardButton("📊 10K LEADERBOARD", callback_data="capacity_leaderboard_tournament_10k"),
+            InlineKeyboardButton("📊 1K LEADERBOARD", callback_data="capacity_leaderboard_tournament_1k")
         ],
         [
             InlineKeyboardButton(
@@ -459,6 +451,88 @@ async def send_weekly_invoice(update, context):
 # LEADERBOARDS
 # ============================================================
 
+async def capacity_tournament_information(update, context, kind):
+    query = update.callback_query
+    await query.answer()
+    uid = query.from_user.id
+    if reject_banned(uid):
+        await query.message.reply_text("🚫 Your account has been suspended.")
+        return
+    cfg = capacity_tournaments.TOURNAMENTS[kind]
+    status = capacity_tournaments.get_status(kind)
+    prizes = "\n".join(f"{p['position']}. KSh {p['amount_kes']:,}" for p in cfg["prizes"])
+    total = int(status.get("total_members", 0))
+    text = (
+        f"🏆 {cfg['name'].upper()}\n\n"
+        "Entry: KSh 50 by M-Pesa, US$0.80 by PayPal, or 50 Telegram Stars.\n"
+        f"Admitted: {total:,} / {cfg['target']:,}\n"
+        f"Paid: {int(status.get('confirmed_members', 0)):,} | Complimentary: {int(status.get('complimentary_members', 0)):,}\n"
+        "Starts automatically when the target is reached. Complimentary entries count toward capacity and are prize eligible.\n\n"
+        "🏅 TOP FIVE PRIZES\n" + prizes + "\n\n"
+        "Final standings are reviewed before awards are confirmed. Cash payouts are handled separately and are not automatic."
+    )
+    buttons = []
+    if status.get("status") == "waiting" and not capacity_tournaments.has_access(kind, uid):
+        buttons.extend([
+            [InlineKeyboardButton("📱 PAY KSh 50 WITH M-PESA", callback_data=f"capacity_mpesa_{kind}")],
+            [InlineKeyboardButton("🌍 PAY US$0.80 WITH PAYPAL", callback_data=f"capacity_paypal_{kind}")],
+            [InlineKeyboardButton("⭐ PAY 50 TELEGRAM STARS", callback_data=f"capacity_stars_{kind}")],
+        ])
+    elif capacity_tournaments.has_access(kind, uid):
+        text += "\n\n✅ Your entry is confirmed."
+        if status.get("status") == "active":
+            buttons.append([InlineKeyboardButton("🏁 PLAY TOURNAMENT", web_app=WebAppInfo(url=game_url(kind)))])
+    await query.message.reply_text(text, reply_markup=InlineKeyboardMarkup(buttons) if buttons else None)
+
+
+async def send_capacity_stars_invoice(update, context, kind):
+    query = update.callback_query
+    await query.answer()
+    uid = query.from_user.id
+    if reject_banned(uid):
+        await query.message.reply_text("🚫 Your account has been suspended.")
+        return
+    cfg = capacity_tournaments.TOURNAMENTS[kind]
+    status = capacity_tournaments.get_status(kind)
+    if status.get("status") != "waiting" or capacity_tournaments.has_access(kind, uid):
+        await query.message.reply_text("This tournament is closed or your entry is already confirmed.")
+        return
+    reservation_id = uuid.uuid4().hex
+    reserved = False
+    try:
+        capacity_tournaments.reserve_slot(
+            kind, uid, "telegram_stars", checkout_id=reservation_id, ttl_minutes=30
+        )
+        reserved = True
+        await context.bot.send_invoice(
+            chat_id=uid, title=cfg["name"], description="Tournament entry. Top-five prizes apply.",
+            payload=f"capacity_stars:{kind}:{reservation_id}", currency="XTR",
+            prices=[LabeledPrice(label=cfg["name"] + " entry", amount=50)], provider_token="",
+        )
+    except Exception:
+        if reserved:
+            capacity_tournaments.release_slot(kind, uid, "stars_invoice_creation_failed", reservation_id)
+        logger.exception("Could not create capacity tournament Stars invoice")
+        await query.message.reply_text("Stars checkout could not be started. No payment was taken; please try again.")
+
+
+async def capacity_leaderboard_message(update, context, kind):
+    query = update.callback_query
+    await query.answer()
+    if reject_banned(query.from_user.id):
+        await query.message.reply_text("🚫 Your account has been suspended.")
+        return
+    scores = capacity_tournaments.leaderboard(kind, 10)
+    cfg = capacity_tournaments.TOURNAMENTS[kind]
+    lines = [f"🏆 {cfg['name'].upper()} LEADERBOARD", ""]
+    if not scores:
+        lines.append("No verified scores have been recorded yet.")
+    for position, item in enumerate(scores, 1):
+        name = html.escape(str(item.get("username") or item.get("telegram_id")))
+        lines.append(f"{position}. {name} — {int(item.get('score', 0)):,} points")
+    await query.message.reply_text("\n".join(lines), parse_mode="HTML")
+
+
 async def mega_tournament_information(update, context):
     query = update.callback_query
     await query.answer()
@@ -546,6 +620,18 @@ async def request_mpesa_phone(update, context, payment_type="monthly_membership"
         context.user_data["awaiting_mpesa_phone"] = "weekly_entry"
         heading = "📱 M-PESA WEEKLY TOURNAMENT ENTRY"
         price = "KSh 25"
+    elif payment_type in ("tournament_10k", "tournament_1k"):
+        cfg = capacity_tournaments.TOURNAMENTS[payment_type]
+        campaign = capacity_tournaments.get_status(payment_type)
+        if campaign.get("status") != "waiting":
+            await query.message.reply_text("⛔ This tournament is closed.")
+            return
+        if capacity_tournaments.has_access(payment_type, uid):
+            await query.message.reply_text("✅ Your tournament entry is already confirmed.")
+            return
+        context.user_data["awaiting_mpesa_phone"] = payment_type
+        heading = "📱 " + cfg["name"].upper()
+        price = "KSh 50"
     elif payment_type == "mega_tournament":
         campaign = mega_tournament.get_status()
         if campaign.get("status") == "finished":
@@ -592,8 +678,8 @@ async def mpesa_phone_message(update, context):
         if result.get("already_active"):
             await update.message.reply_text("✅ You already have access to this tournament period.")
         else:
-            amount_text = "KSh 25" if payment_type == "weekly_entry" else ("KSh 35" if payment_type == "mega_tournament" else "KSh 200")
-            access_text = "weekly tournament entry" if payment_type == "weekly_entry" else ("100K Mega Tournament entry" if payment_type == "mega_tournament" else "monthly membership")
+            amount_text = "KSh 50" if payment_type in ("tournament_10k", "tournament_1k") else ("KSh 25" if payment_type == "weekly_entry" else ("KSh 35" if payment_type == "mega_tournament" else "KSh 200"))
+            access_text = capacity_tournaments.TOURNAMENTS[payment_type]["name"] if payment_type in ("tournament_10k", "tournament_1k") else ("weekly tournament entry" if payment_type == "weekly_entry" else ("100K Mega Tournament entry" if payment_type == "mega_tournament" else "monthly membership"))
             await update.message.reply_text(
                 "📲 M-PESA request sent. " + result["customer_message"] + "\n\n"
                 f"Your {access_text} will activate only after Safaricom confirms the {amount_text} payment."
@@ -748,6 +834,21 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data == "mega_info":
         await mega_tournament_information(update, context)
 
+    elif query.data in ("capacity_info_tournament_10k", "capacity_info_tournament_1k"):
+        await capacity_tournament_information(update, context, query.data.replace("capacity_info_", ""))
+
+    elif query.data in ("capacity_mpesa_tournament_10k", "capacity_mpesa_tournament_1k"):
+        await request_mpesa_phone(update, context, query.data.replace("capacity_mpesa_", ""))
+
+    elif query.data in ("capacity_paypal_tournament_10k", "capacity_paypal_tournament_1k"):
+        await send_paypal_checkout(update, context, query.data.replace("capacity_paypal_", ""))
+
+    elif query.data in ("capacity_stars_tournament_10k", "capacity_stars_tournament_1k"):
+        await send_capacity_stars_invoice(update, context, query.data.replace("capacity_stars_", ""))
+
+    elif query.data in ("capacity_leaderboard_tournament_10k", "capacity_leaderboard_tournament_1k"):
+        await capacity_leaderboard_message(update, context, query.data.replace("capacity_leaderboard_", ""))
+
     elif query.data == "mega_mpesa":
         await request_mpesa_phone(update, context, "mega_tournament")
 
@@ -888,6 +989,25 @@ async def precheckout(
         await query.answer(ok=True)
         return
 
+    if query.invoice_payload.startswith("capacity_stars:"):
+        parts = query.invoice_payload.split(":")
+        if len(parts) != 3:
+            await query.answer(ok=False, error_message="Invalid tournament Stars invoice.")
+            return
+        _, kind, reservation_id = parts
+        if kind not in capacity_tournaments.TOURNAMENTS or query.total_amount != 50:
+            await query.answer(ok=False, error_message="Invalid tournament Stars invoice.")
+            return
+        campaign = capacity_tournaments.get_status(kind)
+        if campaign.get("status") != "waiting" or capacity_tournaments.has_access(kind, uid):
+            await query.answer(ok=False, error_message="This tournament is closed or your entry is already confirmed.")
+            return
+        if not capacity_tournaments.refresh_reservation(kind, uid, reservation_id, ttl_minutes=10):
+            await query.answer(ok=False, error_message="This Stars checkout has expired. Request a new invoice.")
+            return
+        await query.answer(ok=True)
+        return
+
     if query.invoice_payload == "mega_tournament_50_stars_v1":
         campaign = mega_tournament.get_status()
         if query.total_amount != 50 or campaign.get("status") == "finished":
@@ -961,6 +1081,34 @@ async def successful_payment(
         except Exception:
             logger.exception("Weekly Stars payment processing failed")
             await update.message.reply_text("Payment received, but entry activation needs support assistance.")
+        return
+
+    if payment.invoice_payload.startswith("capacity_stars:"):
+        parts = payment.invoice_payload.split(":")
+        if len(parts) != 3:
+            await update.message.reply_text("❌ Invalid tournament Stars payment reference.")
+            return
+        _, kind, reservation_id = parts
+        if kind not in capacity_tournaments.TOURNAMENTS or payment.total_amount != 50:
+            await update.message.reply_text("❌ Invalid tournament Stars payment amount.")
+            return
+        try:
+            result = capacity_tournaments.confirm_stars_payment(
+                kind, uid, payment.telegram_payment_charge_id,
+                payment.provider_payment_charge_id, payment.total_amount,
+                reservation_id,
+            )
+            if not result.get("processed"):
+                await update.message.reply_text("Payment received but could not be applied automatically. Please contact support and do not pay again.")
+                return
+            await update.message.reply_text(
+                "🎉 PAYMENT SUCCESSFUL!\n\n"
+                f"Your 50 Telegram Stars entry to the {capacity_tournaments.TOURNAMENTS[kind]['name']} is confirmed. "
+                "You are eligible for its top-five prizes."
+            )
+        except Exception:
+            logger.exception("Capacity tournament Stars payment processing failed")
+            await update.message.reply_text("Payment received, but tournament activation needs support assistance.")
         return
 
     if payment.invoice_payload == "mega_tournament_50_stars_v1":
