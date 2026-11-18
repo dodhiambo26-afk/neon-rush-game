@@ -163,17 +163,18 @@ def list_members(kind, limit=2000):
 
 def leaderboard(kind, limit=100):
     cfg = _config(kind)
-    query = (db.db().collection("scores")
-             .where("mode", "==", str(kind))
-             .where("session_key", "==", cfg["session_key"])
-             .order_by("score", direction=firestore.Query.DESCENDING)
-             .limit(max(1, min(1000, int(limit)))))
     rows = []
-    for snap in query.stream():
+    # Keep the query to one indexed equality filter; sort locally so this
+    # feature does not depend on a new Firestore composite index.
+    for snap in db.db().collection("scores").where("mode", "==", str(kind)).stream():
         item = snap.to_dict() or {}
-        if not db.is_banned(item.get("telegram_id")):
-            rows.append(item)
-    return rows
+        if str(item.get("session_key")) != cfg["session_key"]:
+            continue
+        if db.is_banned(item.get("telegram_id")):
+            continue
+        rows.append(item)
+    rows.sort(key=lambda item: int(item.get("score", 0)), reverse=True)
+    return rows[:max(1, min(1000, int(limit)))]
 
 def confirm_stars_payment(kind, uid, telegram_charge_id, provider_charge_id, amount):
     cfg = _config(kind)
