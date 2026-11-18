@@ -52,7 +52,7 @@ ADMIN_DASHBOARD_URL = os.getenv(
     "https://dodhiambo26-afk.github.io/neon-rush-game/admin.html"
 )
 
-ADMIN_DASHBOARD_VERSION = "2026.11.18.2"
+ADMIN_DASHBOARD_VERSION = "2026.11.18.3"
 
 
 def admin_dashboard_url():
