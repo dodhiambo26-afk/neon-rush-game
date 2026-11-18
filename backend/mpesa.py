@@ -303,6 +303,15 @@ async def mpesa_callback(secret: str, request: Request):
         raise HTTPException(status_code=400, detail="Invalid callback JSON.")
 
     result = db.process_mpesa_callback(payload)
+    if (
+        result.get("reason") == "provider_declined"
+        and result.get("payment_type") in ("tournament_10k", "tournament_1k")
+        and result.get("telegram_id")
+    ):
+        import capacity_tournaments
+        capacity_tournaments.release_slot(
+            result["payment_type"], result["telegram_id"], "mpesa_declined"
+        )
     if result.get("success") and result.get("telegram_id"):
         application = getattr(request.app.state, "bot_application", None)
         if application:
