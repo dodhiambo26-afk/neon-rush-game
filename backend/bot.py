@@ -298,7 +298,7 @@ async def weekly_information(update: Update, context):
 
     await query.message.reply_text(
         f"🏆 WEEKLY TOURNAMENT — {session_key}\n\n"
-        "Entry fee: KSh 25 by M-Pesa, US$0.30 by PayPal, OR 50 Telegram Stars.\n\n"
+        "Entry fee: KSh 25 by M-Pesa, US$0.80 by PayPal, OR 50 Telegram Stars.\n\n"
         "Choose your payment method below. Your entry activates only "
         "after the payment is confirmed.\n\n"
         "Session: Sunday 6 PM to Sunday 6 PM Kenya time.\n\n"
@@ -309,7 +309,7 @@ async def weekly_information(update: Update, context):
         "<i>Final standings are reviewed before awards are confirmed. Cash payouts are not automatic.</i>",
         reply_markup=InlineKeyboardMarkup([
             [InlineKeyboardButton("📱 PAY KSh 25 WITH M-PESA", callback_data="weekly_mpesa")],
-            [InlineKeyboardButton("🌍 PAY US$0.30 WITH PAYPAL", callback_data="weekly_paypal")],
+            [InlineKeyboardButton("🌍 PAY US$0.80 WITH PAYPAL", callback_data="weekly_paypal")],
             [InlineKeyboardButton("⭐ PAY 50 TELEGRAM STARS", callback_data="weekly_stars")],
             [InlineKeyboardButton("📞 SUPPORT", callback_data="support")],
         ]),
@@ -450,7 +450,7 @@ async def mega_tournament_information(update, context):
     count = int(campaign.get("confirmed_members", 0))
     text = (
         "🏆 NEON RUSH 100K MEGA TOURNAMENT\n\n"
-        "Entry: KSh 35 by M-Pesa or US$0.35 by PayPal.\n"
+        "Entry: KSh 35 by M-Pesa or US$0.80 by PayPal.\n"
         f"Confirmed paid members: {count:,} / 100,000\n"
         f"Status: {status}\n"
         "The tournament starts automatically when 100,000 unique paid members are confirmed. "
@@ -463,7 +463,7 @@ async def mega_tournament_information(update, context):
     has_access = mega_tournament.has_access(uid)
     if campaign.get("status") != "finished" and not has_access:
         buttons.append([InlineKeyboardButton("📱 PAY KSh 35 WITH M-PESA", callback_data="mega_mpesa")])
-        buttons.append([InlineKeyboardButton("🌍 PAY US$0.35 WITH PAYPAL", callback_data="mega_paypal")])
+        buttons.append([InlineKeyboardButton("🌍 PAY US$0.80 WITH PAYPAL", callback_data="mega_paypal")])
     elif has_access:
         text += "\n\n✅ Your paid membership is confirmed."
         if campaign.get("status") == "active":

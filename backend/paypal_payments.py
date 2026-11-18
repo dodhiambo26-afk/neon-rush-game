@@ -6,7 +6,7 @@ from firebase_admin import firestore
 import database as db
 import mega_tournament
 
-PRICES = {"weekly_entry": "0.30", "monthly_membership": "2.00", "mega_tournament": "0.35"}
+PRICES = {"weekly_entry": "0.80", "monthly_membership": "2.00", "mega_tournament": "0.80"}
 
 def base_url():
     return "https://api-m.paypal.com" if os.getenv("PAYPAL_MODE", "live").lower() == "live" else "https://api-m.sandbox.paypal.com"
