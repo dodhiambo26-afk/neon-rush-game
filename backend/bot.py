@@ -488,7 +488,7 @@ async def mega_tournament_information(update, context):
     has_access = mega_tournament.has_access(uid)
     if campaign.get("status") != "finished" and not has_access:
         buttons.append([InlineKeyboardButton("📱 PAY KSh 35 WITH M-PESA", callback_data="mega_mpesa")])
-        buttons.append([InlineKeyboardButton("🌍 PAY US$0.80 WITH PAYPAL", callback_data="mega_paypal")])\n        buttons.append([InlineKeyboardButton("⭐ PAY 50 TELEGRAM STARS", callback_data="mega_stars")])
+        buttons.append([InlineKeyboardButton("🌍 PAY US$0.80 WITH PAYPAL", callback_data="mega_paypal")])
         buttons.append([InlineKeyboardButton("⭐ PAY 50 TELEGRAM STARS", callback_data="mega_stars")])
     elif has_access:
         text += "\n\n✅ Your paid membership is confirmed."
