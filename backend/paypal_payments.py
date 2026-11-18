@@ -80,7 +80,31 @@ async def capture_and_grant(order_id):
     if kind in ("tournament_10k", "tournament_1k"):
         result = capacity_tournaments.confirm_paypal_payment(kind, uid, capture_id, order_id, p["amount"])
         if not result.get("processed"):
-            raise ValueError("PayPal captured the payment, but tournament access could not be safely applied. Contact support and do not pay again.")
+            # Capture succeeded but admission failed (for example, the final
+            # slot was taken concurrently). Keep the capture auditable and
+            # prevent another capture attempt; support must resolve/refund it.
+            ref.update({
+                "status": "review_required",
+                "capture_id": capture_id,
+                "captured_at": now,
+                "review_reason": "PayPal capture succeeded but tournament admission was not granted: " + str(result.get("reason", "unknown")),
+                "reconciliation_status": "review_required",
+            })
+            db.db().collection("payments").document("paypal_" + capture_id).set({
+                "payment_id": "paypal_" + capture_id,
+                "paypal_order_id": order_id,
+                "paypal_capture_id": capture_id,
+                "telegram_id": uid,
+                "amount": p["amount"],
+                "currency": "USD",
+                "payment_type": kind,
+                "provider": "paypal",
+                "status": "review_required",
+                "review_reason": "Captured payment without tournament admission; manual resolution required.",
+                "created_at": now,
+                "reconciliation_status": "review_required",
+            }, merge=True)
+            raise ValueError("PayPal received your payment but could not grant tournament entry. Your payment is flagged for admin review; do not pay again. Contact support with your PayPal transaction ID.")
         ref.update({"status": "completed", "capture_id": capture_id, "completed_at": now})
         return {"success": True, "capture_id": capture_id, "payment_type": kind}
     payref=db.db().collection("payments").document("paypal_"+capture_id)
