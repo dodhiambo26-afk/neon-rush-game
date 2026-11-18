@@ -471,7 +471,7 @@ async def capacity_tournament_information(update, context, kind):
         "Final standings are reviewed before awards are confirmed. Cash payouts are handled separately and are not automatic."
     )
     buttons = []
-    if status.get("status") in ("waiting", "active") and not capacity_tournaments.has_access(kind, uid):
+    if status.get("status") == "waiting" and not capacity_tournaments.has_access(kind, uid):
         buttons.extend([
             [InlineKeyboardButton("📱 PAY KSh 50 WITH M-PESA", callback_data=f"capacity_mpesa_{kind}")],
             [InlineKeyboardButton("🌍 PAY US$0.80 WITH PAYPAL", callback_data=f"capacity_paypal_{kind}")],
@@ -493,7 +493,7 @@ async def send_capacity_stars_invoice(update, context, kind):
         return
     cfg = capacity_tournaments.TOURNAMENTS[kind]
     status = capacity_tournaments.get_status(kind)
-    if status.get("status") not in ("waiting", "active") or capacity_tournaments.has_access(kind, uid):
+    if status.get("status") != "waiting" or capacity_tournaments.has_access(kind, uid):
         await query.message.reply_text("This tournament is closed or your entry is already confirmed.")
         return
     await context.bot.send_invoice(
@@ -610,7 +610,7 @@ async def request_mpesa_phone(update, context, payment_type="monthly_membership"
     elif payment_type in ("tournament_10k", "tournament_1k"):
         cfg = capacity_tournaments.TOURNAMENTS[payment_type]
         campaign = capacity_tournaments.get_status(payment_type)
-        if campaign.get("status") not in ("waiting", "active"):
+        if campaign.get("status") != "waiting":
             await query.message.reply_text("⛔ This tournament is closed.")
             return
         if capacity_tournaments.has_access(payment_type, uid):
@@ -979,7 +979,7 @@ async def precheckout(
     if query.invoice_payload in ("tournament_10k_50_stars_v1", "tournament_1k_50_stars_v1"):
         kind = query.invoice_payload.replace("_50_stars_v1", "")
         campaign = capacity_tournaments.get_status(kind)
-        if query.total_amount != 50 or campaign.get("status") not in ("waiting", "active"):
+        if query.total_amount != 50 or campaign.get("status") != "waiting":
             await query.answer(ok=False, error_message="This tournament Stars invoice is invalid or closed.")
             return
         if capacity_tournaments.has_access(kind, uid):
