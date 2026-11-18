@@ -476,8 +476,8 @@ async def mega_tournament_information(update, context):
     text = (
         "🏆 NEON RUSH 100K MEGA TOURNAMENT\n\n"
         "Entry: KSh 35 by M-Pesa, US$0.80 by PayPal, or 50 Telegram Stars.\n"
-        f"Total admitted players: {int(campaign.get('total_members', count + int(campaign.get('complimentary_members', 0)))):,} / 100,000\\n"\n        f"Paid entries: {count:,} | Complimentary: {int(campaign.get('complimentary_members', 0)):,}\\n"
-        f"Status: {status}\n"
+        f"Total admitted players: {int(campaign.get('total_members', count + int(campaign.get('complimentary_members', 0)))):,} / 100,000\n"
+        f"Paid entries: {count:,} | Complimentary: {int(campaign.get('complimentary_members', 0)):,}\n"
         "The tournament starts automatically when 100,000 unique players are admitted, including paid and complimentary entries. "
         "Players can continue joining while it is running.\n\n"
         "🏅 FIXED CASH PRIZES\n" + prizes + "\n\n"
@@ -489,6 +489,7 @@ async def mega_tournament_information(update, context):
     if campaign.get("status") != "finished" and not has_access:
         buttons.append([InlineKeyboardButton("📱 PAY KSh 35 WITH M-PESA", callback_data="mega_mpesa")])
         buttons.append([InlineKeyboardButton("🌍 PAY US$0.80 WITH PAYPAL", callback_data="mega_paypal")])\n        buttons.append([InlineKeyboardButton("⭐ PAY 50 TELEGRAM STARS", callback_data="mega_stars")])
+        buttons.append([InlineKeyboardButton("⭐ PAY 50 TELEGRAM STARS", callback_data="mega_stars")])
     elif has_access:
         text += "\n\n✅ Your paid membership is confirmed."
         if campaign.get("status") == "active":
@@ -753,6 +754,9 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data == "mega_paypal":
         await send_paypal_checkout(update, context, "mega_tournament")
 
+    elif query.data == "mega_stars":
+        await send_mega_stars_invoice(update, context)
+
     elif query.data == "weekly_stars":
         await send_weekly_invoice(update, context)
 
@@ -974,7 +978,7 @@ async def successful_payment(
                 await update.message.reply_text("This Stars payment was received but could not be applied automatically. Please contact support and do not pay again.")
                 return
             await update.message.reply_text(
-                "🎉 PAYMENT SUCCESSFUL!\\n\\n"
+                "🎉 PAYMENT SUCCESSFUL!\n\n"
                 "Your 50 Telegram Stars entry to the 100K Mega Tournament is confirmed. "
                 "You are eligible for the same top-five cash prizes as all other admitted players."
             )
