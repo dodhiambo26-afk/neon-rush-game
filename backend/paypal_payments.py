@@ -90,8 +90,8 @@ async def capture_and_grant(order_id):
             member=next(t.get(mr),None); campaign=next(t.get(cr),None)
             if member is None or not member.exists:
                 cd=campaign.to_dict() if campaign is not None and campaign.exists else {}
-                count=int(cd.get("confirmed_members",0))+1; fields={"confirmed_members":count,"updated_at":now}
-                if cd.get("status","waiting")=="waiting" and count>=int(cd.get("target_members",mega_tournament.TARGET)):
+                count=int(cd.get("confirmed_members",0))+1; complimentary=int(cd.get("complimentary_members",0)); total=count+complimentary; fields={"confirmed_members":count,"total_members":total,"updated_at":now}
+                if cd.get("status","waiting")=="waiting" and total>=int(cd.get("target_members",mega_tournament.TARGET)):
                     hours=max(1,min(720,int(cd.get("duration_hours",24)))); fields.update({"status":"active","started_at":now,"ends_at":now+timedelta(hours=hours),"started_automatically":True})
                 t.set(cr,fields,merge=True); t.set(mr,{"telegram_id":str(uid),"payment_id":"paypal_"+capture_id,"amount":p["amount"],"currency":"USD","source":"paypal","paid_at":now,"joined_at":now})
         t.set(payref,{"payment_id":"paypal_"+capture_id,"paypal_order_id":order_id,"paypal_capture_id":capture_id,"telegram_id":uid,"amount":p["amount"],"currency":"USD","payment_type":kind,"period_key":key,"provider":"paypal","created_at":now})
