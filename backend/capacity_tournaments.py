@@ -114,6 +114,20 @@ def release_slot(kind, uid, reason="released"):
     return apply(txn)
 
 
+def reservation_is_valid(kind, uid):
+    _config(kind)
+    snap = _reservation(kind, uid).get()
+    if not snap.exists:
+        return False
+    data = snap.to_dict() or {}
+    expiry = data.get("expires_at")
+    return (
+        data.get("status") == "reserved"
+        and isinstance(expiry, datetime)
+        and expiry > datetime.now(timezone.utc)
+    )
+
+
 def reserve_slot(kind, uid, provider, checkout_id=None, ttl_minutes=30):
     """Atomically hold one place before creating a provider checkout."""
     cfg = _config(kind)
